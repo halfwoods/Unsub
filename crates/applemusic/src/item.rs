@@ -21,8 +21,11 @@ pub struct MusicLibraryItem {
     pub kind: String,
     pub media: MediaType,
     pub ownership: Ownership,
-    /// Set only when a file exists at that path on this computer.
+    /// The path the library records for the file, kept even when the file is gone so it can be
+    /// found again; see `file_present`.
     pub location: Option<PathBuf>,
+    /// Whether a file exists at `location` right now.
+    pub file_present: bool,
     pub play_count: u32,
     /// 0..=100, in steps of 20 per star.
     pub rating: u8,
@@ -50,6 +53,9 @@ pub enum Ownership {
     PurchasedInCloud,
     /// Uploaded or matched to iCloud Music Library, not downloaded here.
     UploadedInCloud,
+    /// The library points at a file on this computer that is not there: moved, deleted, or on a
+    /// volume that is not mounted. The user owns it; the file only has to be found.
+    MissingFile,
     /// Streamed or downloaded through an Apple Music subscription; not owned.
     Subscription,
     Unknown,

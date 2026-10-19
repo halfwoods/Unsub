@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,6 +55,8 @@ impl CollectionState {
 enum OwnStatus {
     InLibrary,
     Import,
+    /// You own it, but the file the Music library points to isn't on this computer.
+    Locate,
     Redownload,
     Buy,
     Unknown,
@@ -89,9 +91,20 @@ struct Totals {
     songs: usize,
     in_library: usize,
     import: usize,
+    locate: usize,
     redownload: usize,
     buy: usize,
     unknown: usize,
+}
+
+/// Where a batch of missing files was supposed to be, so the UI can say "connect EXTERNALNEW".
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MissingRoot {
+    root: String,
+    count: usize,
+    /// True for a drive that's plugged in again or a folder that exists, i.e. worth a rescan.
+    available: bool,
 }
 
 #[derive(Serialize)]
@@ -100,7 +113,14 @@ pub struct OwnershipReport {
     source: String,
     loaded_at: i64,
     totals: Totals,
+    missing_roots: Vec<MissingRoot>,
     albums: Vec<AlbumGroup>,
+}
+
+/// Files come and go (drives get plugged in), so presence is checked now rather than trusted
+/// from the snapshot.
+fn file_here(item: &MusicLibraryItem) -> bool {
+    item.location.as_deref().is_some_and(Path::exists)
 }
 
 fn status_of(item: &MusicLibraryItem, matched: bool) -> OwnStatus {
@@ -108,11 +128,23 @@ fn status_of(item: &MusicLibraryItem, matched: bool) -> OwnStatus {
         return OwnStatus::InLibrary;
     }
     match item.ownership {
-        Ownership::LocalFile => OwnStatus::Import,
+        Ownership::LocalFile | Ownership::MissingFile if file_here(item) => OwnStatus::Import,
+        Ownership::LocalFile | Ownership::MissingFile => OwnStatus::Locate,
         Ownership::PurchasedInCloud | Ownership::UploadedInCloud => OwnStatus::Redownload,
         Ownership::Subscription => OwnStatus::Buy,
         Ownership::Unknown => OwnStatus::Unknown,
     }
+}
+
+/// Groups a missing file under the drive or folder it lived in: a whole volume, or the first few
+/// folders of a path, which is where libraries keep their media.
+fn root_of(path: &Path) -> PathBuf {
+    let parts: Vec<Component> = path.components().collect();
+    let depth = match parts.get(1) {
+        Some(Component::Normal(first)) if *first == "Volumes" => 3,
+        _ => 6,
+    };
+    parts.iter().take(depth.min(parts.len().saturating_sub(1))).collect()
 }
 
 /// Only songs and audiobooks are things you'd buy to own here; video and podcasts aren't.
@@ -140,6 +172,7 @@ fn build_report(snapshot: &Snapshot, library: &LibraryState) -> CommandResult<Ow
     let matches = library.queries().match_external(&externals)?;
 
     let mut totals = Totals { songs: items.len(), ..Totals::default() };
+    let mut missing: BTreeMap<PathBuf, usize> = BTreeMap::new();
     // Case-insensitive album keys so "The Wall" and "the wall" land together.
     let mut albums: BTreeMap<(String, String), AlbumGroup> = BTreeMap::new();
     for (item, found) in items.into_iter().zip(matches) {
@@ -147,6 +180,12 @@ fn build_report(snapshot: &Snapshot, library: &LibraryState) -> CommandResult<Ow
         match status {
             OwnStatus::InLibrary => totals.in_library += 1,
             OwnStatus::Import => totals.import += 1,
+            OwnStatus::Locate => {
+                totals.locate += 1;
+                if let Some(location) = &item.location {
+                    *missing.entry(root_of(location)).or_default() += 1;
+                }
+            }
             OwnStatus::Redownload => totals.redownload += 1,
             OwnStatus::Buy => totals.buy += 1,
             OwnStatus::Unknown => totals.unknown += 1,
@@ -178,7 +217,12 @@ fn build_report(snapshot: &Snapshot, library: &LibraryState) -> CommandResult<Ow
             group
         })
         .collect();
-    Ok(OwnershipReport { source: snapshot.source.clone(), loaded_at: snapshot.loaded_at, totals, albums })
+    let mut missing_roots: Vec<MissingRoot> = missing
+        .into_iter()
+        .map(|(root, count)| MissingRoot { available: root.exists(), root: root.to_string_lossy().into_owned(), count })
+        .collect();
+    missing_roots.sort_by(|a, b| b.count.cmp(&a.count));
+    Ok(OwnershipReport { source: snapshot.source.clone(), loaded_at: snapshot.loaded_at, totals, missing_roots, albums })
 }
 
 #[tauri::command]
@@ -233,6 +277,18 @@ pub fn collection_load_xml(app: AppHandle) {
                 finish_load(&handle, "Library XML", result);
             });
         });
+}
+
+/// Imports a folder the user points at, e.g. the drive or backup where missing files went.
+/// Matching then marks those songs as in the library, whatever their paths are now.
+#[tauri::command]
+pub fn collection_locate_folder(app: AppHandle) {
+    let handle = app.clone();
+    app.dialog().file().set_title("Locate Your Music").pick_folder(move |folder| {
+        if let Some(path) = folder.and_then(|f| f.into_path().ok()) {
+            library::add_paths(&handle, vec![path]);
+        }
+    });
 }
 
 /// Adds every owned file the Music app has that AntiStreaming doesn't, in one import.

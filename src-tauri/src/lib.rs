@@ -55,6 +55,7 @@ pub fn run() {
             collection::collection_load_music_app,
             collection::collection_load_xml,
             collection::collection_import_owned,
+            collection::collection_locate_folder,
             playback::player_play_list,
             playback::player_toggle_pause,
             playback::player_next,

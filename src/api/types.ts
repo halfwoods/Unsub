@@ -137,7 +137,7 @@ export type DeviceView = { kind: MediaKind } | { playlistId: string };
 
 export type PlaySource = { type: "library" } | { type: "device"; deviceId: string };
 
-export type OwnStatus = "inLibrary" | "import" | "redownload" | "buy" | "unknown";
+export type OwnStatus = "inLibrary" | "import" | "locate" | "redownload" | "buy" | "unknown";
 
 export interface ReportTrack {
   persistentId: string;
@@ -161,6 +161,27 @@ export interface AlbumGroup {
 export interface OwnershipReport {
   source: string;
   loadedAt: number;
-  totals: { songs: number; inLibrary: number; import: number; redownload: number; buy: number; unknown: number };
+  totals: { songs: number; inLibrary: number; import: number; locate: number; redownload: number; buy: number; unknown: number };
+  missingRoots: { root: string; count: number; available: boolean }[];
   albums: AlbumGroup[];
+}
+
+export interface AlbumSummary {
+  key: string;
+  album: string;
+  albumArtist: string;
+  year: number | null;
+  genre: string;
+  trackCount: number;
+  durationMs: number;
+  artworkTrackId: number;
+  dateAdded: number;
+  compilation: boolean;
+}
+
+export interface ArtistSummary {
+  key: string;
+  name: string;
+  albumCount: number;
+  trackCount: number;
 }

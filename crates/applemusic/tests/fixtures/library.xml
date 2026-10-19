@@ -231,6 +231,36 @@
 			<key>Persistent ID</key><string>A1B2C3D4E5F60714</string>
 			<key>Track Type</key><string>Remote</string>
 		</dict>
+		<key>122</key>
+		<dict>
+			<key>Track ID</key><integer>122</integer>
+			<key>Name</key><string>Unmounted Volume</string>
+			<key>Artist</key><string>Nobody</string>
+			<key>Kind</key><string>MPEG audio file</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60715</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost/Volumes/EXTERNALNEW/Music/Unmounted%20Volume.mp3</string>
+		</dict>
+		<key>123</key>
+		<dict>
+			<key>Track ID</key><integer>123</integer>
+			<key>Name</key><string>Purchased By Kind</string>
+			<key>Artist</key><string>Nobody</string>
+			<key>Kind</key><string>Purchased AAC audio file</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60716</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Missing/Purchased%20By%20Kind.m4a</string>
+		</dict>
+		<key>124</key>
+		<dict>
+			<key>Track ID</key><integer>124</integer>
+			<key>Name</key><string>Purchased By Kind, Downloaded</string>
+			<key>Artist</key><string>Nobody</string>
+			<key>Kind</key><string>Purchased AAC audio file</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60717</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Bought/Purchased%20By%20Kind.m4a</string>
+		</dict>
 		<key>121</key>
 		<dict>
 			<key>Track ID</key><integer>121</integer>

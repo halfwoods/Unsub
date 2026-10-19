@@ -15,6 +15,7 @@ const MEDIA_FILES: &[&str] = &[
     "Podcasts/Radiolab/Episode 12.mp3",
     "Videos/Take On Me.m4v",
     "Audiobooks/Dune/01.m4b",
+    "Bought/Purchased By Kind.m4a",
 ];
 
 const KEEP_SLASHES: &AsciiSet = &NON_ALPHANUMERIC.remove(b'/');
@@ -86,9 +87,9 @@ fn classifies_every_ownership_path() {
         ("06", UploadedInCloud, "matched, not downloaded"),
         ("07", Subscription, "Apple Music, streamed"),
         ("08", Subscription, "Apple Music, downloaded"),
-        ("09", Unknown, "file missing, no cloud flags"),
+        ("09", MissingFile, "file missing, no cloud flags"),
         ("0A", UploadedInCloud, "matched, file missing"),
-        ("0B", Unknown, "Windows path on this machine"),
+        ("0B", MissingFile, "Windows path on this machine"),
         ("0C", LocalFile, "podcast file"),
         ("0D", Unknown, "podcast stream"),
         ("0E", LocalFile, "music video file"),
@@ -98,6 +99,13 @@ fn classifies_every_ownership_path() {
         ("12", Unknown, "bare entry"),
         ("13", Unknown, "protected, not purchased, not Apple Music"),
         ("14", Subscription, "Apple Music by kind only"),
+        ("15", MissingFile, "unmounted volume"),
+        (
+            "16",
+            PurchasedInCloud,
+            "purchased by kind only, file missing",
+        ),
+        ("17", LocalFile, "purchased by kind only, downloaded"),
     ];
     for (suffix, ownership, case) in expected {
         assert_eq!(staged.item(&id(suffix)).ownership, ownership, "{case}");
@@ -125,6 +133,7 @@ fn reads_every_field_of_a_full_entry() {
             media: MediaType::Music,
             ownership: Ownership::LocalFile,
             location: Some(staged.media.join("Radiohead/OK Computer/01 Airbag.mp3")),
+            file_present: true,
             play_count: 12,
             rating: 80,
             date_added: Some(1_552_314_125),
@@ -152,6 +161,7 @@ fn fills_defaults_for_missing_optional_keys() {
             media: MediaType::Music,
             ownership: Ownership::Unknown,
             location: None,
+            file_present: false,
             play_count: 0,
             rating: 0,
             date_added: None,
@@ -173,14 +183,56 @@ fn decodes_percent_encoded_paths_with_spaces_and_non_ascii() {
 }
 
 #[test]
-fn location_is_only_set_for_files_that_exist_here() {
+fn location_keeps_the_recorded_path_when_the_file_is_gone() {
     let staged = Staged::new();
-    // Missing file, a Windows drive path (absent on this machine) and a non-file URL.
-    for suffix in ["09", "0A", "0B", "0D"] {
-        assert_eq!(staged.item(&id(suffix)).location, None, "{suffix}");
+    let missing = staged.item(&id("09"));
+    assert_eq!(
+        missing.location,
+        Some(staged.media.join("Missing/Gone.mp3"))
+    );
+    assert!(!missing.file_present);
+
+    let unmounted = staged.item(&id("15"));
+    assert_eq!(
+        unmounted.location,
+        Some(PathBuf::from(
+            "/Volumes/EXTERNALNEW/Music/Unmounted Volume.mp3"
+        ))
+    );
+    assert!(!unmounted.file_present);
+
+    // A Windows drive path is recorded as written, though it cannot exist on this machine.
+    let windows = staged.item(&id("0B"));
+    assert_eq!(
+        windows.location,
+        Some(PathBuf::from(
+            "C:/Users/riley/Music/iTunes/iTunes Media/Music/Nirvana/Nevermind/01 Smells Like Teen Spirit.mp3"
+        ))
+    );
+    assert!(!windows.file_present);
+}
+
+#[test]
+fn file_present_follows_the_disk() {
+    let staged = Staged::new();
+    // A subscription download is present even though it is not owned.
+    for suffix in ["01", "02", "08", "0C", "17"] {
+        assert!(staged.item(&id(suffix)).file_present, "{suffix}");
     }
-    // A subscription download keeps its location even though it is not owned.
-    assert!(staged.item(&id("08")).location.is_some());
+    for suffix in ["04", "09", "0A", "0B", "16"] {
+        assert!(!staged.item(&id(suffix)).file_present, "{suffix}");
+    }
+}
+
+#[test]
+fn entries_without_a_file_url_have_no_location() {
+    let staged = Staged::new();
+    // A podcast stream, a bare entry and a TV show with no Location at all.
+    for suffix in ["0D", "10", "12"] {
+        let item = staged.item(&id(suffix));
+        assert_eq!(item.location, None, "{suffix}");
+        assert!(!item.file_present, "{suffix}");
+    }
 }
 
 #[test]
@@ -234,6 +286,10 @@ fn serializes_with_camel_case_keys() {
     assert_eq!(json["media"], "music");
     assert_eq!(json["albumArtist"], "");
     assert_eq!(json["durationMs"], serde_json::Value::Null);
+    assert_eq!(json["filePresent"], false);
+
+    let json = serde_json::to_value(staged.item(&id("09"))).unwrap();
+    assert_eq!(json["ownership"], "missingFile");
 }
 
 #[test]

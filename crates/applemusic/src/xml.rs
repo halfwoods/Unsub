@@ -93,18 +93,16 @@ impl Track {
     fn into_item(self) -> Option<MusicLibraryItem> {
         // Uppercased to match the format the system library reports.
         let persistent_id = self.persistent_id?.to_ascii_uppercase();
-        let location = self
-            .location
-            .as_deref()
-            .and_then(file_url_to_path)
-            .filter(|path| path.is_file());
+        let location = self.location.as_deref().and_then(file_url_to_path);
+        let file_present = location.as_ref().is_some_and(|path| path.is_file());
         let ownership = classify(&Evidence {
             kind: &self.kind,
             apple_music: self.apple_music,
             purchased: self.purchased,
             drm_protected: self.protected,
             in_cloud: self.matched || self.track_type.as_deref() == Some("Remote"),
-            has_local_file: location.is_some(),
+            file_recorded: location.is_some() && self.track_type.as_deref() == Some("File"),
+            file_present,
         });
         let media = if self.podcast {
             MediaType::Podcast
@@ -130,6 +128,7 @@ impl Track {
             media,
             ownership,
             location,
+            file_present,
             play_count: self.play_count,
             rating: self.rating,
             date_added: self.date_added.map(unix_seconds),

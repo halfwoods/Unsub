@@ -27,6 +27,7 @@ const MEDIA_KIND_AUDIOBOOK: usize = 5;
 const MEDIA_KIND_MUSIC_VIDEO: usize = 7;
 const MEDIA_KIND_TV_SHOW: usize = 8;
 const MEDIA_KIND_HOME_VIDEO: usize = 12;
+const LOCATION_TYPE_FILE: usize = 1;
 const LOCATION_TYPE_REMOTE: usize = 3;
 
 extern_class!(
@@ -183,8 +184,8 @@ fn to_item(item: &ITLibMediaItem) -> MusicLibraryItem {
         .location()
         .filter(|url| url.isFileURL())
         .and_then(|url| url.path())
-        .map(|path| PathBuf::from(path.to_string()))
-        .filter(|path| path.is_file());
+        .map(|path| PathBuf::from(path.to_string()));
+    let file_present = location.as_ref().is_some_and(|path| path.is_file());
     let ownership = classify(&Evidence {
         kind: &kind,
         // The framework has no Apple Music flag; only the kind prefix identifies subscription items.
@@ -192,7 +193,8 @@ fn to_item(item: &ITLibMediaItem) -> MusicLibraryItem {
         purchased: item.is_purchased(),
         drm_protected: item.is_drm_protected(),
         in_cloud: item.is_cloud() || item.location_type() == LOCATION_TYPE_REMOTE,
-        has_local_file: location.is_some(),
+        file_recorded: location.is_some() && item.location_type() == LOCATION_TYPE_FILE,
+        file_present,
     });
     MusicLibraryItem {
         persistent_id: format!("{:016X}", item.persistent_id().as_u64()),
@@ -209,6 +211,7 @@ fn to_item(item: &ITLibMediaItem) -> MusicLibraryItem {
         media: media_type(item.media_kind()),
         ownership,
         location,
+        file_present,
         play_count: u32::try_from(item.play_count()).unwrap_or(u32::MAX),
         rating: item.rating().clamp(0, 100) as u8,
         date_added: item

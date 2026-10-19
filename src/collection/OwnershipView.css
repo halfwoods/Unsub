@@ -231,3 +231,47 @@
 .ownership-status--unknown {
   color: #8a8a8a;
 }
+
+.ownership-status--locate {
+  color: #a26a00;
+}
+
+/* Same striped busy bar as the LCD while it imports. */
+.ownership-busy {
+  height: 9px;
+  margin: 14px auto;
+  max-width: 240px;
+  border-radius: 5px;
+  border: 1px solid #9a9a9a;
+  background:
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.16) 0 5px, transparent 5px 10px),
+    linear-gradient(to bottom, #e9e9e9, #cfcfcf);
+  background-size: 14px 100%, 100% 100%;
+  animation: ownership-busy 600ms linear infinite;
+}
+
+@keyframes ownership-busy {
+  to {
+    background-position: 14px 0, 0 0;
+  }
+}
+
+.ownership-missing,
+.ownership-hint {
+  flex: none;
+  padding: 10px 16px;
+  font-size: var(--font-size);
+  line-height: 16px;
+  border-bottom: 1px solid #e0d6b8;
+  background: #fffbea;
+  color: #4a4130;
+}
+
+.ownership-missing p {
+  margin: 0 0 4px;
+}
+
+.ownership-missing ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}

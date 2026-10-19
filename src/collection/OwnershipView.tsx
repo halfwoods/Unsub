@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collectionImportOwned,
   collectionLoadMusicApp,
+  collectionLocateFolder,
   collectionLoadXml,
   collectionReport,
   onCollectionChanged,
@@ -18,6 +19,7 @@ type Filter = OwnStatus | "all";
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "buy", label: "To Buy" },
   { id: "import", label: "To Import" },
+  { id: "locate", label: "Missing" },
   { id: "redownload", label: "Re-download" },
   { id: "inLibrary", label: "In Library" },
   { id: "all", label: "All" },
@@ -26,6 +28,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 const STATUS_LABEL: Record<OwnStatus, string> = {
   inLibrary: "In Library",
   import: "Owned file",
+  locate: "File missing",
   redownload: "Owned in iCloud",
   buy: "Streaming only",
   unknown: "Unknown",
@@ -44,7 +47,46 @@ const HEADER_HEIGHT = 30;
 
 type Row = { type: "album"; album: AlbumGroup; count: number } | { type: "track"; track: ReportTrack; album: AlbumGroup };
 
-function Intro({ error, onLoadXml }: { error: string | null; onLoadXml: () => void }) {
+function Reading() {
+  return (
+    <div className="placard">
+      <div className="placard-card ownership-intro">
+        <h1>Reading Your Music Library…</h1>
+        <div className="ownership-busy" />
+        <p>Big libraries take a little while. Nothing in your Music library is changed.</p>
+      </div>
+    </div>
+  );
+}
+
+/** Missing files are yours: say where they were and let the user point us at them. */
+function MissingFiles({ report }: { report: OwnershipReport }) {
+  if (report.totals.locate === 0) return null;
+  const home = report.missingRoots.find((r) => r.root.startsWith("/Users/"))?.root.split("/").slice(0, 3).join("/");
+  const label = (root: string) =>
+    root.startsWith("/Volumes/") ? `the drive “${root.slice("/Volumes/".length)}”` : home && root.startsWith(home) ? `~${root.slice(home.length)}` : root;
+  return (
+    <div className="ownership-missing">
+      <p>
+        <strong>{pluralize(report.totals.locate, "song you own has", "songs you own have")} no file on this Mac.</strong> Your
+        Music library remembers where they were:
+      </p>
+      <ul>
+        {report.missingRoots.slice(0, 4).map((r) => (
+          <li key={r.root}>
+            {r.count.toLocaleString()} in {label(r.root)}
+            {r.available ? " (available now: Import picks them up)" : r.root.startsWith("/Volumes/") ? " (connect it, then Refresh)" : ""}
+          </li>
+        ))}
+      </ul>
+      <button className="push-button" onClick={() => void collectionLocateFolder()}>
+        Locate Folder…
+      </button>
+    </div>
+  );
+}
+
+function Intro({ error, onLoadXml, onLoadMusic }: { error: string | null; onLoadXml: () => void; onLoadMusic: () => void }) {
   return (
     <div className="placard">
       <div className="placard-card ownership-intro">
@@ -55,7 +97,7 @@ function Intro({ error, onLoadXml }: { error: string | null; onLoadXml: () => vo
         </p>
         <div className="ownership-intro-actions">
           {IS_MAC && (
-            <button className="push-button" onClick={() => void collectionLoadMusicApp()}>
+            <button className="push-button" onClick={onLoadMusic}>
               Compare with Music Library
             </button>
           )}
@@ -76,10 +118,11 @@ function Intro({ error, onLoadXml }: { error: string | null; onLoadXml: () => vo
 
 function Progress({ report }: { report: OwnershipReport }) {
   const { songs, inLibrary, import: toImport, redownload, buy, unknown } = report.totals;
-  const owned = inLibrary + toImport + redownload;
+  const { locate } = report.totals;
+  const owned = inLibrary + toImport + locate + redownload;
   const parts = [
     { key: "in-library", value: inLibrary, label: "In AntiStreaming" },
-    { key: "owned", value: toImport + redownload, label: "Owned elsewhere" },
+    { key: "owned", value: toImport + locate + redownload, label: "Owned elsewhere" },
     { key: "buy", value: buy, label: "Streaming only" },
     { key: "unknown", value: unknown, label: "Unknown" },
   ];
@@ -111,6 +154,7 @@ export function OwnershipView() {
   const [report, setReport] = useState<OwnershipReport | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("buy");
+  const [reading, setReading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -118,6 +162,7 @@ export function OwnershipView() {
     refresh();
     const subscriptions = [
       onCollectionChanged((message) => {
+        setReading(false);
         setError(message);
         refresh();
       }),
@@ -150,13 +195,20 @@ export function OwnershipView() {
     setError(null);
     void collectionLoadXml();
   };
+  const loadMusic = () => {
+    setError(null);
+    setReading(true);
+    void collectionLoadMusicApp();
+  };
 
+  if (reading) return <Reading />;
   if (report === undefined) return <div className="ownership" />;
-  if (report === null) return <Intro error={error} onLoadXml={loadXml} />;
+  if (report === null) return <Intro error={error} onLoadXml={loadXml} onLoadMusic={loadMusic} />;
 
   const counts: Record<Filter, number> = {
     buy: report.totals.buy,
     import: report.totals.import,
+    locate: report.totals.locate,
     redownload: report.totals.redownload,
     inLibrary: report.totals.inLibrary,
     unknown: report.totals.unknown,
@@ -176,13 +228,20 @@ export function OwnershipView() {
           <button
             className="push-button"
             title={`Read ${new Date(report.loadedAt * 1000).toLocaleString()} from ${report.source}`}
-            onClick={() => (report.source === "Music" ? void collectionLoadMusicApp() : loadXml())}
+            onClick={() => (report.source === "Music" ? loadMusic() : loadXml())}
           >
             Refresh
           </button>
         </div>
       </header>
       {error && <div className="ownership-error-bar">{error}</div>}
+      {filter === "locate" && <MissingFiles report={report} />}
+      {filter === "buy" && report.totals.buy === 0 && (
+        <div className="ownership-hint">
+          No Apple Music catalog songs found. Songs you add from Apple Music only reach this list when Music › Settings ›
+          General › Sync Library is on.
+        </div>
+      )}
       <div className="pill-tabs" role="tablist">
         {FILTERS.map((f) => (
           <button key={f.id} role="tab" aria-selected={filter === f.id} className="pill-tab" onClick={() => setFilter(f.id)}>

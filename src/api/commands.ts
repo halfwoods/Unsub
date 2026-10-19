@@ -1,6 +1,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AlbumSummary,
+  ArtistSummary,
   Device,
   DeviceView,
   LibraryStats,
@@ -15,6 +17,9 @@ import type {
 } from "./types";
 
 export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tracks", { query });
+export const libraryAlbums = (query: TrackQuery) => invoke<AlbumSummary[]>("library_albums", { query });
+export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("library_artists", { query });
+export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
 export const libraryTrack = (trackId: number) => invoke<Track | null>("library_track", { trackId });
 export const libraryStats = (query: TrackQuery) => invoke<LibraryStats>("library_stats", { query });
 export const libraryAddPaths = (paths: string[]) => invoke<void>("library_add_paths", { paths });
@@ -55,6 +60,7 @@ export const collectionReport = () => invoke<OwnershipReport | null>("collection
 export const collectionLoadMusicApp = () => invoke<void>("collection_load_music_app");
 export const collectionLoadXml = () => invoke<void>("collection_load_xml");
 export const collectionImportOwned = () => invoke<number>("collection_import_owned");
+export const collectionLocateFolder = () => invoke<void>("collection_locate_folder");
 /** Carries an error message when reading the other library failed, else null. */
 export const onCollectionChanged = (handler: (error: string | null) => void): Promise<UnlistenFn> =>
   listen<string | null>("collection://changed", (e) => handler(e.payload));
