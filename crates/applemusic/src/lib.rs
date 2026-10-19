@@ -11,7 +11,7 @@ mod macos;
 mod xml;
 
 pub use error::{Error, Result};
-pub use item::{MediaType, MusicLibraryItem, Ownership};
+pub use item::{MediaType, MusicLibrary, MusicLibraryItem, MusicPlaylist, Ownership, PlaylistKind};
 #[cfg(target_os = "macos")]
-pub use macos::read_system_library;
-pub use xml::read_xml;
+pub use macos::{read_system_library, read_system_music_library};
+pub use xml::{read_xml, read_xml_library};

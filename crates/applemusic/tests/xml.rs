@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_applemusic::{Error, MediaType, MusicLibraryItem, Ownership, read_xml};
+use antistreaming_applemusic::{
+    Error, MediaType, MusicLibrary, MusicLibraryItem, MusicPlaylist, Ownership, PlaylistKind,
+    read_xml, read_xml_library,
+};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use tempfile::TempDir;
 
@@ -31,7 +34,8 @@ fn fixture(name: &str) -> PathBuf {
 struct Staged {
     _dir: TempDir,
     media: PathBuf,
-    items: Vec<MusicLibraryItem>,
+    export: PathBuf,
+    library: MusicLibrary,
 }
 
 impl Staged {
@@ -54,16 +58,26 @@ impl Staged {
         let template = fs::read_to_string(fixture("library.xml")).unwrap();
         fs::write(&export, template.replace("@MEDIA@", &encoded)).unwrap();
 
-        let items = read_xml(&export).unwrap();
+        let library = read_xml_library(&export).unwrap();
         Self {
             _dir: dir,
             media,
-            items,
+            export,
+            library,
         }
     }
 
+    fn playlist(&self, name: &str) -> &MusicPlaylist {
+        self.library
+            .playlists
+            .iter()
+            .find(|playlist| playlist.name == name)
+            .unwrap_or_else(|| panic!("no playlist {name}"))
+    }
+
     fn item(&self, persistent_id: &str) -> &MusicLibraryItem {
-        self.items
+        self.library
+            .items
             .iter()
             .find(|item| item.persistent_id == persistent_id)
             .unwrap_or_else(|| panic!("no item {persistent_id}"))
@@ -110,7 +124,7 @@ fn classifies_every_ownership_path() {
     for (suffix, ownership, case) in expected {
         assert_eq!(staged.item(&id(suffix)).ownership, ownership, "{case}");
     }
-    assert_eq!(staged.items.len(), expected.len());
+    assert_eq!(staged.library.items.len(), expected.len());
 }
 
 #[test]
@@ -135,8 +149,12 @@ fn reads_every_field_of_a_full_entry() {
             location: Some(staged.media.join("Radiohead/OK Computer/01 Airbag.mp3")),
             file_present: true,
             play_count: 12,
+            skip_count: 3,
             rating: 80,
             date_added: Some(1_552_314_125),
+            last_played: Some(1_683_356_889),
+            last_skipped: Some(1_641_092_645),
+            enabled: true,
         }
     );
 }
@@ -163,8 +181,12 @@ fn fills_defaults_for_missing_optional_keys() {
             location: None,
             file_present: false,
             play_count: 0,
+            skip_count: 0,
             rating: 0,
             date_added: None,
+            last_played: None,
+            last_skipped: None,
+            enabled: true,
         }
     );
 }
@@ -259,6 +281,7 @@ fn uppercases_persistent_ids_and_skips_entries_without_one() {
     assert_eq!(staged.item(&id("09")).title, "Gone");
     assert!(
         staged
+            .library
             .items
             .iter()
             .all(|item| item.title != "No Persistent ID")
@@ -270,6 +293,7 @@ fn keeps_the_order_of_the_export() {
     let staged = Staged::new();
     // The fixture lists tracks in ascending persistent-ID order.
     let ids: Vec<_> = staged
+        .library
         .items
         .iter()
         .map(|item| &item.persistent_id)
@@ -287,23 +311,138 @@ fn serializes_with_camel_case_keys() {
     assert_eq!(json["albumArtist"], "");
     assert_eq!(json["durationMs"], serde_json::Value::Null);
     assert_eq!(json["filePresent"], false);
+    assert_eq!(json["skipCount"], 0);
+    assert_eq!(json["lastPlayed"], serde_json::Value::Null);
+    assert_eq!(json["lastSkipped"], serde_json::Value::Null);
+    assert_eq!(json["enabled"], true);
 
     let json = serde_json::to_value(staged.item(&id("09"))).unwrap();
     assert_eq!(json["ownership"], "missingFile");
+
+    let json = serde_json::to_value(staged.playlist("Highway")).unwrap();
+    assert_eq!(json["persistentId"], "B1B2C3D4E5F60811");
+    assert_eq!(json["parentPersistentId"], "B1B2C3D4E5F60810");
+    assert_eq!(json["kind"], "regular");
+    assert_eq!(json["itemIds"][0], id("01"));
+    for (name, kind) in [("Never Played", "smart"), ("Road Trips", "folder")] {
+        let json = serde_json::to_value(staged.playlist(name)).unwrap();
+        assert_eq!(json["kind"], kind, "{name}");
+    }
 }
 
 #[test]
 fn round_trips_through_json() {
     let staged = Staged::new();
     // Every ownership and media variant the fixture produces, with and without optional fields.
-    let json = serde_json::to_string(&staged.items).unwrap();
-    let restored: Vec<MusicLibraryItem> = serde_json::from_str(&json).unwrap();
-    assert_eq!(restored, staged.items);
+    let json = serde_json::to_string(&staged.library).unwrap();
+    let restored: MusicLibrary = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, staged.library);
+}
+
+#[test]
+fn reads_the_enabled_checkbox() {
+    let staged = Staged::new();
+    assert!(!staged.item(&id("02")).enabled);
+    assert!(staged.item(&id("01")).enabled);
+}
+
+#[test]
+fn leaves_out_the_master_system_and_hidden_playlists() {
+    let staged = Staged::new();
+    let names: Vec<_> = staged
+        .library
+        .playlists
+        .iter()
+        .map(|playlist| playlist.name.as_str())
+        .collect();
+    // In file order. Dropped: Library (master), Music, Purchased and Recently Added
+    // (distinguished), Hidden Internal and Hidden Folder (not visible), and the entry with no
+    // persistent ID.
+    assert_eq!(
+        names,
+        [
+            "Orphaned Child",
+            "Road Trips",
+            "Highway",
+            "Moods",
+            "Chill",
+            "Rainy Day",
+            "Never Played",
+            "Top Level"
+        ]
+    );
+}
+
+#[test]
+fn nests_playlists_through_folders() {
+    let staged = Staged::new();
+    let parent = |name| staged.playlist(name).parent_persistent_id.as_deref();
+    assert_eq!(parent("Road Trips"), None);
+    assert_eq!(parent("Highway"), Some("B1B2C3D4E5F60810"));
+    assert_eq!(parent("Moods"), None);
+    assert_eq!(parent("Chill"), Some("B1B2C3D4E5F60820"));
+    assert_eq!(parent("Rainy Day"), Some("B1B2C3D4E5F60821"));
+    for folder in ["Road Trips", "Moods", "Chill"] {
+        assert_eq!(
+            staged.playlist(folder).kind,
+            PlaylistKind::Folder,
+            "{folder}"
+        );
+        assert!(staged.playlist(folder).item_ids.is_empty(), "{folder}");
+    }
+}
+
+#[test]
+fn moves_a_playlist_whose_parent_was_dropped_to_the_top_level() {
+    let staged = Staged::new();
+    let orphan = staged.playlist("Orphaned Child");
+    assert_eq!(orphan.parent_persistent_id, None);
+    assert_eq!(orphan.item_ids, [id("04")]);
+}
+
+#[test]
+fn lists_playlist_songs_by_persistent_id_in_order() {
+    let staged = Staged::new();
+    // A repeated song stays repeated.
+    assert_eq!(
+        staged.playlist("Highway").item_ids,
+        [id("01"), id("02"), id("01")]
+    );
+    // Track 999 is not in the export and track 121 has no persistent ID, so neither can be named.
+    assert_eq!(staged.playlist("Rainy Day").item_ids, [id("05")]);
+    assert!(staged.playlist("Top Level").item_ids.is_empty());
+}
+
+#[test]
+fn keeps_only_the_current_members_of_smart_playlists() {
+    let staged = Staged::new();
+    let smart = staged.playlist("Never Played");
+    assert_eq!(smart.kind, PlaylistKind::Smart);
+    assert_eq!(smart.item_ids, [id("01"), id("04")]);
+    assert_eq!(staged.playlist("Highway").kind, PlaylistKind::Regular);
+}
+
+#[test]
+fn uppercases_playlist_persistent_ids() {
+    let staged = Staged::new();
+    // Stored as lowercase hex in the fixture.
+    assert_eq!(
+        staged.playlist("Top Level").persistent_id,
+        "B1B2C3D4E5F60840"
+    );
+}
+
+#[test]
+fn read_xml_returns_the_songs_of_the_library() {
+    let staged = Staged::new();
+    assert_eq!(read_xml(&staged.export).unwrap(), staged.library.items);
 }
 
 #[test]
 fn export_without_tracks_is_empty() {
-    assert!(read_xml(&fixture("no-tracks.xml")).unwrap().is_empty());
+    let library = read_xml_library(&fixture("no-tracks.xml")).unwrap();
+    assert!(library.items.is_empty());
+    assert!(library.playlists.is_empty());
 }
 
 #[test]

@@ -27,6 +27,10 @@
 			<key>Year</key><integer>1997</integer>
 			<key>Date Added</key><date>2019-03-11T14:22:05Z</date>
 			<key>Play Count</key><integer>12</integer>
+			<key>Play Date</key><integer>3785000000</integer>
+			<key>Play Date UTC</key><date>2023-05-06T07:08:09Z</date>
+			<key>Skip Count</key><integer>3</integer>
+			<key>Skip Date</key><date>2022-01-02T03:04:05Z</date>
 			<key>Rating</key><integer>80</integer>
 			<key>Artwork Count</key><integer>1</integer>
 			<key>Persistent ID</key><string>A1B2C3D4E5F60701</string>
@@ -41,6 +45,7 @@
 			<key>Album</key><string>Homogenic</string>
 			<key>Kind</key><string>Purchased AAC audio file</string>
 			<key>Purchased</key><true/>
+			<key>Disabled</key><true/>
 			<key>Persistent ID</key><string>A1B2C3D4E5F60702</string>
 			<key>Track Type</key><string>File</string>
 			<key>Location</key><string>file://localhost@MEDIA@/Bj%C3%B6rk/Homogenic/01%20Hunter.m4a</string>
@@ -272,12 +277,149 @@
 	<array>
 		<dict>
 			<key>Name</key><string>Library</string>
-			<key>Playlist ID</key><integer>900</integer>
 			<key>Master</key><true/>
+			<key>Playlist ID</key><integer>900</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60800</string>
+			<key>Visible</key><true/>
+			<key>All Items</key><true/>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+				<dict><key>Track ID</key><integer>102</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Music</string>
+			<key>Playlist ID</key><integer>901</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60801</string>
+			<key>Distinguished Kind</key><integer>4</integer>
+			<key>Music</key><true/>
+			<key>All Items</key><true/>
 			<key>Playlist Items</key>
 			<array>
 				<dict><key>Track ID</key><integer>101</integer></dict>
 			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Purchased</string>
+			<key>Playlist ID</key><integer>902</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60802</string>
+			<key>Distinguished Kind</key><integer>19</integer>
+			<key>Purchased Music</key><true/>
+			<key>All Items</key><true/>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>102</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Recently Added</string>
+			<key>Playlist ID</key><integer>903</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60803</string>
+			<key>Distinguished Kind</key><integer>46</integer>
+			<key>All Items</key><true/>
+			<key>Smart Info</key>
+			<data>AQEBAAAAAAAAAAAA</data>
+			<key>Smart Criteria</key>
+			<data>U0xzdAABAAEAAAAA</data>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Hidden Internal</string>
+			<key>Playlist ID</key><integer>904</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60804</string>
+			<key>Visible</key><false/>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Hidden Folder</string>
+			<key>Playlist ID</key><integer>905</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60805</string>
+			<key>Visible</key><false/>
+			<key>Folder</key><true/>
+		</dict>
+		<dict>
+			<key>Name</key><string>Orphaned Child</string>
+			<key>Playlist ID</key><integer>906</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60806</string>
+			<key>Parent Persistent ID</key><string>B1B2C3D4E5F60805</string>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>104</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Road Trips</string>
+			<key>Playlist ID</key><integer>910</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60810</string>
+			<key>Folder</key><true/>
+		</dict>
+		<dict>
+			<key>Name</key><string>Highway</string>
+			<key>Playlist ID</key><integer>911</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60811</string>
+			<key>Parent Persistent ID</key><string>B1B2C3D4E5F60810</string>
+			<key>All Items</key><true/>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+				<dict><key>Track ID</key><integer>102</integer></dict>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Moods</string>
+			<key>Playlist ID</key><integer>920</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60820</string>
+			<key>Folder</key><true/>
+		</dict>
+		<dict>
+			<key>Name</key><string>Chill</string>
+			<key>Playlist ID</key><integer>921</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60821</string>
+			<key>Parent Persistent ID</key><string>B1B2C3D4E5F60820</string>
+			<key>Folder</key><true/>
+		</dict>
+		<dict>
+			<key>Name</key><string>Rainy Day</string>
+			<key>Playlist ID</key><integer>922</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60822</string>
+			<key>Parent Persistent ID</key><string>B1B2C3D4E5F60821</string>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>105</integer></dict>
+				<dict><key>Track ID</key><integer>999</integer></dict>
+				<dict><key>Track ID</key><integer>121</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Never Played</string>
+			<key>Playlist ID</key><integer>930</integer>
+			<key>Playlist Persistent ID</key><string>B1B2C3D4E5F60830</string>
+			<key>Smart Info</key>
+			<data>AQEBAAAAAAAAAAAA</data>
+			<key>Smart Criteria</key>
+			<data>U0xzdAABAAEAAAAA</data>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+				<dict><key>Track ID</key><integer>104</integer></dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Name</key><string>Top Level</string>
+			<key>Playlist ID</key><integer>940</integer>
+			<key>Playlist Persistent ID</key><string>b1b2c3d4e5f60840</string>
+		</dict>
+		<dict>
+			<key>Name</key><string>No Persistent ID</string>
+			<key>Playlist ID</key><integer>941</integer>
 		</dict>
 	</array>
 </dict>
