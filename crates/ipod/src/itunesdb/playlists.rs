@@ -3,26 +3,35 @@
 
 use super::chunks::{Chunk, ListHead, MHIP, MHLP, MHYP, tag_name};
 use super::mhod::{self, Mhod};
+use super::raw::{RawMhod, RawPlaylist};
 use crate::database::IpodPlaylist;
 use crate::error::{Error, Result};
 
 mod at {
     pub(super) const MHOD_COUNT: usize = 12;
     pub(super) const MHIP_COUNT: usize = 16;
-    pub(super) const TYPE: usize = 20;
-    pub(super) const ID: usize = 28;
-    pub(super) const PODCAST_FLAG: usize = 42;
 
     pub(super) const ENTRY_GROUP_FLAG: usize = 16;
     pub(super) const ENTRY_TRACK_ID: usize = 24;
 }
 
-/// `type` 1 in an mhyp marks the master playlist (libgpod's `ITDB_PL_TYPE_MPL`).
-const MASTER_TYPE: u8 = 1;
-/// `podcastflag` 1 marks the Podcasts playlist (libgpod's `ITDB_PL_FLAG_PODCASTS`).
-const PODCASTS_FLAG: u16 = 1;
-
 pub(super) fn parse_list(data: &[u8], section: &Chunk) -> Result<Vec<IpodPlaylist>> {
+    parse_raw_list(data, section)?
+        .into_iter()
+        .map(|playlist| {
+            Ok(IpodPlaylist {
+                id: playlist.id(),
+                name: playlist.name()?,
+                is_master: playlist.is_master(),
+                is_podcasts: playlist.is_podcasts(),
+                is_smart: playlist.is_smart(),
+                track_ids: playlist.members,
+            })
+        })
+        .collect()
+}
+
+pub(super) fn parse_raw_list(data: &[u8], section: &Chunk) -> Result<Vec<RawPlaylist>> {
     let list = ListHead::find(data, section, MHLP)?;
     let mut playlists = Vec::new();
     let mut offset = list.items_offset;
@@ -36,27 +45,23 @@ pub(super) fn parse_list(data: &[u8], section: &Chunk) -> Result<Vec<IpodPlaylis
     Ok(playlists)
 }
 
-fn parse_playlist(data: &[u8], chunk: &Chunk) -> Result<IpodPlaylist> {
-    let mut playlist = IpodPlaylist {
-        id: chunk.u64(at::ID).unwrap_or(0),
-        is_master: chunk.u8(at::TYPE) == Some(MASTER_TYPE),
-        is_podcasts: chunk.u16(at::PODCAST_FLAG) == Some(PODCASTS_FLAG),
-        ..IpodPlaylist::default()
-    };
-
+fn parse_playlist(data: &[u8], chunk: &Chunk) -> Result<RawPlaylist> {
+    let mut mhods = Vec::new();
     let mut offset = chunk.header_end();
     for _ in 0..chunk.u32(at::MHOD_COUNT).unwrap_or(0) {
         if offset >= chunk.end {
             break;
         }
         let mhod = Mhod::read(data, offset, chunk.end)?;
-        offset = mhod.end();
-        match mhod.kind {
-            // iTunes sometimes writes two titles; the last one wins, as in libgpod.
-            mhod::TITLE => playlist.name = mhod.text()?,
-            mhod::SMART_PREFS | mhod::SMART_RULES => playlist.is_smart = true,
-            _ => {}
+        // The sort indexes are rebuilt from the tracks on every write, so they are not kept.
+        if !matches!(mhod.kind, mhod::INDEX | mhod::JUMP_TABLE) {
+            let bytes = data.get(offset..mhod.end()).unwrap_or_default().to_vec();
+            mhods.push(RawMhod {
+                kind: mhod.kind,
+                bytes,
+            });
         }
+        offset = mhod.end();
     }
 
     let mut entries = Vec::new();
@@ -69,8 +74,11 @@ fn parse_playlist(data: &[u8], chunk: &Chunk) -> Result<IpodPlaylist> {
         entries.extend(entry);
     }
     entries.sort_by_key(|&(position, _)| position);
-    playlist.track_ids = entries.into_iter().map(|(_, track_id)| track_id).collect();
-    Ok(playlist)
+    Ok(RawPlaylist {
+        header: chunk.header().to_vec(),
+        mhods,
+        members: entries.into_iter().map(|(_, track_id)| track_id).collect(),
+    })
 }
 
 /// Returns the member as `(position, track id)` and where the next mhip starts. A member without a

@@ -10,8 +10,10 @@ flate2 = "1.1.10"
 fs4 = { version = "1.1.0", features = ["sync"] }
 plist = { version = "1.10.1", default-features = false }
 serde.workspace = true
+serde_json.workspace = true
+sha1 = "0.11.0"
 thiserror.workspace = true
+unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-serde_json.workspace = true

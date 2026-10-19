@@ -116,7 +116,7 @@ pub fn read_database(ipod: &Ipod) -> Result<Database> {
 }
 
 impl Usage {
-    fn of(tracks: &[IpodTrack]) -> Self {
+    pub(crate) fn of(tracks: &[IpodTrack]) -> Self {
         let mut usage = Self::default();
         for track in tracks {
             let bucket = match track.media_kind {

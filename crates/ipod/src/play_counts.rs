@@ -16,19 +16,28 @@ const MIN_ENTRY_LEN: usize = 0x0c;
 const RATING_ENTRY_LEN: usize = 0x10;
 const SKIP_ENTRY_LEN: usize = 0x1c;
 
-struct Entry {
-    play_count: u32,
-    last_played: Option<i64>,
-    rating: Option<u32>,
-    skip_count: u32,
+pub(crate) const FILE_NAME: &str = "Play Counts";
+
+pub(crate) struct Entry {
+    pub(crate) play_count: u32,
+    pub(crate) last_played: Option<i64>,
+    pub(crate) rating: Option<u32>,
+    pub(crate) skip_count: u32,
+}
+
+/// The entries of the iPod's `Play Counts` file, empty if there is none.
+pub(crate) fn read(mount: &Path) -> Result<Vec<Entry>> {
+    let path = itunes_dir(mount).join(FILE_NAME);
+    match fs::read(&path) {
+        Ok(bytes) => parse(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(source) => Err(Error::io(path, source)),
+    }
 }
 
 /// Best effort: a missing, empty or damaged file leaves the tracks as the database has them.
 pub(crate) fn merge(mount: &Path, tracks: &mut [IpodTrack]) {
-    let Ok(bytes) = fs::read(itunes_dir(mount).join("Play Counts")) else {
-        return;
-    };
-    let Ok(entries) = parse(&bytes) else { return };
+    let Ok(entries) = read(mount) else { return };
     for (track, entry) in tracks.iter_mut().zip(entries) {
         track.play_count = track.play_count.saturating_add(entry.play_count);
         track.skip_count = track.skip_count.saturating_add(entry.skip_count);

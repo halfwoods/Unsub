@@ -17,6 +17,15 @@ pub enum Error {
     Eject { mount: PathBuf, message: String },
     #[error("{0}")]
     Unsupported(&'static str),
+    #[error("cannot sync to this iPod: {0}")]
+    SyncRefused(String),
+    #[error("not enough space on the iPod: {needed} bytes needed, {available} available")]
+    InsufficientSpace { needed: u64, available: u64 },
+    /// The iPod no longer matches the plan or the library; nothing was written.
+    #[error("{0}")]
+    Conflict(String),
+    #[error("unreadable sync bookkeeping: {0}")]
+    Mapping(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

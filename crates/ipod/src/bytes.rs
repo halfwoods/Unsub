@@ -22,3 +22,14 @@ pub(crate) fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
 pub(crate) fn tag_at(data: &[u8], at: usize) -> Option<[u8; 4]> {
     data.get(at..)?.get(..4)?.try_into().ok()
 }
+
+/// Overwrites `value.len()` bytes at `at`. A field that lies beyond a short header was never part
+/// of that iTunes version's layout, so the write is skipped rather than extending the header.
+pub(crate) fn put(buf: &mut [u8], at: usize, value: &[u8]) {
+    if let Some(field) = at
+        .checked_add(value.len())
+        .and_then(|end| buf.get_mut(at..end))
+    {
+        field.copy_from_slice(value);
+    }
+}

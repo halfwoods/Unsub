@@ -10,6 +10,20 @@ pub(crate) fn mac_to_unix(mac: u32) -> Option<i64> {
     mac_to_unix_in(mac, &Local)
 }
 
+/// The inverse of [`mac_to_unix`]: the wall-clock time at `unix` in the local zone, as Mac seconds.
+/// Times outside the range a `u32` can hold become 0, which readers treat as "never".
+pub(crate) fn unix_to_mac(unix: i64) -> u32 {
+    unix_to_mac_in(unix, &Local)
+}
+
+fn unix_to_mac_in<Tz: TimeZone>(unix: i64, zone: &Tz) -> u32 {
+    let Some(instant) = zone.timestamp_opt(unix, 0).single() else {
+        return 0;
+    };
+    let wall_clock = instant.naive_local().and_utc().timestamp();
+    u32::try_from(wall_clock + MAC_EPOCH_OFFSET).unwrap_or(0)
+}
+
 fn mac_to_unix_in<Tz: TimeZone>(mac: u32, zone: &Tz) -> Option<i64> {
     if mac == 0 {
         return None;
@@ -54,6 +68,22 @@ mod tests {
             mac_to_unix_in(UNIX_EPOCH_AS_MAC + 86_400, &plus_two),
             Some(86_400 - 7200)
         );
+    }
+
+    #[test]
+    fn unix_to_mac_inverts_the_conversion_in_a_fixed_zone() {
+        let plus_two = FixedOffset::east_opt(2 * 3600).unwrap();
+        let mac = UNIX_EPOCH_AS_MAC + 86_400;
+
+        let unix = mac_to_unix_in(mac, &plus_two).unwrap();
+
+        assert_eq!(unix_to_mac_in(unix, &plus_two), mac);
+    }
+
+    #[test]
+    fn unix_times_a_u32_cannot_hold_become_never() {
+        assert_eq!(unix_to_mac_in(-MAC_EPOCH_OFFSET - 1, &Utc), 0);
+        assert_eq!(unix_to_mac_in(i64::from(u32::MAX), &Utc), 0);
     }
 
     #[test]

@@ -2,9 +2,15 @@
 //! `find_mhsd` and `itdb_zlib_check_decompress_fimp`; see the sibling modules for each record type.
 
 mod chunks;
+mod edit;
+mod emit;
+mod hash58;
+mod index;
 mod mhit;
 mod mhod;
 mod playlists;
+pub(crate) mod raw;
+mod view;
 
 use std::fs;
 use std::io::Read;
@@ -13,6 +19,10 @@ use std::path::Path;
 use flate2::read::ZlibDecoder;
 
 use self::chunks::{Chunk, MHBD, MHSD};
+pub(crate) use self::edit::{Codec, Metadata, Origin};
+pub(crate) use self::emit::emit;
+pub(crate) use self::mhit::native_path;
+pub(crate) use self::mhod::PATH;
 use crate::bytes::{tag_at, u32_at};
 use crate::database::{IpodPlaylist, IpodTrack};
 use crate::device::DatabaseFormat;
@@ -92,32 +102,14 @@ struct Sections<'a> {
 impl<'a> Sections<'a> {
     /// Types 4 and up (albums, artists, smart playlists, ...) are not needed and are skipped.
     fn locate(data: &'a [u8]) -> Result<Self> {
-        let database = Chunk::read(data, 0, data.len())?;
-        if database.tag != MHBD {
-            let reason = if database.tag == *b"dbhm" {
-                "big-endian databases (mobile phones) are not supported"
-            } else {
-                "not an iTunesDB: missing mhbd header"
-            };
-            return Err(Error::corrupt(0, reason));
-        }
-
+        let database = database_chunk(data)?;
         let (mut tracks, mut playlists, mut podcast_playlists) = (None, None, None);
-        let mut offset = database.header_end();
-        for _ in 0..database.u32(MHBD_SECTION_COUNT_AT).unwrap_or(0) {
-            if offset >= database.end {
-                break;
-            }
-            let section = Chunk::read(data, offset, database.end)?;
-            offset = section.end;
-            if section.tag != MHSD {
-                continue;
-            }
+        for section in sections(data, &database)? {
             match section.u32(MHSD_TYPE_AT) {
                 Some(SECTION_TRACKS) => tracks = tracks.or(Some(section)),
                 Some(SECTION_PLAYLISTS) => playlists = playlists.or(Some(section)),
                 Some(SECTION_PODCAST_PLAYLISTS) => {
-                    podcast_playlists = podcast_playlists.or(Some(section))
+                    podcast_playlists = podcast_playlists.or(Some(section));
                 }
                 _ => {}
             }
@@ -132,4 +124,34 @@ impl<'a> Sections<'a> {
                 .ok_or_else(|| Error::corrupt(0, "no playlist section (mhsd type 2 or 3)"))?,
         })
     }
+}
+
+fn database_chunk(data: &[u8]) -> Result<Chunk<'_>> {
+    let database = Chunk::read(data, 0, data.len())?;
+    if database.tag != MHBD {
+        let reason = if database.tag == *b"dbhm" {
+            "big-endian databases (mobile phones) are not supported"
+        } else {
+            "not an iTunesDB: missing mhbd header"
+        };
+        return Err(Error::corrupt(0, reason));
+    }
+    Ok(database)
+}
+
+/// The mhsd children of the mhbd, in file order. Other chunk types are skipped.
+fn sections<'a>(data: &'a [u8], database: &Chunk<'a>) -> Result<Vec<Chunk<'a>>> {
+    let mut found = Vec::new();
+    let mut offset = database.header_end();
+    for _ in 0..database.u32(MHBD_SECTION_COUNT_AT).unwrap_or(0) {
+        if offset >= database.end {
+            break;
+        }
+        let section = Chunk::read(data, offset, database.end)?;
+        offset = section.end;
+        if section.tag == MHSD {
+            found.push(section);
+        }
+    }
+    Ok(found)
 }

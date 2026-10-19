@@ -166,6 +166,9 @@ pub struct Track {
     pub compilation: bool,
     pub encoding: Encoding,
     pub extra_mhods: Vec<Vec<u8>>,
+    /// Raw bytes written into the mhit header after everything else, to model fields this crate does
+    /// not interpret (gapless data, artwork links, volume adjustment).
+    pub header_patches: Vec<(usize, Vec<u8>)>,
 }
 
 impl Track {
@@ -205,6 +208,7 @@ impl Track {
             compilation: false,
             encoding: Encoding::Utf16,
             extra_mhods: Vec::new(),
+            header_patches: Vec::new(),
         }
     }
 
@@ -266,6 +270,9 @@ impl Track {
             .u32(156, self.skip_count)
             .u8(177, u8::from(self.movie_flag))
             .u32(208, self.media_type);
+        for (at, bytes) in &self.header_patches {
+            mhit.put(*at, bytes);
+        }
         mhit.finish(&mhods.concat())
     }
 }
@@ -361,6 +368,8 @@ pub struct Database {
     pub mhit_header: usize,
     /// Write the type-3 playlist section that iTunes adds for podcast-aware iPods.
     pub podcast_section: bool,
+    /// Write the (empty) artist list, mhsd type 8, that newer iPods carry.
+    pub artist_section: bool,
 }
 
 impl Database {
@@ -370,6 +379,7 @@ impl Database {
             playlists,
             mhit_header: MHIT_HEADER,
             podcast_section: true,
+            artist_section: false,
         }
     }
 
@@ -416,6 +426,13 @@ impl Database {
                 .u32(12, 4)
                 .finish(&Record::new(b"mhla", MHLT_HEADER).finish_list(0)),
         );
+        if self.artist_section {
+            sections.push(
+                Record::new(b"mhsd", MHSD_HEADER)
+                    .u32(12, 8)
+                    .finish(&Record::new(b"mhli", MHLT_HEADER).finish_list(0)),
+            );
+        }
         let hidden = Playlist::new(7, "IGNORED-TYPE-5", &[]).mhyp(false);
         let smart_list = [Record::new(b"mhlp", MHLT_HEADER).finish_list(1), hidden].concat();
         sections.push(
@@ -472,4 +489,39 @@ pub fn play_counts_file(entries: &[PlayCount]) -> Vec<u8> {
         bytes.extend_from_slice(&record);
     }
     bytes
+}
+
+pub fn u32_at(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+pub fn u64_at(bytes: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
+}
+
+/// Start offsets of every chunk tagged `tag` with the given header length. A scan rather than a
+/// parse, so the checks on a written database do not depend on the reader under test.
+pub fn chunks(bytes: &[u8], tag: &[u8; 4], header_len: u32) -> Vec<usize> {
+    (0..bytes.len().saturating_sub(12))
+        .filter(|&at| &bytes[at..at + 4] == tag && u32_at(bytes, at + 4) == header_len)
+        .collect()
+}
+
+/// The mhit with this persistent id: its header bytes and the bytes of all its mhods.
+pub fn track_record(bytes: &[u8], dbid: u64) -> Option<(Vec<u8>, Vec<u8>)> {
+    [0x9c, 0xf4, 0x184, 0x248]
+        .into_iter()
+        .flat_map(|header_len| {
+            chunks(bytes, b"mhit", header_len)
+                .into_iter()
+                .map(move |at| (at, header_len))
+        })
+        .find(|&(at, _)| u64_at(bytes, at + 112) == dbid)
+        .map(|(at, header_len)| {
+            let end = at + u32_at(bytes, at + 8) as usize;
+            (
+                bytes[at..at + header_len as usize].to_vec(),
+                bytes[at + header_len as usize..end].to_vec(),
+            )
+        })
 }

@@ -7,6 +7,7 @@ mod open;
 mod play_counts;
 mod playlists;
 mod robustness;
+mod sync;
 mod tracks;
 
 use antistreaming_ipod::{Ipod, open as open_ipod};
