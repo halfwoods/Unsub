@@ -119,6 +119,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "antistreaming-devicesync"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "antistreaming-ipod"
 version = "0.1.0"
 dependencies = [

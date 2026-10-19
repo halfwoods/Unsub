@@ -1,15 +1,16 @@
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::decoder::Decoder;
-use crate::device_state::Saved;
-use crate::gain::Volume;
-use crate::output::{Format, Output, Sink};
-use crate::player::{PlaybackState, PlaybackStatus, PlayerEvent};
+use crate::host::{DeviceState, Host};
+use crate::mix::{ChannelLayout, Mixer};
+use crate::output::{Format, Output, Request, Sink};
+use crate::player::{PlaybackState, PlaybackStatus, PlayerEvent, Shared};
 use crate::resample::Resampler;
 use crate::timeline::{Timeline, TrackInfo};
 use crate::{Error, Result};
@@ -30,10 +31,13 @@ pub(crate) enum Command {
     Resume,
     Stop,
     Seek(u64),
+    SetBitPerfect(bool),
+    /// The volume was set while the device volume is in charge.
+    VolumeIgnored,
     /// Sent by the stream's error callback, which must not touch the stream itself.
     OutputFailed {
         generation: u64,
-        error: cpal::Error,
+        error: Error,
     },
     Shutdown,
 }
@@ -65,6 +69,10 @@ impl Queued {
 struct Feed {
     decoder: Decoder,
     source: Format,
+    layout: ChannelLayout,
+    /// In bit-perfect mode a change of bit depth needs a different device format.
+    depth: Option<u32>,
+    exact: bool,
     resampler: Option<Resampler>,
     staging: Vec<f32>,
     /// Samples of `staging` already handed to the ring.
@@ -76,22 +84,21 @@ struct Feed {
 }
 
 impl Feed {
-    fn new(decoder: Decoder, output: Format, produced: u64) -> Result<Feed> {
+    fn new(decoder: Decoder, output: Format, produced: u64, exact: bool) -> Result<Feed> {
         let source = Format {
             sample_rate: decoder.sample_rate(),
             channels: decoder.channels(),
         };
         let resampler = (source != output)
             .then(|| {
-                Resampler::new(
-                    source.sample_rate,
-                    output.sample_rate,
-                    source.channels,
-                    output.channels,
-                )
+                let mixer = Mixer::new(decoder.channel_layout(), output.channels);
+                Resampler::new(source.sample_rate, output.sample_rate, mixer)
             })
             .transpose()?;
         Ok(Feed {
+            layout: decoder.channel_layout(),
+            depth: decoder.bit_depth(),
+            exact,
             decoder,
             source,
             resampler,
@@ -107,6 +114,8 @@ impl Feed {
     fn accepts(&self, decoder: &Decoder) -> bool {
         decoder.sample_rate() == self.source.sample_rate
             && decoder.channels() == self.source.channels
+            && decoder.channel_layout() == self.layout
+            && (!self.exact || decoder.bit_depth() == self.depth)
     }
 
     fn is_staging(&self) -> bool {
@@ -194,23 +203,21 @@ struct Session {
 }
 
 impl Session {
-    fn open(
-        queued: Queued,
-        volume: Arc<Volume>,
-        on_failure: impl Fn(cpal::Error) + Send + 'static,
-    ) -> Result<Session> {
+    /// Starts `queued`, whose decoder is already at `position_ms`, on a freshly opened `output`.
+    fn new(output: Output, queued: Queued, position_ms: u64) -> Result<Session> {
         let Queued { track, decoder } = queued;
-        let source = Format {
-            sample_rate: decoder.sample_rate(),
-            channels: decoder.channels(),
-        };
-        let output = Output::open(source, volume, on_failure)?;
         let format = output.format();
+        let exact = output.request().exact;
         Ok(Session {
-            feed: Feed::new(decoder, format, 0)?,
-            timeline: Timeline::new(format.sample_rate, track, 0, 0),
+            feed: Feed::new(decoder, format, 0, exact)?,
+            timeline: Timeline::new(format.sample_rate, track, 0, position_ms),
             output,
         })
+    }
+
+    /// Whether this output can carry `decoder` as it is, with no reopening.
+    fn fits(&self, decoder: &Decoder, exact: bool) -> bool {
+        self.output.request().exact == exact && self.feed.accepts(decoder)
     }
 
     /// Decodes into the ring until it is full, handing over to `next` when this track ends.
@@ -218,12 +225,17 @@ impl Session {
         self.feed.fill(&mut self.output, &mut self.timeline, next)
     }
 
-    /// Restarts on a new track after the output has been flushed.
-    fn restart(&mut self, queued: Queued) {
+    /// Restarts on a new track, already at `position_ms`, after the output has been flushed.
+    fn restart(&mut self, queued: Queued, position_ms: u64) {
         let frame = self.output.consumed();
         self.feed.decoder = queued.decoder;
         self.feed.rewind(frame);
-        self.timeline = Timeline::new(self.output.format().sample_rate, queued.track, frame, 0);
+        self.timeline = Timeline::new(
+            self.output.format().sample_rate,
+            queued.track,
+            frame,
+            position_ms,
+        );
     }
 
     fn feeding_id(&self) -> i64 {
@@ -246,12 +258,14 @@ pub(crate) struct Engine {
     commands: Receiver<Command>,
     sender: Sender<Command>,
     emit: Arc<dyn Fn(PlayerEvent) + Send + Sync>,
-    volume: Arc<Volume>,
-    published: Arc<Mutex<PlaybackStatus>>,
+    shared: Arc<Shared>,
+    host: Box<dyn Host>,
     open: Opener,
     /// The output device as it was before this engine first changed it, restored once playback
     /// stops. Kept across format changes within one run of playback.
-    saved_device: Option<Saved>,
+    device: Option<Box<dyn DeviceState>>,
+    /// Whether bit-perfect output is wanted; whether the open stream achieves it is in its info.
+    bit_perfect: bool,
     state: PlaybackState,
     session: Option<Session>,
     next: Option<Queued>,
@@ -265,17 +279,18 @@ impl Engine {
         commands: Receiver<Command>,
         sender: Sender<Command>,
         emit: Arc<dyn Fn(PlayerEvent) + Send + Sync>,
-        volume: Arc<Volume>,
-        published: Arc<Mutex<PlaybackStatus>>,
+        shared: Arc<Shared>,
+        host: Box<dyn Host>,
     ) -> Self {
         Engine {
             commands,
             sender,
             emit,
-            volume,
-            published,
+            shared,
+            host,
             open: Decoder::open,
-            saved_device: None,
+            device: None,
+            bit_perfect: false,
             state: PlaybackState::Stopped,
             session: None,
             next: None,
@@ -321,8 +336,10 @@ impl Engine {
             Command::Resume => self.set_paused(false),
             Command::Stop => self.stop(),
             Command::Seek(position_ms) => self.seek(position_ms),
+            Command::SetBitPerfect(wanted) => self.set_bit_perfect(wanted),
+            Command::VolumeIgnored => self.volume_ignored(),
             Command::OutputFailed { generation, error } if generation == self.generation => {
-                self.fail(self.audible_id(), Error::Output(error));
+                self.fail(self.audible_id(), error);
             }
             Command::OutputFailed { .. } => {}
             Command::Shutdown => return ControlFlow::Break(()),
@@ -338,42 +355,106 @@ impl Engine {
         }
     }
 
+    /// Starts `queued` from its beginning, as a new track.
     fn start(&mut self, queued: Queued) -> Result<()> {
         let id = queued.track.id;
+        self.begin(queued, 0)?;
+        self.state = PlaybackState::Playing;
+        self.next_position_event = Instant::now();
+        (self.emit)(PlayerEvent::TrackStarted { track_id: id });
+        self.announce();
+        Ok(())
+    }
+
+    /// Points playback at `queued`, whose decoder is already at `position_ms`. The open output
+    /// is kept when it fits, so there is no reopen pop.
+    fn begin(&mut self, queued: Queued, position_ms: u64) -> Result<()> {
+        let exact = self.bit_perfect;
         match self
             .session
             .as_mut()
-            .filter(|session| session.feed.accepts(&queued.decoder))
+            .filter(|session| session.fits(&queued.decoder, exact))
         {
-            // Same format: keep the device open so there is no reopen pop.
             Some(session) => {
                 session.output.flush()?;
-                session.restart(queued);
-                session.output.set_paused(false);
+                session.restart(queued, position_ms);
+                session
+                    .output
+                    .set_paused(self.state == PlaybackState::Paused);
                 session.fill(&mut self.next)?;
             }
             None => {
                 self.release();
-                if self.saved_device.is_none() {
-                    self.saved_device = Saved::capture();
-                }
-                self.generation += 1;
-                let (sender, generation) = (self.sender.clone(), self.generation);
-                let on_failure = move |error| {
-                    let _ = sender.send(Command::OutputFailed { generation, error });
-                };
-                let mut session = Session::open(queued, Arc::clone(&self.volume), on_failure)?;
+                let output = self.open_output(&queued.decoder)?;
+                let mut session = Session::new(output, queued, position_ms)?;
+                session
+                    .output
+                    .set_paused(self.state == PlaybackState::Paused);
                 session.fill(&mut self.next)?;
                 // The ring is primed first so the first callback already has audio.
                 session.output.start()?;
                 self.session = Some(session);
             }
         }
-        self.state = PlaybackState::Playing;
-        self.next_position_event = Instant::now();
-        (self.emit)(PlayerEvent::TrackStarted { track_id: id });
-        self.announce();
         Ok(())
+    }
+
+    /// Opens an output for `decoder`, bit-perfect if wanted and the device allows, and says so
+    /// when it does not.
+    fn open_output(&mut self, decoder: &Decoder) -> Result<Output> {
+        if self.device.is_none() {
+            self.device = self.host.capture();
+        }
+        let request = Request {
+            source: Format {
+                sample_rate: decoder.sample_rate(),
+                channels: decoder.channels(),
+            },
+            bit_depth: decoder.bit_depth(),
+            exact: self.bit_perfect,
+        };
+        if request.exact {
+            match self.open_exact(&request) {
+                Err(Error::BitPerfectUnavailable(reason)) => self.notice(format!(
+                    "Bit-perfect playback is not possible for this track: {reason}."
+                )),
+                other => return other,
+            }
+        }
+        if let Some(device) = self.device.as_mut() {
+            device.release_exclusive();
+        }
+        self.open_stream(&Request {
+            exact: false,
+            ..request
+        })
+    }
+
+    fn open_exact(&mut self, request: &Request) -> Result<Output> {
+        let exclusive = self
+            .device
+            .as_mut()
+            .is_some_and(|device| device.take_exclusive());
+        if !exclusive {
+            return Err(Error::BitPerfectUnavailable(
+                "another app is using the device, or exclusive access is not available here"
+                    .to_owned(),
+            ));
+        }
+        self.open_stream(request)
+    }
+
+    fn open_stream(&mut self, request: &Request) -> Result<Output> {
+        self.generation += 1;
+        let (sender, generation) = (self.sender.clone(), self.generation);
+        let on_failure = move |error| {
+            let _ = sender.send(Command::OutputFailed { generation, error });
+        };
+        self.host.open(
+            request,
+            Arc::clone(&self.shared.volume),
+            Box::new(on_failure),
+        )
     }
 
     fn queue_next(&mut self, id: i64, path: PathBuf) {
@@ -437,6 +518,59 @@ impl Engine {
     fn seek(&mut self, position_ms: u64) {
         if let Err(error) = self.reposition(Some(position_ms), true) {
             self.fail(self.audible_id(), error);
+        }
+    }
+
+    fn set_bit_perfect(&mut self, wanted: bool) {
+        if self.bit_perfect == wanted {
+            return;
+        }
+        self.bit_perfect = wanted;
+        // With nothing playing the choice simply applies to the next stream.
+        if self.session.is_some()
+            && let Err(error) = self.reopen_output()
+        {
+            self.fail(self.audible_id(), error);
+        }
+        self.announce();
+    }
+
+    /// Moves the audible track to a new output, for a change of mode, resuming where it was.
+    fn reopen_output(&mut self) -> Result<()> {
+        let Some(session) = self.session.as_mut() else {
+            return Ok(());
+        };
+        session.output.flush()?;
+        let audible = session.timeline.current().clone();
+        let position_ms = session.timeline.position_ms(session.output.consumed());
+        let position_ms = match audible.duration_ms {
+            0 => position_ms,
+            duration => position_ms.min(duration.saturating_sub(1)),
+        };
+        let upcoming = session.timeline.take_upcoming();
+
+        let mut queued = Queued::open(self.open, audible.id, audible.path)?;
+        let landed_ms = queued.decoder.seek(position_ms)?;
+        self.release();
+        if let Some(track) = upcoming.filter(|_| self.next.is_none()) {
+            match Queued::open(self.open, track.id, track.path) {
+                Ok(requeued) => self.next = Some(requeued),
+                Err(error) => self.report(Some(track.id), &error),
+            }
+        }
+        self.begin(queued, landed_ms)
+    }
+
+    fn volume_ignored(&mut self) {
+        let locked = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.output.info().bit_perfect);
+        if locked {
+            self.notice(
+                "Bit-perfect mode plays at full scale; use the device's own volume control."
+                    .to_owned(),
+            );
         }
     }
 
@@ -558,7 +692,10 @@ impl Engine {
 
     fn fail(&mut self, track_id: Option<i64>, error: Error) {
         // A dead stream cannot fade; with a healthy one the listener should hear a fade, not a cut.
-        if matches!(error, Error::Output(_) | Error::OutputStalled) {
+        if matches!(
+            error,
+            Error::Output(_) | Error::OutputStalled | Error::Device(_)
+        ) {
             self.session = None;
         } else {
             self.release();
@@ -572,8 +709,8 @@ impl Engine {
 
     /// Puts the output device back as it was before playback changed it.
     fn restore_device(&mut self) {
-        if let Some(saved) = self.saved_device.take() {
-            saved.restore();
+        if let Some(device) = self.device.take() {
+            device.restore();
         }
     }
 
@@ -584,12 +721,16 @@ impl Engine {
         });
     }
 
+    fn notice(&self, message: String) {
+        (self.emit)(PlayerEvent::Notice { message });
+    }
+
     fn status(&self) -> PlaybackStatus {
-        let volume = self.volume.get();
         let Some(session) = &self.session else {
-            return PlaybackStatus::stopped(volume);
+            return PlaybackStatus::stopped(self.shared.volume.get());
         };
         let track = session.timeline.current();
+        let info = session.output.info();
         PlaybackStatus {
             state: self.state,
             track_id: Some(track.id),
@@ -597,15 +738,26 @@ impl Engine {
             duration_ms: track.duration_ms,
             sample_rate: Some(track.sample_rate),
             output_sample_rate: Some(session.output.format().sample_rate),
-            volume,
+            volume: if info.bit_perfect {
+                1.0
+            } else {
+                self.shared.volume.get()
+            },
+            bit_perfect: info.bit_perfect,
+            output_format: Some(info.label.clone()),
         }
     }
 
     fn publish(&self) {
+        let status = self.status();
+        self.shared
+            .bit_perfect
+            .store(status.bit_perfect, Ordering::Relaxed);
         *self
-            .published
+            .shared
+            .status
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = self.status();
+            .unwrap_or_else(PoisonError::into_inner) = status;
     }
 
     /// Publishes the status and tells listeners the state changed.
@@ -625,10 +777,11 @@ impl Drop for Engine {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::sync::mpsc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Mutex, mpsc};
 
     use super::*;
-    use crate::decoder::fault::{self, Fault, Faulty};
+    use crate::symphonia_source::fault::{self, Fault, Faulty};
 
     const STEREO_44K: Format = Format {
         sample_rate: 44_100,
@@ -694,7 +847,7 @@ mod tests {
     fn start(first: &str, format: Format) -> (Feed, Timeline) {
         let Queued { track, decoder } = queued(1, first);
         (
-            Feed::new(decoder, format, 0).unwrap(),
+            Feed::new(decoder, format, 0, false).unwrap(),
             Timeline::new(format.sample_rate, track, 0, 0),
         )
     }
@@ -829,7 +982,7 @@ mod tests {
     fn a_decoder_panic_mid_stream_is_an_error_from_fill() {
         let decoder =
             Decoder::open_with(&fixture("sine.flac"), Faulty::wrap(Fault::NextPacket)).unwrap();
-        let mut feed = Feed::new(decoder, STEREO_44K, 0).unwrap();
+        let mut feed = Feed::new(decoder, STEREO_44K, 0, false).unwrap();
         let (_, mut timeline) = start("sine.flac", STEREO_44K);
         let mut device = Device::new(4_096, STEREO_44K);
 
@@ -855,9 +1008,14 @@ mod tests {
             let events = Arc::new(Mutex::new(Vec::new()));
             let sink = Arc::clone(&events);
             let emit = Arc::new(move |event| sink.lock().unwrap().push(event));
-            let status = Arc::new(Mutex::new(PlaybackStatus::stopped(0.0)));
-            let mut engine =
-                Engine::new(commands, sender, emit, Arc::new(Volume::new(0.0)), status);
+            let volume = Arc::new(crate::gain::Volume::new(0.0));
+            let shared = Arc::new(Shared {
+                status: Mutex::new(PlaybackStatus::stopped(0.0)),
+                volume,
+                bit_perfect: AtomicBool::new(false),
+            });
+            let (host, _) = crate::host::simulated::Simulated::new(Default::default());
+            let mut engine = Engine::new(commands, sender, emit, shared, Box::new(host));
             engine.open = open;
             Harness { engine, events }
         }
@@ -941,5 +1099,24 @@ mod tests {
 
         assert_eq!(heard.samples.len(), 2 * 2 * 43_210);
         assert_eq!(heard.transitions, [(1, 2, 43_210)]);
+    }
+
+    #[test]
+    fn a_surround_source_reaches_a_stereo_device_downmixed() {
+        let (mut feed, mut timeline) = start("surround-5.1.flac", STEREO_44K);
+        let mut device = Device::new(4_096, STEREO_44K);
+
+        let heard = play_out(&mut feed, &mut timeline, &mut None, &mut device);
+
+        assert_eq!(heard.samples.len(), 2 * 882, "20 ms of stereo frames");
+        // Channels are 0.05 0.10 0.15 0.20 0.25 0.30: L R C LFE Ls Rs.
+        let c = std::f32::consts::FRAC_1_SQRT_2;
+        let gain = 1.0 / (1.0 + 2.0 * c);
+        let (left, right) = (heard.samples[800], heard.samples[801]);
+        let (want_left, want_right) = (
+            (0.05 + c * 0.15 + c * 0.25) * gain,
+            (0.10 + c * 0.15 + c * 0.30) * gain,
+        );
+        assert!((left - want_left).abs() < 1e-3 && (right - want_right).abs() < 1e-3);
     }
 }

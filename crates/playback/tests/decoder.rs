@@ -250,3 +250,27 @@ fn a_file_with_headers_but_no_decodable_audio_is_an_error() {
         "garbage audio must not look like a finished track"
     );
 }
+
+#[test]
+fn bit_depth_is_reported_for_lossless_formats_and_absent_for_lossy_ones() {
+    let depth = |file: &'static str| {
+        let fixture = Fixture {
+            file,
+            sample_rate: 0,
+            channels: 0,
+        };
+        open(&fixture).bit_depth()
+    };
+    for (file, bits) in [
+        ("sine.flac", 16),
+        ("sine-24bit.flac", 24),
+        ("sine-alac.m4a", 16),
+        ("sine-mono.wav", 16),
+        ("sine-22k.aiff", 16),
+    ] {
+        assert_eq!(depth(file), Some(bits), "{file}");
+    }
+    for file in ["sine.mp3", "sine-aac.m4a", "sine.ogg"] {
+        assert_eq!(depth(file), None, "{file}");
+    }
+}

@@ -12,14 +12,24 @@ symphonia = { version = "0.6.1", default-features = false, features = [
     "aac", "aiff", "alac", "flac", "id3v1", "id3v2", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav",
 ] }
 cpal = "0.18.2"
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling"], optional = true }
 rtrb = "0.4"
 rubato = "5"
 
-# macOS only: read the output device's hardware format so it can be put back after playback.
+# macOS only: read, restore and take exclusive (hog-mode) control of the output device.
 [target.'cfg(target_os = "macos")'.dependencies]
 coreaudio-rs = { version = "0.14", default-features = false, features = ["core_audio", "audio_toolbox"] }
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware"] }
 objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+
+# Windows only: exclusive-mode WASAPI streams for bit-perfect output, which cpal cannot open.
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.26"
+
+[features]
+default = ["ffmpeg"]
+# Fallback decoder (via FFmpeg) for formats symphonia cannot read: Opus, WavPack, APE and DSD.
+ffmpeg = ["dep:ffmpeg-next"]
 
 [dev-dependencies]
 serde_json.workspace = true

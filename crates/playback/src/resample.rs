@@ -3,6 +3,7 @@ use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Indexing, Resampler as _};
 
 use crate::Result;
+use crate::mix::Mixer;
 
 /// Input frames per FFT call; large enough to amortise setup, small enough to keep latency low.
 const CHUNK_FRAMES: usize = 1024;
@@ -14,7 +15,7 @@ const MAX_FLUSH_CHUNKS: usize = 4;
 /// Converts decoded audio to the device's sample rate and channel count.
 pub struct Resampler {
     fft: Option<Fft<f32>>,
-    from_channels: usize,
+    mixer: Mixer,
     to_channels: usize,
     ratio: f64,
     /// Channel-mapped input waiting for a full FFT chunk.
@@ -27,8 +28,9 @@ pub struct Resampler {
 }
 
 impl Resampler {
-    pub fn new(from_rate: u32, to_rate: u32, from_channels: u16, to_channels: u16) -> Result<Self> {
-        let to_channels = usize::from(to_channels);
+    /// Converts from `from_rate` to `to_rate`, mixing channels with `mixer` first.
+    pub fn new(from_rate: u32, to_rate: u32, mixer: Mixer) -> Result<Self> {
+        let to_channels = mixer.device_channels();
         let fft = if from_rate == to_rate {
             None
         } else {
@@ -45,7 +47,7 @@ impl Resampler {
 
         Ok(Resampler {
             fft,
-            from_channels: usize::from(from_channels),
+            mixer,
             to_channels,
             ratio: f64::from(to_rate) / f64::from(from_rate),
             pending: Vec::new(),
@@ -59,17 +61,12 @@ impl Resampler {
     /// Appends the converted form of `input` (interleaved, source channel count) to `out`.
     pub fn push(&mut self, input: &[f32], out: &mut Vec<f32>) -> Result<()> {
         let Some(fft) = self.fft.as_mut() else {
-            map_channels(input, self.from_channels, self.to_channels, out);
+            self.mixer.mix(input, out);
             return Ok(());
         };
 
-        self.frames_in += (input.len() / self.from_channels) as u64;
-        map_channels(
-            input,
-            self.from_channels,
-            self.to_channels,
-            &mut self.pending,
-        );
+        self.frames_in += (input.len() / self.mixer.source_channels()) as u64;
+        self.mixer.mix(input, &mut self.pending);
 
         let channels = self.to_channels;
         loop {
@@ -160,28 +157,14 @@ fn run_chunk(
     Ok((produced - startup) as u64)
 }
 
-/// Mono is duplicated to every output channel; otherwise surplus channels are dropped and
-/// missing ones are silent.
-fn map_channels(input: &[f32], from: usize, to: usize, out: &mut Vec<f32>) {
-    if from == to {
-        out.extend_from_slice(input);
-        return;
-    }
-    for frame in input.chunks_exact(from) {
-        for channel in 0..to {
-            let source = if from == 1 {
-                frame.first()
-            } else {
-                frame.get(channel)
-            };
-            out.push(source.copied().unwrap_or(0.0));
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mix::ChannelLayout;
+
+    fn mixer(from: u16, to: u16) -> Mixer {
+        Mixer::new(ChannelLayout::from_mask(0, from), to)
+    }
 
     fn sine(rate: u32, frames: usize) -> Vec<f32> {
         (0..frames)
@@ -191,7 +174,7 @@ mod tests {
 
     #[test]
     fn mono_is_duplicated_to_stereo() {
-        let mut resampler = Resampler::new(48_000, 48_000, 1, 2).unwrap();
+        let mut resampler = Resampler::new(48_000, 48_000, mixer(1, 2)).unwrap();
         let mut out = Vec::new();
         resampler.push(&[0.25, -0.5], &mut out).unwrap();
         assert_eq!(out, [0.25, 0.25, -0.5, -0.5]);
@@ -199,7 +182,7 @@ mod tests {
 
     #[test]
     fn same_format_is_passed_through_untouched() {
-        let mut resampler = Resampler::new(44_100, 44_100, 2, 2).unwrap();
+        let mut resampler = Resampler::new(44_100, 44_100, mixer(2, 2)).unwrap();
         let input = [0.1, 0.2, 0.3, 0.4];
         let mut out = Vec::new();
         resampler.push(&input, &mut out).unwrap();
@@ -207,18 +190,24 @@ mod tests {
     }
 
     #[test]
-    fn extra_source_channels_are_dropped_and_missing_ones_silent() {
+    fn surround_is_downmixed_before_the_rate_changes() {
+        let layout = ChannelLayout::Surround5_1;
+        let mut resampler = Resampler::new(44_100, 48_000, Mixer::new(layout, 2)).unwrap();
+        // Front-left only, a whole second: left stays left through the downmix and the filter.
+        let frame = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let input: Vec<f32> = frame.iter().copied().cycle().take(6 * 44_100).collect();
         let mut out = Vec::new();
-        map_channels(&[1.0, 2.0, 3.0], 3, 2, &mut out);
-        assert_eq!(out, [1.0, 2.0]);
-        out.clear();
-        map_channels(&[1.0, 2.0], 2, 3, &mut out);
-        assert_eq!(out, [1.0, 2.0, 0.0]);
+        resampler.push(&input, &mut out).unwrap();
+        resampler.finish(&mut out).unwrap();
+
+        assert_eq!(out.len() / 2, 48_000);
+        let middle = &out[2 * 24_000..2 * 24_001];
+        assert!(middle[0] > 0.3 && middle[1].abs() < 1e-3, "{middle:?}");
     }
 
     #[test]
     fn resampled_length_matches_the_rate_ratio_once_flushed() {
-        let mut resampler = Resampler::new(44_100, 48_000, 1, 2).unwrap();
+        let mut resampler = Resampler::new(44_100, 48_000, mixer(1, 2)).unwrap();
         let input = sine(44_100, 44_100);
         let mut out = Vec::new();
         for chunk in input.chunks(1152) {
@@ -230,7 +219,7 @@ mod tests {
 
     #[test]
     fn resampled_signal_keeps_its_level_and_alignment() {
-        let mut resampler = Resampler::new(44_100, 48_000, 1, 1).unwrap();
+        let mut resampler = Resampler::new(44_100, 48_000, mixer(1, 1)).unwrap();
         let input = sine(44_100, 44_100);
         let mut out = Vec::new();
         for chunk in input.chunks(1000) {
@@ -248,7 +237,7 @@ mod tests {
 
     #[test]
     fn reset_forgets_buffered_input() {
-        let mut resampler = Resampler::new(44_100, 48_000, 1, 1).unwrap();
+        let mut resampler = Resampler::new(44_100, 48_000, mixer(1, 1)).unwrap();
         let mut out = Vec::new();
         resampler.push(&sine(44_100, 500), &mut out).unwrap();
         resampler.reset();

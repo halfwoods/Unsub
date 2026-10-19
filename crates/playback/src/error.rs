@@ -10,6 +10,8 @@ pub enum Error {
     Decode(#[from] symphonia::core::errors::Error),
     #[error("file has no playable audio track")]
     NoAudioTrack,
+    #[error("ffmpeg: {0}")]
+    Ffmpeg(String),
     #[error("the decoder crashed on this file: {0}")]
     Panicked(String),
     #[error("file contains no decodable audio")]
@@ -18,6 +20,10 @@ pub enum Error {
     Unsupported(&'static str),
     #[error("audio output: {0}")]
     Output(#[from] cpal::Error),
+    #[error("bit-perfect output is not possible: {0}")]
+    BitPerfectUnavailable(String),
+    #[error("audio device: {0}")]
+    Device(String),
     #[error("no audio output device available")]
     NoDevice,
     #[error("audio output does not accept any sample format this player can write")]
@@ -30,4 +36,11 @@ pub enum Error {
     Resample(#[from] rubato::ResampleError),
     #[error("resampler buffer mismatch: {0}")]
     ResampleBuffer(#[from] rubato::audioadapter_buffers::SizeError),
+}
+
+#[cfg(feature = "ffmpeg")]
+impl From<ffmpeg_next::Error> for Error {
+    fn from(error: ffmpeg_next::Error) -> Self {
+        Error::Ffmpeg(error.to_string())
+    }
 }

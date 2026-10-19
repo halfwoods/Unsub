@@ -1,0 +1,598 @@
+//! The whole player, device included, run against a simulated audio system: a thread that drains
+//! the ring as hardware would and records what it was given.
+
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
+use crate::host::simulated::{Config, Log, Simulated};
+use crate::{Decoder, PlaybackState, Player, PlayerEvent};
+
+const PATIENCE: Duration = Duration::from_secs(10);
+
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+fn decode(name: &str) -> Vec<f32> {
+    let mut decoder = Decoder::open(&fixture(name)).unwrap();
+    let mut samples = Vec::new();
+    while let Some(chunk) = decoder.next_chunk().unwrap() {
+        samples.extend_from_slice(chunk);
+    }
+    samples
+}
+
+struct Rig {
+    player: Player,
+    events: Receiver<PlayerEvent>,
+    seen: Vec<PlayerEvent>,
+    log: Arc<Mutex<Log>>,
+}
+
+fn rig(config: Config) -> Rig {
+    let (sender, events) = mpsc::channel();
+    let (host, log) = Simulated::new(config);
+    let player = Player::with_host(
+        move |event| {
+            let _ = sender.send(event);
+        },
+        move || Box::new(host),
+    )
+    .unwrap();
+    Rig {
+        player,
+        events,
+        seen: Vec::new(),
+        log,
+    }
+}
+
+impl Rig {
+    /// Reads events until one satisfies `wanted`, and returns it.
+    fn until(&mut self, what: &str, wanted: impl Fn(&PlayerEvent) -> bool) -> PlayerEvent {
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.events.recv_timeout(left) {
+                Ok(event) => {
+                    self.seen.push(event.clone());
+                    if wanted(&event) {
+                        return event;
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("timed out waiting for {what}: {:?}", self.seen)
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("engine ended while waiting for {what}")
+                }
+            }
+        }
+    }
+
+    fn until_stopped(&mut self) {
+        self.until("playback to stop", |event| {
+            matches!(event, PlayerEvent::StateChanged(status) if status.state == PlaybackState::Stopped)
+        });
+    }
+
+    fn until_playing(&mut self, track_id: i64) {
+        self.until("the track to play", |event| {
+            matches!(event, PlayerEvent::StateChanged(status)
+                if status.state == PlaybackState::Playing && status.track_id == Some(track_id))
+        });
+    }
+
+    /// Everything seen so far plus anything still arriving within a short while.
+    fn settle(&mut self) -> &[PlayerEvent] {
+        while let Ok(event) = self.events.recv_timeout(Duration::from_millis(150)) {
+            self.seen.push(event);
+        }
+        &self.seen
+    }
+
+    fn notices(&self) -> Vec<String> {
+        self.seen
+            .iter()
+            .filter_map(|event| match event {
+                PlayerEvent::Notice { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn heard(&self) -> Vec<f32> {
+        self.log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .heard
+            .clone()
+    }
+
+    fn opened(&self) -> Vec<(u32, bool)> {
+        let log = self.log.lock().unwrap_or_else(PoisonError::into_inner);
+        log.opened
+            .iter()
+            .map(|request| (request.source.sample_rate, request.exact))
+            .collect()
+    }
+
+    fn device_calls(&self) -> Vec<&'static str> {
+        self.log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .device
+            .clone()
+    }
+
+    /// Polls the status until `check` holds.
+    fn await_status(&self, what: &str, check: impl Fn(&crate::PlaybackStatus) -> bool) {
+        let deadline = Instant::now() + PATIENCE;
+        while !check(&self.player.status()) {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+/// Where `needle` first occurs in `haystack`.
+fn find(haystack: &[f32], needle: &[f32]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// Asserts the device was given `source[from..]` back to back, apart from the fade-in at the
+/// start and fade-out at the end, which are `margin` samples wide.
+fn assert_played(heard: &[f32], source: &[f32], from: usize, margin: usize) {
+    let probe = from + margin + 400;
+    let at = find(heard, &source[probe..probe + 256])
+        .unwrap_or_else(|| panic!("the source never reached the device"));
+    let start = at - (probe - from);
+    let end = source.len() - from;
+    assert!(
+        heard[start + margin..start + end - margin] == source[from + margin..source.len() - margin],
+        "the device did not receive the source unchanged"
+    );
+}
+
+#[test]
+fn a_file_plays_through_to_the_end_and_the_device_receives_it_unchanged() {
+    let mut rig = rig(Config::default());
+    rig.player.play(1, fixture("sine.flac"));
+
+    rig.until("the track to end", |e| {
+        matches!(e, PlayerEvent::TrackEnded { track_id: 1 })
+    });
+    rig.until_stopped();
+
+    assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+    assert_eq!(rig.opened(), [(44_100, false)]);
+}
+
+#[test]
+fn gapless_tracks_reach_the_device_back_to_back_through_one_stream() {
+    let mut rig = rig(Config::default());
+    rig.player.play(1, fixture("sine.flac"));
+    rig.player.queue_next(2, fixture("sine.mp3"));
+
+    rig.until("the second track to start", |e| {
+        matches!(e, PlayerEvent::TrackStarted { track_id: 2 })
+    });
+    rig.until_stopped();
+
+    let both = [decode("sine.flac"), decode("sine.mp3")].concat();
+    assert_played(&rig.heard(), &both, 0, 2_000);
+    assert_eq!(rig.opened().len(), 1, "no reopen between gapless tracks");
+    let order: Vec<_> = rig
+        .seen
+        .iter()
+        .filter_map(|event| match event {
+            PlayerEvent::TrackEnded { track_id } => Some(("ended", *track_id)),
+            PlayerEvent::TrackStarted { track_id } => Some(("started", *track_id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [("started", 1), ("ended", 1), ("started", 2), ("ended", 2)]
+    );
+}
+
+#[test]
+fn seeking_resumes_from_exactly_the_requested_frame() {
+    let mut rig = rig(Config {
+        speed: 1,
+        ..Config::default()
+    });
+    rig.player.play(1, fixture("sine.flac"));
+    rig.until_playing(1);
+
+    rig.player.seek(700);
+    rig.until("the track to end", |e| {
+        matches!(e, PlayerEvent::TrackEnded { track_id: 1 })
+    });
+
+    // The tail from 700 ms (frame 30870) reaches the device whole.
+    let source = decode("sine.flac");
+    let heard = rig.heard();
+    let tail = &source[2 * 30_870..];
+    let at = find(&heard, &tail[4_000..4_256]).expect("the tail was played");
+    let start = at - 4_000;
+    assert!(heard[start + 2_000..start + tail.len() - 2_000] == tail[2_000..tail.len() - 2_000]);
+}
+
+#[test]
+fn pause_holds_the_position_and_resume_continues() {
+    let mut rig = rig(Config {
+        speed: 1,
+        ..Config::default()
+    });
+    rig.player.play(1, fixture("sine.flac"));
+    rig.until_playing(1);
+    rig.await_status("some progress", |s| s.position_ms > 100);
+
+    rig.player.pause();
+    rig.await_status("pause", |s| s.state == PlaybackState::Paused);
+    // The fade-out and the next status refresh both take a few milliseconds.
+    std::thread::sleep(Duration::from_millis(100));
+    let held = rig.player.status().position_ms;
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        rig.player.status().position_ms,
+        held,
+        "paused audio does not advance"
+    );
+
+    rig.player.resume();
+    rig.until("the track to end", |e| {
+        matches!(e, PlayerEvent::TrackEnded { track_id: 1 })
+    });
+}
+
+mod bit_perfect {
+    use super::*;
+
+    fn exact_rig() -> Rig {
+        rig(Config::default())
+    }
+
+    #[test]
+    fn plays_the_source_unchanged_at_unity_whatever_the_volume_and_says_so() {
+        let mut rig = exact_rig();
+        rig.player.set_volume(0.3);
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+
+        rig.until_playing(1);
+        let status = rig.player.status();
+        assert!(status.bit_perfect);
+        assert_eq!(status.volume, 1.0, "volume is fixed at unity");
+        assert_eq!(
+            status.output_format.as_deref(),
+            Some("32-bit float 44.1 kHz")
+        );
+
+        rig.until_stopped();
+        assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+        assert_eq!(rig.opened(), [(44_100, true)]);
+        assert_eq!(rig.device_calls(), ["capture", "take_exclusive", "restore"]);
+        assert!(
+            !rig.player.status().bit_perfect,
+            "nothing is playing any more"
+        );
+    }
+
+    #[test]
+    fn without_it_the_volume_applies_and_the_device_is_not_taken() {
+        let mut rig = exact_rig();
+        rig.player.set_volume(0.3);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        let status = rig.player.status();
+        assert!(!status.bit_perfect);
+        assert_eq!(status.volume, 0.3);
+
+        rig.until_stopped();
+        let source = decode("sine.flac");
+        let peak = rig
+            .heard()
+            .iter()
+            .fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        let source_peak = source.iter().fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        assert!(
+            peak < 0.05 * source_peak,
+            "cubic volume 0.3 is about -31 dB"
+        );
+        assert_eq!(rig.device_calls(), ["capture", "restore"]);
+    }
+
+    #[test]
+    fn changing_the_volume_while_it_is_on_explains_that_the_device_is_in_charge() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+
+        rig.player.set_volume(0.5);
+        let notice = rig.until("a notice", |e| matches!(e, PlayerEvent::Notice { .. }));
+
+        assert!(
+            matches!(&notice, PlayerEvent::Notice { message } if message.contains("device")),
+            "{notice:?}"
+        );
+        assert_eq!(rig.player.status().volume, 1.0);
+    }
+
+    #[test]
+    fn changing_the_volume_normally_says_nothing() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.player.set_volume(0.5);
+        rig.settle();
+        assert!(rig.notices().is_empty());
+        assert_eq!(rig.player.status().volume, 0.5);
+    }
+
+    #[test]
+    fn a_rate_the_device_lacks_plays_normally_with_a_notice_and_gives_the_device_back() {
+        let mut rig = exact_rig();
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine-22k.aiff"));
+
+        rig.until_playing(1);
+        let status = rig.player.status();
+        assert!(!status.bit_perfect);
+        assert_eq!(
+            status.output_sample_rate,
+            Some(48_000),
+            "resampled to the device default"
+        );
+        rig.until_stopped();
+
+        let notices = rig.notices();
+        assert!(
+            notices.iter().any(|m| m.contains("22.05 kHz")),
+            "the notice names the rate: {notices:?}"
+        );
+        assert_eq!(
+            rig.device_calls(),
+            ["capture", "take_exclusive", "release_exclusive", "restore"],
+            "exclusivity is dropped as soon as it is known to be useless"
+        );
+        assert_eq!(rig.opened(), [(22_050, false)]);
+    }
+
+    #[test]
+    fn a_device_held_by_another_app_is_not_forced() {
+        let mut rig = rig(Config {
+            held_elsewhere: true,
+            ..Config::default()
+        });
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+
+        rig.until_playing(1);
+        assert!(!rig.player.status().bit_perfect);
+        rig.until_stopped();
+        assert!(
+            rig.notices().iter().any(|m| m.contains("another app")),
+            "{:?}",
+            rig.notices()
+        );
+        assert_eq!(rig.opened(), [(44_100, false)]);
+    }
+
+    #[test]
+    fn asking_while_nothing_plays_opens_nothing_until_there_is_a_track() {
+        let mut rig = exact_rig();
+        rig.player.set_bit_perfect(true);
+        rig.settle();
+        assert!(rig.opened().is_empty());
+        assert!(rig.device_calls().is_empty());
+
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        assert_eq!(rig.opened(), [(44_100, true)]);
+    }
+
+    #[test]
+    fn switching_on_mid_track_moves_the_audio_to_an_exact_stream_where_it_was() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.await_status("some progress", |s| s.position_ms > 200);
+
+        rig.player.set_bit_perfect(true);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+        let resumed = rig.player.status().position_ms;
+        assert!(
+            (150..600).contains(&resumed),
+            "carried on from about where it was: {resumed} ms"
+        );
+
+        rig.until("the track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 1 })
+        });
+        rig.until_stopped();
+        assert_eq!(rig.opened(), [(44_100, false), (44_100, true)]);
+        let started = rig
+            .seen
+            .iter()
+            .filter(|e| matches!(e, PlayerEvent::TrackStarted { .. }))
+            .count();
+        let ended = rig
+            .seen
+            .iter()
+            .filter(|e| matches!(e, PlayerEvent::TrackEnded { .. }))
+            .count();
+        assert_eq!((started, ended), (1, 1), "the same track carries on");
+        assert_eq!(rig.device_calls(), ["capture", "take_exclusive", "restore"]);
+    }
+
+    #[test]
+    fn switching_off_mid_track_returns_to_the_shared_device_and_the_volume() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+        rig.player.set_volume(0.5);
+
+        rig.player.set_bit_perfect(false);
+        rig.await_status("shared mode", |s| {
+            !s.bit_perfect && s.state == PlaybackState::Playing
+        });
+        assert_eq!(
+            rig.player.status().volume,
+            0.5,
+            "the remembered volume applies again"
+        );
+
+        rig.until("the track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 1 })
+        });
+        rig.until_stopped();
+        assert_eq!(rig.opened(), [(44_100, true), (44_100, false)]);
+        assert_eq!(
+            rig.device_calls(),
+            ["capture", "take_exclusive", "release_exclusive", "restore"]
+        );
+    }
+
+    #[test]
+    fn switching_while_paused_stays_paused() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.player.pause();
+        rig.await_status("pause", |s| s.state == PlaybackState::Paused);
+        let held = rig.player.status().position_ms;
+
+        rig.player.set_bit_perfect(true);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+        std::thread::sleep(Duration::from_millis(150));
+
+        let status = rig.player.status();
+        assert_eq!(status.state, PlaybackState::Paused);
+        assert!(
+            status.position_ms.abs_diff(held) < 50,
+            "{} vs {held}",
+            status.position_ms
+        );
+    }
+
+    #[test]
+    fn a_run_of_tracks_takes_the_device_once_and_gives_it_back_once() {
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.player.queue_next(2, fixture("sine.flac"));
+        rig.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        rig.until_stopped();
+
+        assert_eq!(
+            rig.opened(),
+            [(44_100, true)],
+            "gapless tracks share the stream"
+        );
+        assert_eq!(rig.device_calls(), ["capture", "take_exclusive", "restore"]);
+    }
+
+    #[test]
+    fn a_new_rate_in_the_same_run_reopens_the_stream_but_keeps_the_device() {
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.player.queue_next(2, fixture("sine-alac.m4a"));
+        rig.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        rig.until_stopped();
+
+        assert_eq!(rig.opened(), [(44_100, true), (48_000, true)]);
+        let calls = rig.device_calls();
+        assert_eq!(calls.iter().filter(|c| **c == "capture").count(), 1);
+        assert_eq!(calls.iter().filter(|c| **c == "restore").count(), 1);
+    }
+
+    #[test]
+    fn a_change_of_bit_depth_needs_a_new_stream_only_when_exact() {
+        let mut exact = rig(Config::default());
+        exact.player.set_bit_perfect(true);
+        exact.player.play(1, fixture("sine.flac"));
+        exact.player.queue_next(2, fixture("sine-24bit.flac"));
+        exact.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        assert_eq!(exact.opened(), [(44_100, true), (44_100, true)]);
+
+        let mut shared = rig(Config::default());
+        shared.player.play(1, fixture("sine.flac"));
+        shared.player.queue_next(2, fixture("sine-24bit.flac"));
+        shared.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        assert_eq!(
+            shared.opened(),
+            [(44_100, false)],
+            "volume mode stays gapless across depths"
+        );
+    }
+
+    #[test]
+    fn the_fallback_is_retried_for_the_next_track() {
+        let mut rig = rig(Config {
+            rates: vec![44_100],
+            ..Config::default()
+        });
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine-22k.aiff"));
+        rig.player.queue_next(2, fixture("sine.flac"));
+        rig.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        rig.until_stopped();
+
+        assert_eq!(rig.opened(), [(22_050, false), (44_100, true)]);
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn dsd_is_converted_and_reported_as_not_bit_perfect() {
+        let mut rig = exact_rig();
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine-dsd64.dsf"));
+        rig.until_playing(1);
+        assert!(!rig.player.status().bit_perfect);
+        rig.until_stopped();
+        assert!(
+            rig.notices().iter().any(|m| m.contains("352.8 kHz")),
+            "{:?}",
+            rig.notices()
+        );
+    }
+}

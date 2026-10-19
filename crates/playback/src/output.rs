@@ -3,8 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{ErrorKind, FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
+use cpal::{FromSample, SampleFormat, SizedSample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::gain::{self, Ramp, Volume};
@@ -23,9 +22,30 @@ pub struct Format {
     pub channels: u16,
 }
 
+/// What the engine asks of an output stream for one source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub source: Format,
+    /// Bits per sample in the file, used to pick an integer device format in exact mode.
+    pub bit_depth: Option<u32>,
+    /// Bit-perfect: the device runs at exactly the source's rate and channels, volume is fixed at
+    /// unity, and the device is exclusive.
+    pub exact: bool,
+}
+
+/// What an open stream turned out to be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputInfo {
+    /// Whether the stream really is bit-perfect, which is only so if exact mode was requested
+    /// and the device honoured all of it.
+    pub bit_perfect: bool,
+    /// The format the device is fed, e.g. "24-bit 96 kHz".
+    pub label: String,
+}
+
 /// State shared between the engine thread and the audio callback; atomics only.
 #[derive(Default)]
-struct Shared {
+pub struct Shared {
     /// Frames the callback has taken from the ring; never reset, so positions can be derived
     /// from differences.
     consumed: AtomicU64,
@@ -42,62 +62,79 @@ pub trait Sink {
     fn push(&mut self, samples: &[f32]) -> usize;
 }
 
+/// A device stream whose callback is already wired to a ring. Dropping it closes the stream.
+pub trait Stream {
+    fn start(&self) -> Result<()>;
+}
+
+impl Stream for cpal::Stream {
+    fn start(&self) -> Result<()> {
+        use cpal::traits::StreamTrait;
+        Ok(self.play()?)
+    }
+}
+
 /// An open output stream plus the ring buffer that feeds it.
 pub struct Output {
-    stream: cpal::Stream,
+    stream: Box<dyn Stream>,
     producer: Producer<f32>,
     shared: Arc<Shared>,
     format: Format,
+    request: Request,
+    info: OutputInfo,
 }
 
-impl Output {
-    /// Opens the default device at `source`'s rate and channel count when it supports them,
-    /// otherwise at the device's own default. The stream is created paused; call `start`.
-    pub fn open(
-        source: Format,
-        volume: Arc<Volume>,
-        on_failure: impl Fn(cpal::Error) + Send + 'static,
-    ) -> Result<Output> {
-        let device = cpal::default_host()
-            .default_output_device()
-            .ok_or(Error::NoDevice)?;
-        let (config, sample_format) = choose_config(&device, source)?;
-        let format = Format {
-            sample_rate: config.sample_rate,
-            channels: config.channels,
-        };
+/// The engine's end of a new output's plumbing: the ring's write end and the shared flags.
+pub struct Pipe {
+    producer: Producer<f32>,
+    shared: Arc<Shared>,
+}
 
+impl Pipe {
+    /// The callback goes to the backend's device; the pipe stays to become the [`Output`].
+    pub fn new(format: Format, volume: Arc<Volume>, exact: bool) -> (Callback, Pipe) {
         let capacity = format.sample_rate as usize * usize::from(format.channels) * RING_MS / 1000;
         let (producer, consumer) = RingBuffer::new(capacity);
         let shared = Arc::new(Shared::default());
-        let callback = Callback::new(consumer, Arc::clone(&shared), volume, format);
-
-        let on_error = move |error: cpal::Error| {
-            if is_fatal(error.kind()) {
-                on_failure(error);
-            }
-        };
-        let stream = match sample_format {
-            SampleFormat::F32 => build::<f32>(&device, config, callback, on_error),
-            SampleFormat::I32 => build::<i32>(&device, config, callback, on_error),
-            SampleFormat::I16 => build::<i16>(&device, config, callback, on_error),
-            _ => Err(Error::NoSampleFormat),
-        }?;
-
-        Ok(Output {
-            stream,
-            producer,
-            shared,
-            format,
-        })
+        let callback = Callback::new(consumer, Arc::clone(&shared), volume, format, exact);
+        (callback, Pipe { producer, shared })
     }
 
+    /// Finishes the output once the backend has built `stream` around the callback.
+    pub fn into_output(
+        self,
+        stream: Box<dyn Stream>,
+        format: Format,
+        request: Request,
+        info: OutputInfo,
+    ) -> Output {
+        Output {
+            stream,
+            producer: self.producer,
+            shared: self.shared,
+            format,
+            request,
+            info,
+        }
+    }
+}
+
+impl Output {
+    /// The device's format, which differs from the source's when the device cannot match it.
     pub fn format(&self) -> Format {
         self.format
     }
 
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+
+    pub fn info(&self) -> &OutputInfo {
+        &self.info
+    }
+
     pub fn start(&self) -> Result<()> {
-        Ok(self.stream.play()?)
+        self.stream.start()
     }
 
     pub fn consumed(&self) -> u64 {
@@ -140,63 +177,14 @@ impl Sink for Output {
     }
 }
 
-fn is_fatal(kind: ErrorKind) -> bool {
-    !matches!(
-        kind,
-        ErrorKind::Xrun | ErrorKind::RealtimeDenied | ErrorKind::DeviceChanged
-    )
-}
-
-fn rank(format: SampleFormat) -> Option<u8> {
-    match format {
-        SampleFormat::F32 => Some(3),
-        SampleFormat::I32 => Some(2),
-        SampleFormat::I16 => Some(1),
-        _ => None,
-    }
-}
-
-fn choose_config(device: &cpal::Device, source: Format) -> Result<(StreamConfig, SampleFormat)> {
-    let native = device
-        .supported_output_configs()?
-        .filter(|range| range.channels() == source.channels)
-        .filter(|range| rank(range.sample_format()).is_some())
-        .filter_map(|range| range.try_with_sample_rate(source.sample_rate))
-        .max_by_key(|config| rank(config.sample_format()));
-
-    let config = match native {
-        Some(config) => config,
-        None => device.default_output_config()?,
-    };
-    if rank(config.sample_format()).is_none() {
-        return Err(Error::NoSampleFormat);
-    }
-    Ok((config.config(), config.sample_format()))
-}
-
-fn build<T>(
-    device: &cpal::Device,
-    config: StreamConfig,
-    mut callback: Callback,
-    on_error: impl FnMut(cpal::Error) + Send + 'static,
-) -> Result<cpal::Stream>
-where
-    T: SizedSample + FromSample<f32>,
-{
-    Ok(device.build_output_stream(
-        config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| callback.render(data),
-        on_error,
-        None,
-    )?)
-}
-
 /// The real-time half: runs on the device's thread, so it takes no locks, allocates nothing and
 /// does no I/O.
-struct Callback {
+pub struct Callback {
     consumer: Consumer<f32>,
     shared: Arc<Shared>,
     volume: Arc<Volume>,
+    /// Bit-perfect streams ignore the volume and stay at unity.
+    exact: bool,
     /// Pause, resume and flush fade; the ring is only drained while this is above zero.
     fade: Ramp,
     /// Volume changes. Separate from `fade` so that volume 0 still advances playback.
@@ -211,24 +199,26 @@ impl Callback {
         shared: Arc<Shared>,
         volume: Arc<Volume>,
         format: Format,
+        exact: bool,
     ) -> Self {
         Callback {
             consumer,
             shared,
             fade: Ramp::new(format.sample_rate, 0.0),
-            level: Ramp::new(format.sample_rate, gain::curve(volume.get())),
+            level: Ramp::new(format.sample_rate, level_target(&volume, exact)),
             volume,
+            exact,
             channels: usize::from(format.channels),
             flushed: 0,
         }
     }
 
-    fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
+    pub fn render<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T]) {
         let request = self.shared.flush_request.load(Ordering::Acquire);
         let flushing = request != self.flushed;
         let hold = flushing || self.shared.paused.load(Ordering::Relaxed);
         let fade_target = if hold { 0.0 } else { 1.0 };
-        let level_target = gain::curve(self.volume.get());
+        let level_target = level_target(&self.volume, self.exact);
 
         let ready = self.consumer.slots() / self.channels * self.channels;
         let mut taken = 0;
@@ -247,7 +237,7 @@ impl Callback {
                         *out = match queued.next() {
                             Some(sample) => {
                                 taken += 1;
-                                T::from_sample(sample * scale)
+                                to_device(sample * scale)
                             }
                             None => T::EQUILIBRIUM,
                         };
@@ -272,8 +262,29 @@ impl Callback {
     }
 }
 
+fn level_target(volume: &Volume, exact: bool) -> f32 {
+    if exact {
+        1.0
+    } else {
+        gain::curve(volume.get())
+    }
+}
+
+/// Converts to the device's sample type. Integer formats cannot represent +1.0 or anything
+/// beyond, and cpal's 24-bit type does not saturate, so out-of-range floats are clipped first;
+/// float formats pass through untouched.
+fn to_device<T: SizedSample + FromSample<f32>>(sample: f32) -> T {
+    if matches!(T::FORMAT, SampleFormat::F32 | SampleFormat::F64) {
+        T::from_sample(sample)
+    } else {
+        T::from_sample(sample.clamp(-1.0, 1.0 - f32::EPSILON / 2.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use cpal::I24;
+
     use super::*;
 
     const RATE: u32 = 48_000;
@@ -285,6 +296,10 @@ mod tests {
     }
 
     fn rig(channels: u16, volume: f32) -> Rig {
+        rig_with(channels, volume, false)
+    }
+
+    fn rig_with(channels: u16, volume: f32, exact: bool) -> Rig {
         let (producer, consumer) = RingBuffer::new(RATE as usize * usize::from(channels));
         let shared = Arc::new(Shared::default());
         let format = Format {
@@ -296,6 +311,7 @@ mod tests {
             Arc::clone(&shared),
             Arc::new(Volume::new(volume)),
             format,
+            exact,
         );
         Rig {
             producer,
@@ -431,11 +447,95 @@ mod tests {
         assert!(out[2..].iter().all(|&sample| sample == 0.0));
     }
 
+    fn render_as<T: SizedSample + FromSample<f32>>(rig: &mut Rig, frames: usize) -> Vec<T> {
+        let mut data = vec![T::EQUILIBRIUM; frames * rig.callback.channels];
+        rig.callback.render(&mut data);
+        data
+    }
+
+    /// Plays `values` (as source samples `value / scale`) through a bit-perfect rig after a lead-in
+    /// of silence that absorbs the fade-in, and returns what the device received for them.
+    fn play_exactly<T: SizedSample + FromSample<f32>>(values: &[i32], scale: f32) -> Vec<T> {
+        let lead = 1_000;
+        let mut rig = rig_with(1, 0.25, true);
+        rig.producer.push_entire_slice(&vec![0.0; lead]).unwrap();
+        let source: Vec<f32> = values.iter().map(|&v| v as f32 / scale).collect();
+        rig.producer.push_entire_slice(&source).unwrap();
+        let mut out = render_as::<T>(&mut rig, lead + values.len());
+        out.split_off(lead)
+    }
+
     #[test]
-    fn fatal_errors_exclude_recoverable_glitches() {
-        assert!(!is_fatal(ErrorKind::Xrun));
-        assert!(!is_fatal(ErrorKind::DeviceChanged));
-        assert!(is_fatal(ErrorKind::DeviceNotAvailable));
-        assert!(is_fatal(ErrorKind::StreamInvalidated));
+    fn sixteen_bit_samples_reach_a_sixteen_bit_device_unchanged() {
+        let values: Vec<i32> = (-32_768..32_768).step_by(2).collect();
+        let out = play_exactly::<i16>(&values, 32_768.0);
+        assert!(out.iter().map(|&v| i32::from(v)).eq(values.iter().copied()));
+    }
+
+    #[test]
+    fn twenty_four_bit_samples_reach_a_24_bit_device_unchanged() {
+        let mut values: Vec<i32> = (-8_388_608..8_388_608).step_by(997).collect();
+        values.extend([-8_388_608, -1, 0, 1, 8_388_607]);
+        let out = play_exactly::<I24>(&values, 8_388_608.0);
+        assert!(out.iter().map(|v| v.inner()).eq(values.iter().copied()));
+    }
+
+    #[test]
+    fn twenty_four_bit_samples_reach_a_32_bit_device_unchanged_in_its_top_bits() {
+        let values: Vec<i32> = (-8_388_608..8_388_608).step_by(997).collect();
+        let out = play_exactly::<i32>(&values, 8_388_608.0);
+        assert!(out.iter().copied().eq(values.iter().map(|&v| v << 8)));
+    }
+
+    #[test]
+    fn a_float_device_carries_sixteen_and_24_bit_samples_unchanged() {
+        let values: Vec<i32> = (-8_388_608..8_388_608).step_by(997).collect();
+        let out = play_exactly::<f32>(&values, 8_388_608.0);
+        assert!(
+            out.iter()
+                .copied()
+                .eq(values.iter().map(|&v| v as f32 / 8_388_608.0))
+        );
+    }
+
+    #[test]
+    fn a_bit_perfect_stream_ignores_the_volume() {
+        let mut exact = rig_with(1, 0.25, true);
+        exact.producer.push_entire_slice(&[0.5; 2_000]).unwrap();
+        assert_eq!(render(&mut exact, 2_000)[1_999], 0.5);
+
+        let mut shared = rig_with(1, 0.25, false);
+        shared.producer.push_entire_slice(&[0.5; 2_000]).unwrap();
+        assert!(
+            render(&mut shared, 2_000)[1_999] < 0.01,
+            "cubic curve of 0.25"
+        );
+    }
+
+    #[test]
+    fn integer_devices_clip_out_of_range_samples_instead_of_wrapping() {
+        let mut rig = rig_with(1, 1.0, true);
+        rig.producer.push_entire_slice(&[0.0; 1_000]).unwrap();
+        rig.producer.push_entire_slice(&[1.5, -1.5, 1.0]).unwrap();
+        let out = render_as::<i16>(&mut rig, 1_003);
+        assert_eq!(&out[1_000..], [i16::MAX, i16::MIN, i16::MAX]);
+
+        let mut rig = rig_with(1, 1.0, true);
+        rig.producer.push_entire_slice(&[0.0; 1_000]).unwrap();
+        rig.producer.push_entire_slice(&[1.5, -1.5]).unwrap();
+        let out = render_as::<I24>(&mut rig, 1_002);
+        assert_eq!(
+            (out[1_000].inner(), out[1_001].inner()),
+            (8_388_607, -8_388_608)
+        );
+    }
+
+    #[test]
+    fn float_devices_receive_values_beyond_full_scale_as_they_are() {
+        let mut rig = rig_with(1, 1.0, true);
+        rig.producer.push_entire_slice(&[0.0; 1_000]).unwrap();
+        rig.producer.push_entire_slice(&[1.5, -1.5]).unwrap();
+        let out = render_as::<f32>(&mut rig, 1_002);
+        assert_eq!(&out[1_000..], [1.5, -1.5]);
     }
 }

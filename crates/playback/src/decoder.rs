@@ -1,272 +1,181 @@
 use std::any::Any;
 use std::fs::File;
-use std::io::ErrorKind;
+use std::io::{Read, Seek, SeekFrom};
 use std::panic::{self, AssertUnwindSafe};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
-use symphonia::core::errors::{Error as SymphoniaError, SeekErrorKind};
-use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::units::{Duration, Time, TimeBase, Timestamp};
+use symphonia::core::errors::Error as SymphoniaError;
 
-use crate::{Error, Result, mp4};
+use crate::mix::ChannelLayout;
+use crate::symphonia_source::SymphoniaSource;
+use crate::{Error, Result};
+
+/// What a source knows about its stream once opened.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Info {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub layout: ChannelLayout,
+    /// Bits per sample in the file; `None` for lossy codecs, which have no integer depth.
+    pub bit_depth: Option<u32>,
+    pub duration_ms: Option<u64>,
+}
+
+/// Which decoder is reading a file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    Symphonia,
+    Ffmpeg,
+}
+
+/// One way of turning a file into PCM.
+pub(crate) trait Source: Send {
+    fn backend(&self) -> Backend;
+    fn info(&self) -> Info;
+    fn read_chunk(&mut self) -> Result<Option<&[f32]>>;
+    fn seek_to(&mut self, position_ms: u64) -> Result<u64>;
+}
 
 /// Pulls interleaved f32 PCM out of an audio file, independent of any output device.
 ///
-/// A call that fails with [`Error::Panicked`] leaves the decoder in an unknown state; discard it.
+/// Files are read by symphonia where it can, and otherwise (Opus, WavPack, APE, DSD) by FFmpeg
+/// when the `ffmpeg` feature is on. A call that fails with [`Error::Panicked`] leaves the decoder
+/// in an unknown state; discard it.
 pub struct Decoder {
-    path: PathBuf,
-    format: Box<dyn FormatReader>,
-    codec: Box<dyn AudioDecoder>,
-    track_id: u32,
-    time_base: TimeBase,
-    sample_rate: u32,
-    channels: u16,
-    duration_ms: Option<u64>,
-    samples: Vec<f32>,
-    /// Timestamp of the first real frame, for containers that leave encoder delay in the stream
-    /// and say separately how much to discard (mp4). Zero when the codec trims it itself.
-    origin_ts: i64,
-    /// Timestamp where real audio ends, for containers that mark trailing padding.
-    end_ts: Option<i64>,
-    /// Accurate seeks can only land on a packet boundary; frames before this are discarded.
-    skip_until: Option<Timestamp>,
-    /// Nothing has been read or seeked yet.
-    pristine: bool,
-    decoded_any: bool,
-    seeked: bool,
+    source: Box<dyn Source>,
+    info: Info,
 }
 
 impl Decoder {
     pub fn open(path: &Path) -> Result<Decoder> {
-        guarded(|| Decoder::open_with(path, |reader| reader))
+        if is_ffmpeg_only(path) {
+            return open_with_ffmpeg(path);
+        }
+        let opened = guarded(|| SymphoniaSource::open(path).map(Decoder::new));
+        match opened {
+            Err(error) if can_fall_back(&error) => open_fallback(path, error),
+            other => other,
+        }
     }
 
-    /// `open` with a hook on the freshly probed reader, which lets tests substitute a faulty one.
+    /// `open` with symphonia only and a hook on the freshly probed reader, which lets tests
+    /// substitute a faulty one.
+    #[cfg(test)]
     pub(crate) fn open_with(
         path: &Path,
-        wrap: impl FnOnce(Box<dyn FormatReader>) -> Box<dyn FormatReader>,
+        wrap: impl FnOnce(
+            Box<dyn symphonia::core::formats::FormatReader>,
+        ) -> Box<dyn symphonia::core::formats::FormatReader>,
     ) -> Result<Decoder> {
-        let source = MediaSourceStream::new(Box::new(File::open(path)?), Default::default());
-        let mut hint = Hint::new();
-        if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
-            hint.with_extension(extension);
+        guarded(|| SymphoniaSource::open_with(path, wrap).map(Decoder::new))
+    }
+
+    fn new(source: impl Source + 'static) -> Decoder {
+        Decoder {
+            info: source.info(),
+            source: Box::new(source),
         }
-
-        let format = symphonia::default::get_probe().probe(
-            &hint,
-            source,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )?;
-        let track = format
-            .default_track(TrackType::Audio)
-            .ok_or(Error::NoAudioTrack)?;
-        let params = track
-            .codec_params
-            .as_ref()
-            .and_then(|params| params.audio())
-            .ok_or(Error::NoAudioTrack)?;
-        let codec = symphonia::default::get_codecs()
-            .make_audio_decoder(params, &AudioDecoderOptions::default())?;
-
-        // The decoder knows the final parameters (e.g. mp3 learns them from the first frame).
-        let params = codec.codec_params();
-        let sample_rate = params
-            .sample_rate
-            .ok_or(Error::Unsupported("unknown sample rate"))?;
-        let channels = params
-            .channels
-            .as_ref()
-            .map(|channels| channels.count())
-            .and_then(|count| u16::try_from(count).ok())
-            .filter(|&count| count > 0)
-            .ok_or(Error::Unsupported("unknown channel layout"))?;
-        let time_base = track
-            .time_base
-            .or_else(|| TimeBase::try_from_recip(sample_rate))
-            .ok_or(Error::Unsupported("unknown time base"))?;
-
-        // mp3 (LAME header) and ogg trim their delay and padding inside symphonia; for mp4 it
-        // only parses the edit list, so apply it here. A track symphonia did trim is left alone.
-        let trim = (format.format_info().short_name == "isomp4" && track.delay.is_none())
-            .then(|| mp4::read_trim(path, track.id))
-            .flatten();
-        let origin_ts = trim
-            .as_ref()
-            .map_or(0, |trim| i64::try_from(trim.start).unwrap_or(0));
-        let end_ts = trim
-            .as_ref()
-            .and_then(|trim| i64::try_from(trim.length?).ok())
-            .map(|length| origin_ts.saturating_add(length));
-
-        let duration_ms = match trim.and_then(|trim| trim.length) {
-            Some(ticks) => time_base.calc_duration(Duration::from(ticks)),
-            None => track
-                .num_frames
-                .map(|frames| frames * 1000 / u64::from(sample_rate))
-                .map(Time::from_millis_u64)
-                .or_else(|| time_base.calc_duration(track.duration?)),
-        }
-        .and_then(|time| u64::try_from(time.as_millis()).ok());
-
-        Ok(Decoder {
-            track_id: track.id,
-            path: path.to_path_buf(),
-            format: wrap(format),
-            codec,
-            time_base,
-            sample_rate,
-            channels,
-            duration_ms,
-            samples: Vec::new(),
-            origin_ts,
-            end_ts,
-            skip_until: None,
-            pristine: true,
-            decoded_any: false,
-            seeked: false,
-        })
     }
 
     pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        self.info.sample_rate
     }
 
     pub fn channels(&self) -> u16 {
-        self.channels
+        self.info.channels
+    }
+
+    /// Which decoder reads this file.
+    pub fn backend(&self) -> Backend {
+        self.source.backend()
+    }
+
+    /// Which speakers the channels are, which decides how they are downmixed.
+    pub fn channel_layout(&self) -> ChannelLayout {
+        self.info.layout
+    }
+
+    /// Bits per sample in the file, `None` for lossy formats.
+    pub fn bit_depth(&self) -> Option<u32> {
+        self.info.bit_depth
     }
 
     pub fn duration_ms(&self) -> Option<u64> {
-        self.duration_ms
+        self.info.duration_ms
     }
 
     /// Decodes the next packet. The slice is valid until the next call; `None` marks end of stream.
     pub fn next_chunk(&mut self) -> Result<Option<&[f32]>> {
-        guarded(|| self.read_chunk())
+        guarded(|| self.source.read_chunk())
     }
 
     /// Seeks to the frame at `position_ms` and returns the position actually landed on.
     pub fn seek(&mut self, position_ms: u64) -> Result<u64> {
-        guarded(|| self.seek_to(position_ms))
-    }
-
-    fn read_chunk(&mut self) -> Result<Option<&[f32]>> {
-        loop {
-            let packet = match self.format.next_packet() {
-                Ok(Some(packet)) => packet,
-                Ok(None) => return self.end_of_stream(),
-                // A file cut short mid-packet is common; play what is there.
-                Err(SymphoniaError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
-                    return self.end_of_stream();
-                }
-                Err(error) => return Err(error.into()),
-            };
-            self.pristine = false;
-            if packet.track_id != self.track_id {
-                continue;
-            }
-
-            match self.codec.decode(&packet) {
-                Ok(decoded) => {
-                    decoded.copy_to_vec_interleaved(&mut self.samples);
-                    self.decoded_any = true;
-                }
-                // A damaged packet costs a few milliseconds of audio, not the whole track.
-                Err(SymphoniaError::DecodeError(_) | SymphoniaError::IoError(_)) => continue,
-                Err(error) => return Err(error.into()),
-            }
-
-            // Position of the packet's first frame; the decoder has already dropped any
-            // encoder-delay frames it was told about.
-            let first = packet
-                .pts
-                .get()
-                .saturating_add_unsigned(packet.trim_start.get());
-            let channels = usize::from(self.channels);
-            let frames = self.samples.len() / channels;
-            if frames == 0 {
-                // Some codecs emit nothing for their first packet.
-                continue;
-            }
-            let window_start = self
-                .skip_until
-                .map_or(self.origin_ts, |target| target.get().max(self.origin_ts));
-            let skip = self.frames_between(first, window_start).min(frames);
-            let keep = self
-                .end_ts
-                .map_or(frames, |end| self.frames_between(first, end).min(frames));
-
-            if keep == 0 {
-                // Everything from here on is padding.
-                return self.end_of_stream();
-            }
-            if skip == frames {
-                continue;
-            }
-            if skip >= keep {
-                // The seek target is past the trimmed end.
-                return self.end_of_stream();
-            }
-            self.skip_until = None;
-            return Ok(Some(&self.samples[skip * channels..keep * channels]));
-        }
-    }
-
-    fn seek_to(&mut self, position_ms: u64) -> Result<u64> {
-        // symphonia's readers can lose their place when seeking after reads (mp4 once it has hit
-        // the end, flac inside its buffer), so only a freshly opened reader is trusted to seek.
-        if !self.pristine {
-            *self = Decoder::open_with(&self.path, |reader| reader)?;
-        }
-        self.pristine = false;
-        self.seeked = true;
-
-        let position = self
-            .time_base
-            .calc_timestamp(Time::from_millis_u64(position_ms))
-            .ok_or(SymphoniaError::SeekError(SeekErrorKind::OutOfRange))?;
-        let seeked = self.format.seek(
-            SeekMode::Accurate,
-            SeekTo::Timestamp {
-                ts: Timestamp::new(position.get().saturating_add(self.origin_ts)),
-                track_id: self.track_id,
-            },
-        )?;
-        self.codec.reset();
-        self.skip_until = Some(seeked.required_ts);
-
-        let landed = Timestamp::new(seeked.required_ts.get() - self.origin_ts);
-        let landed = self.time_base.calc_time_saturating(landed);
-        Ok(u64::try_from(landed.as_millis()).unwrap_or(0))
-    }
-
-    /// Running dry without ever producing audio means the body is unreadable, not that the track
-    /// is over; after a seek, though, there may genuinely be nothing left.
-    fn end_of_stream(&self) -> Result<Option<&[f32]>> {
-        if self.decoded_any || self.seeked {
-            Ok(None)
-        } else {
-            Err(Error::Empty)
-        }
-    }
-
-    /// Whole frames from timestamp `from` to `to`, zero when `to` is not later.
-    fn frames_between(&self, from: i64, to: i64) -> usize {
-        let ticks = u128::from(u64::try_from(to.saturating_sub(from)).unwrap_or(0));
-        let TimeBase { numer, denom } = self.time_base;
-        let frames = ticks * u128::from(numer.get()) * u128::from(self.sample_rate)
-            / u128::from(denom.get());
-        usize::try_from(frames).unwrap_or(usize::MAX)
+        guarded(|| self.source.seek_to(position_ms))
     }
 }
 
-/// symphonia can panic on malformed files. Containing that here turns a bad file into an error
-/// for its track instead of ending the thread that decodes everything else.
-fn guarded<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
+/// Whether symphonia failing with `error` means it cannot read this kind of file, as opposed to
+/// the file being unreachable.
+fn can_fall_back(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::NoAudioTrack | Error::Unsupported(_) | Error::Panicked(_) | Error::Decode(_)
+    ) && !matches!(error, Error::Decode(SymphoniaError::IoError(_)))
+}
+
+fn open_fallback(path: &Path, symphonia_error: Error) -> Result<Decoder> {
+    // symphonia's error is the one worth showing: it names what was wrong with the file.
+    open_with_ffmpeg(path).map_err(|_| symphonia_error)
+}
+
+#[cfg(feature = "ffmpeg")]
+fn open_with_ffmpeg(path: &Path) -> Result<Decoder> {
+    use crate::ffmpeg_source::FfmpegSource;
+    guarded(|| FfmpegSource::open(path).map(Decoder::new))
+}
+
+#[cfg(not(feature = "ffmpeg"))]
+fn open_with_ffmpeg(_: &Path) -> Result<Decoder> {
+    Err(Error::Unsupported("this format needs the `ffmpeg` feature"))
+}
+
+/// Whether the file is a format only FFmpeg can decode. symphonia's probe cannot be asked first
+/// for these: it has no reader for them, so its MP3 reader may latch onto a chance byte pattern
+/// and play noise.
+fn is_ffmpeg_only(path: &Path) -> bool {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut header = [0; 64];
+    if !read_header(&mut file, &mut header) {
+        return false;
+    }
+    // A leading ID3v2 tag pushes the real header past it (its size is a 28-bit syncsafe int).
+    if header.starts_with(b"ID3") {
+        let size = header[6..10]
+            .iter()
+            .fold(0u64, |size, byte| (size << 7) | u64::from(byte & 0x7F));
+        if file.seek(SeekFrom::Start(10 + size)).is_err() || !read_header(&mut file, &mut header) {
+            return false;
+        }
+    }
+    header.starts_with(b"MAC ")
+        || header.starts_with(b"wvpk")
+        || header.starts_with(b"DSD ")
+        || (header.starts_with(b"FRM8") && &header[12..16] == b"DSD ")
+        || (header.starts_with(b"OggS") && header.windows(8).any(|window| window == b"OpusHead"))
+}
+
+fn read_header(file: &mut File, header: &mut [u8; 64]) -> bool {
+    header.fill(0);
+    file.read(header).is_ok_and(|read| read >= 16)
+}
+
+/// symphonia and FFmpeg can panic on malformed files. Containing that here turns a bad file into
+/// an error for its track instead of ending the thread that decodes everything else.
+pub(crate) fn guarded<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
     panic::catch_unwind(AssertUnwindSafe(action))
         .unwrap_or_else(|payload| Err(Error::Panicked(panic_message(&*payload))))
 }
@@ -279,80 +188,12 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
         .unwrap_or_else(|| "unknown panic".to_owned())
 }
 
-/// A reader that panics on demand, for testing that panics are contained.
-#[cfg(test)]
-pub(crate) mod fault {
-    use symphonia::core::formats::{FormatInfo, MediaInfo, SeekedTo, Track};
-    use symphonia::core::io::MediaSourceStream;
-    use symphonia::core::meta::Metadata;
-    use symphonia::core::packet::Packet;
-
-    use super::*;
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub enum Fault {
-        NextPacket,
-        Seek,
-    }
-
-    /// Stands in for `Decoder::open` with the reader panicking while the file is being probed.
-    pub fn open_panics(_: &Path) -> Result<Decoder> {
-        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sine.flac");
-        guarded(|| Decoder::open_with(&real, |_| panic!("injected fault while probing")))
-    }
-
-    pub struct Faulty(pub Box<dyn FormatReader>, pub Fault);
-
-    impl Faulty {
-        pub fn wrap(fault: Fault) -> impl FnOnce(Box<dyn FormatReader>) -> Box<dyn FormatReader> {
-            move |reader| Box::new(Faulty(reader, fault))
-        }
-    }
-
-    impl FormatReader for Faulty {
-        fn format_info(&self) -> &FormatInfo {
-            self.0.format_info()
-        }
-
-        fn media_info(&self) -> &MediaInfo {
-            self.0.media_info()
-        }
-
-        fn metadata(&mut self) -> Metadata<'_> {
-            self.0.metadata()
-        }
-
-        fn seek(
-            &mut self,
-            mode: SeekMode,
-            to: SeekTo,
-        ) -> symphonia::core::errors::Result<SeekedTo> {
-            assert!(self.1 != Fault::Seek, "injected fault while seeking");
-            self.0.seek(mode, to)
-        }
-
-        fn tracks(&self) -> &[Track] {
-            self.0.tracks()
-        }
-
-        fn next_packet(&mut self) -> symphonia::core::errors::Result<Option<Packet>> {
-            assert!(self.1 != Fault::NextPacket, "injected fault while reading");
-            self.0.next_packet()
-        }
-
-        fn into_inner<'s>(self: Box<Self>) -> MediaSourceStream<'s>
-        where
-            Self: 's,
-        {
-            self.0.into_inner()
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::fault::{Fault, Faulty};
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::symphonia_source::fault::{Fault, Faulty};
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -380,8 +221,7 @@ mod tests {
 
     #[test]
     fn a_panic_while_opening_is_contained() {
-        let opened =
-            guarded(|| Decoder::open_with(&fixture("sine.flac"), |_| panic!("bad header")));
+        let opened = Decoder::open_with(&fixture("sine.flac"), |_| panic!("bad header"));
         assert!(matches!(opened, Err(Error::Panicked(_))));
     }
 
@@ -398,5 +238,19 @@ mod tests {
         let mut decoder =
             Decoder::open_with(&fixture("sine.flac"), Faulty::wrap(Fault::Seek)).unwrap();
         assert!(matches!(decoder.seek(500), Err(Error::Panicked(_))));
+    }
+
+    #[test]
+    fn only_unreadable_formats_fall_back_not_unreachable_files() {
+        assert!(can_fall_back(&Error::NoAudioTrack));
+        assert!(can_fall_back(&Error::Unsupported("codec")));
+        assert!(can_fall_back(&Error::Panicked(String::new())));
+        assert!(can_fall_back(&Error::Decode(SymphoniaError::Unsupported(
+            "probe"
+        ))));
+        assert!(!can_fall_back(&Error::Io(
+            std::io::ErrorKind::NotFound.into()
+        )));
+        assert!(!can_fall_back(&Error::Empty));
     }
 }
