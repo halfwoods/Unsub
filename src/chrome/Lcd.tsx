@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { playerSeek } from "../api/commands";
+import { libraryMixFor, playerSeek } from "../api/commands";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { VinylMark } from "./VinylMark";
@@ -65,6 +65,9 @@ export function Lcd() {
   const positionMs = useApp((s) => s.playback.positionMs);
   const durationMs = useApp((s) => s.playback.durationMs);
   const scan = useApp((s) => s.scan);
+  const notice = useApp((s) => s.notice);
+  const fromLibrary = useApp((s) => s.playingSource.type === "library");
+  const playTrackIds = useApp((s) => s.playTrackIds);
   const [showTotal, setShowTotal] = useState(false);
   const flip = useAlternating(nowPlaying !== null);
 
@@ -73,8 +76,22 @@ export function Lcd() {
     return (
       <div className="lcd lcd--playing">
         <div className="lcd-title">{nowPlaying.title}</div>
-        <div className="lcd-subtitle" key={secondLine}>
-          {secondLine}
+        {fromLibrary && (
+          // iTunes 10 put its Genius button here; ours starts an on-device mix from this song.
+          <button
+            className="lcd-mix"
+            aria-label="Start a Mix from this song"
+            title="Start a Mix from this song"
+            onClick={() => void libraryMixFor([nowPlaying.id]).then((ids) => playTrackIds([nowPlaying.id, ...ids]))}
+          >
+            <svg width={14} height={11} viewBox="0 0 14 11" aria-hidden="true">
+              <circle cx="4.8" cy="5.5" r="3.8" />
+              <circle cx="9.2" cy="5.5" r="3.8" />
+            </svg>
+          </button>
+        )}
+        <div className="lcd-subtitle" key={notice ?? secondLine}>
+          {notice ?? secondLine}
         </div>
         <div className="lcd-timeline">
           <span className="lcd-time lcd-time--elapsed">{formatClock(positionMs)}</span>

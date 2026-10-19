@@ -1,0 +1,93 @@
+/* Genius Mixes sat on a dark, softly lit stage rather than the white list background. */
+.mixes {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: radial-gradient(ellipse 90% 60% at 50% 0%, #4a4a4a, #222222 75%);
+  color: #ffffff;
+}
+
+.mixes--empty {
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 40px;
+}
+
+.mixes--empty h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.mixes--empty p {
+  max-width: 420px;
+  color: #bdbdbd;
+  line-height: 17px;
+}
+
+.mixes-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 28px 26px;
+  padding: 30px 24px;
+}
+
+.mix-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.mix-mosaic {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 6px 14px rgba(0, 0, 0, 0.6);
+  -webkit-box-reflect: below 2px linear-gradient(transparent 80%, rgba(255, 255, 255, 0.18));
+}
+
+.mix-mosaic img,
+.mix-mosaic > span:not(.mix-play) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #3a3a3a;
+}
+
+/* The round play button fades in on hover, as on iTunes' mix tiles. */
+.mix-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+.mix-play svg {
+  fill: #ffffff;
+  margin-left: 4px;
+}
+
+.mix-tile:hover .mix-play,
+.mix-tile:focus-visible .mix-play {
+  opacity: 1;
+}
+
+.mix-name {
+  font-size: var(--font-size);
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}

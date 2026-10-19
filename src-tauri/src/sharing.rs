@@ -267,7 +267,7 @@ impl MusicSource for LibrarySource {
         Ok(Some((summary, self.songs(&tracks)?)))
     }
 
-    fn cover_art(&self, id: &str, _size: Option<u32>) -> SourceResult<Option<(String, Vec<u8>)>> {
+    fn cover_art(&self, id: &str, size: Option<u32>) -> SourceResult<Option<(String, Vec<u8>)>> {
         let library = self.library();
         let track = match (track_id(id), decode("al", id)) {
             (Some(track), _) => Some(track),
@@ -275,7 +275,12 @@ impl MusicSource for LibrarySource {
             _ => None,
         };
         let Some(track) = track else { return Ok(None) };
-        Ok(library.artwork(track).map_err(source_err)?.map(|art| (art.mime, art.bytes)))
+        // Phones ask for a size; sending originals would burn their data plan on cover art.
+        let art = match size {
+            Some(size) => library.artwork_thumbnail(track, size),
+            None => library.artwork(track),
+        };
+        Ok(art.map_err(source_err)?.map(|art| (art.mime, art.bytes)))
     }
 
     fn open_stream(&self, song_id: &str, _max_bitrate_kbps: Option<u32>, _format: Option<&str>) -> SourceResult<Option<Stream>> {
@@ -322,6 +327,7 @@ pub struct SharingStatus {
 pub struct SharingState {
     settings_path: PathBuf,
     db_path: PathBuf,
+    artwork_cache: PathBuf,
     settings: Mutex<SharingSettings>,
     server: Mutex<Option<Server>>,
     last_error: Mutex<Option<String>>,
@@ -332,9 +338,16 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl SharingState {
-    pub fn load(settings_path: PathBuf, db_path: PathBuf) -> Self {
+    pub fn load(settings_path: PathBuf, db_path: PathBuf, artwork_cache: PathBuf) -> Self {
         let settings = std::fs::read(&settings_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let state = Self { settings_path, db_path, settings: Mutex::new(settings), server: Mutex::new(None), last_error: Mutex::new(None) };
+        let state = Self {
+            settings_path,
+            db_path,
+            artwork_cache,
+            settings: Mutex::new(settings),
+            server: Mutex::new(None),
+            last_error: Mutex::new(None),
+        };
         state.apply();
         state
     }
@@ -351,7 +364,8 @@ impl SharingState {
         }
         let started = Library::open(&self.db_path)
             .map_err(|e| e.to_string())
-            .and_then(|library| {
+            .and_then(|mut library| {
+                library.set_artwork_cache(self.artwork_cache.clone());
                 let config = ServerConfig {
                     bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, settings.port)),
                     username: settings.username.clone(),

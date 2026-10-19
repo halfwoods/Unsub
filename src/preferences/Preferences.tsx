@@ -1,17 +1,23 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { sharingStatus, sharingUpdate } from "../api/commands";
+import { playerSetBitPerfect, sharingStatus, sharingUpdate } from "../api/commands";
 import type { SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
+import { loadBitPerfect, saveBitPerfect } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
 
-type Tab = "general" | "sharing";
+type Tab = "general" | "playback" | "sharing";
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   {
     id: "general",
     label: "General",
     icon: <path d="M16 4a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 5.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13z" />,
+  },
+  {
+    id: "playback",
+    label: "Playback",
+    icon: <path d="M10 6v20l17-10z" />,
   },
   {
     id: "sharing",
@@ -35,6 +41,36 @@ function GeneralTab() {
         <option value="small">Small</option>
         <option value="large">Large</option>
       </select>
+    </div>
+  );
+}
+
+function PlaybackTab() {
+  const [bitPerfect, setBitPerfect] = useState(loadBitPerfect);
+  const outputFormat = useApp((s) => s.playback.outputFormat);
+  const active = useApp((s) => s.playback.bitPerfect);
+  const toggle = (enabled: boolean) => {
+    setBitPerfect(enabled);
+    saveBitPerfect(enabled);
+    void playerSetBitPerfect(enabled);
+  };
+  return (
+    <div>
+      <label className="prefs-check">
+        <input type="checkbox" checked={bitPerfect} onChange={(e) => toggle(e.target.checked)} />
+        Bit-perfect output
+      </label>
+      <p className="prefs-note">
+        AntiStreaming takes exclusive use of your audio device and switches it to each song's own sample rate and bit depth,
+        so the music reaches your DAC untouched. Other apps can't play sound meanwhile, and volume is fixed: use your
+        device's or amplifier's volume instead.
+      </p>
+      {outputFormat && (
+        <div className="prefs-status">
+          {active ? "Bit-perfect: " : "Output: "}
+          <strong>{outputFormat}</strong>
+        </div>
+      )}
     </div>
   );
 }
@@ -144,7 +180,11 @@ export function Preferences() {
             </button>
           ))}
         </div>
-        <div className="prefs-pane">{tab === "general" ? <GeneralTab /> : <SharingTab />}</div>
+        <div className="prefs-pane">
+          {tab === "general" && <GeneralTab />}
+          {tab === "playback" && <PlaybackTab />}
+          {tab === "sharing" && <SharingTab />}
+        </div>
         <div className="sheet-buttons">
           <button className="push-button push-button--default" onClick={() => setOpen(false)}>
             OK

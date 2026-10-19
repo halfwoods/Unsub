@@ -148,6 +148,8 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
         kind,
         // iPods have no checkboxes; every song on one is in play.
         enabled: true,
+        // Songs on an iPod are on the iPod's own disk, never in iCloud.
+        in_cloud: false,
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
         sort_artist: track.sort_artist.clone(),

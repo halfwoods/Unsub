@@ -11,6 +11,7 @@ use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
 use crate::library::LibraryState;
 use crate::party::{self, PartyShuffle};
+use crate::podcasts::PodcastsState;
 use crate::queue::{PlayQueue, RepeatMode};
 
 pub const PLAYER_EVENT: &str = "player://event";
@@ -146,10 +147,25 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
     let Some(playing) = slot.as_mut() else { return };
     let result = match event {
         PlayerEvent::TrackStarted { track_id } if playing.party => party::on_track_started(app, &playback, &tracks, playing, track_id),
-        PlayerEvent::TrackStarted { track_id } if playing.queue.sync_to(track_id) => playback.queue_following(&tracks, playing),
+        PlayerEvent::TrackStarted { track_id } if playing.queue.sync_to(track_id) => {
+            // Podcasts and audiobooks pick up where the listener stopped, as in iTunes.
+            if let Some(position) = app.try_state::<PodcastsState>().and_then(|p| p.resume_position(track_id)) {
+                playback.player.seek(position);
+            }
+            playback.queue_following(&tracks, playing)
+        }
         // A play counts when the song reaches its end, as in iTunes. iPod counts sync back in milestone 13.
         PlayerEvent::TrackEnded { track_id } if playing.source == PlaySource::Library => {
+            if let Some(podcasts) = app.try_state::<PodcastsState>() {
+                podcasts.track_finished(track_id);
+            }
             library.queries().record_play(track_id, now_unix()).map_err(CommandError::from)
+        }
+        PlayerEvent::Position { track_id, position_ms, .. } if playing.source == PlaySource::Library => {
+            if let Some(podcasts) = app.try_state::<PodcastsState>() {
+                podcasts.track_position(track_id, position_ms);
+            }
+            Ok(())
         }
         _ => Ok(()),
     };
@@ -270,6 +286,11 @@ pub fn player_set_repeat(
     let Some(playing) = slot.as_mut() else { return Ok(()) };
     playing.queue.set_repeat(repeat);
     playback.queue_following(&Tracks { library: &library, devices: &devices }, playing)
+}
+
+#[tauri::command]
+pub fn player_set_bit_perfect(playback: State<'_, PlaybackState>, enabled: bool) {
+    playback.player.set_bit_perfect(enabled);
 }
 
 #[tauri::command]

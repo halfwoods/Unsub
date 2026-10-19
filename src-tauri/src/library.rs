@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use antistreaming_library::{
-    AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Playlist, PlaylistKind, SmartRules, Track,
-    TrackQuery,
+    AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Mix, Playlist, PlaylistKind, SmartRules,
+    Track, TrackQuery,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -23,10 +23,12 @@ pub struct LibraryState {
 }
 
 impl LibraryState {
-    pub fn open(db_path: PathBuf) -> antistreaming_library::Result<Self> {
+    pub fn open(db_path: PathBuf, artwork_cache: PathBuf) -> antistreaming_library::Result<Self> {
+        let mut artwork_reader = Library::open(&db_path)?;
+        artwork_reader.set_artwork_cache(artwork_cache);
         Ok(Self {
             queries: Mutex::new(Library::open(&db_path)?),
-            artwork_reader: Mutex::new(Library::open(&db_path)?),
+            artwork_reader: Mutex::new(artwork_reader),
             db_path,
             scan_lock: Arc::new(Mutex::new(())),
         })
@@ -42,9 +44,15 @@ impl LibraryState {
         self.queries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub fn artwork(&self, track_id: i64) -> Option<antistreaming_library::Artwork> {
+    /// The original art, or a cached JPEG thumbnail when the view only needs `size` pixels.
+    pub fn artwork(&self, track_id: i64, size: Option<u32>) -> Option<antistreaming_library::Artwork> {
         let library = self.artwork_reader.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        library.artwork(track_id).ok().flatten()
+        match size {
+            Some(size) => library.artwork_thumbnail(track_id, size),
+            None => library.artwork(track_id),
+        }
+        .ok()
+        .flatten()
     }
 
     pub fn track_path(&self, track_id: i64) -> CommandResult<PathBuf> {
@@ -103,6 +111,18 @@ pub fn library_album_tracks(state: State<'_, LibraryState>, key: String) -> Comm
 #[tauri::command]
 pub fn library_set_rating(state: State<'_, LibraryState>, track_id: i64, rating: u8) -> CommandResult<()> {
     Ok(state.queries().set_rating(track_id, rating)?)
+}
+
+/// The Mixes view: on-device "Genius Mixes" built from tags and listening history.
+#[tauri::command]
+pub async fn library_mixes(state: State<'_, LibraryState>) -> CommandResult<Vec<Mix>> {
+    Ok(state.queries().mixes(12, 50)?)
+}
+
+/// "More like this" from the given songs, for the LCD's Mix button.
+#[tauri::command]
+pub fn library_mix_for(state: State<'_, LibraryState>, track_ids: Vec<i64>) -> CommandResult<Vec<i64>> {
+    Ok(state.queries().mix_for(&track_ids, 50)?)
 }
 
 #[tauri::command]

@@ -19,7 +19,7 @@ export function Artwork({ trackId, size, className = "" }: { trackId: number; si
     <img
       className={`artwork ${className}`}
       style={style}
-      src={artworkUrl(trackId)}
+      src={artworkUrl(trackId, { type: "library" }, size)}
       alt=""
       loading="lazy"
       draggable={false}

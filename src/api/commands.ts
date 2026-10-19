@@ -8,8 +8,15 @@ import type {
   DeviceView,
   GenreSummary,
   LibraryStats,
+  Mix,
   OwnershipReport,
+  FeedSettings,
   PartySettings,
+  PodcastEpisode,
+  PodcastFeed,
+  Purchase,
+  PurchasesStatus,
+  StoreLink,
   PartyView,
   PlaybackStatus,
   PlaySource,
@@ -31,6 +38,8 @@ export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("li
 export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
 export const libraryGenres = (query: TrackQuery) => invoke<GenreSummary[]>("library_genres", { query });
 export const libraryComposers = (query: TrackQuery) => invoke<ComposerSummary[]>("library_composers", { query });
+export const libraryMixes = () => invoke<Mix[]>("library_mixes");
+export const libraryMixFor = (trackIds: number[]) => invoke<number[]>("library_mix_for", { trackIds });
 export const libraryPlaylists = () => invoke<Playlist[]>("library_playlists");
 export const libraryCreatePlaylist = (name: string, kind: PlaylistKind, parentId: number | null, trackIds: number[] = []) =>
   invoke<Playlist>("library_create_playlist", { name, kind, parentId, trackIds });
@@ -60,9 +69,19 @@ export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuer
   invoke<LibraryStats>("device_stats", { deviceId, view, query });
 export const deviceEject = (deviceId: string) => invoke<void>("device_eject", { deviceId });
 
-/** Artwork is served by a custom protocol so <img> can cache it without base64 round trips. */
-export const artworkUrl = (trackId: number, source: PlaySource = { type: "library" }) =>
-  convertFileSrc(source.type === "library" ? String(trackId) : `device/${source.deviceId}/${trackId}`, "artwork");
+/** Thumbnail sizes are bucketed so a dragged size slider reuses a few cached images, not hundreds. */
+const THUMBNAIL_BUCKETS = [64, 128, 256, 512, 1024];
+
+/**
+ * Artwork is served by a custom protocol so <img> can cache it without base64 round trips.
+ * Pass `size` (CSS pixels) for a thumbnail sized for this screen.
+ */
+export const artworkUrl = (trackId: number, source: PlaySource = { type: "library" }, size?: number) => {
+  const url = convertFileSrc(source.type === "library" ? String(trackId) : `device/${source.deviceId}/${trackId}`, "artwork");
+  if (!size) return url;
+  const pixels = size * window.devicePixelRatio;
+  return `${url}?size=${THUMBNAIL_BUCKETS.find((b) => b >= pixels) ?? THUMBNAIL_BUCKETS[THUMBNAIL_BUCKETS.length - 1]}`;
+};
 
 /** Plays `trackIds` in order starting at `startIndex`; the backend owns the queue so gapless works. */
 export const playerPlayList = (source: PlaySource, trackIds: number[], startIndex: number) =>
@@ -75,6 +94,7 @@ export const playerSetVolume = (volume: number) => invoke<void>("player_set_volu
 export const playerSetShuffle = (shuffle: boolean) => invoke<void>("player_set_shuffle", { shuffle });
 export const playerSetRepeat = (repeat: RepeatMode) => invoke<void>("player_set_repeat", { repeat });
 export const playerStatus = () => invoke<PlaybackStatus>("player_status");
+export const playerSetBitPerfect = (enabled: boolean) => invoke<void>("player_set_bit_perfect", { enabled });
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));
@@ -103,6 +123,30 @@ export const partyRemove = (positions: number[]) => invoke<PartyView>("party_rem
 export const partyMove = (positions: number[], to: number) => invoke<PartyView>("party_move", { positions, to });
 export const partyReshuffle = () => invoke<PartyView>("party_reshuffle");
 export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => listen("party://changed", () => handler());
+
+export const podcastsFeeds = () => invoke<PodcastFeed[]>("podcasts_feeds");
+export const podcastsEpisodes = (feedId: number) => invoke<PodcastEpisode[]>("podcasts_episodes", { feedId });
+export const podcastsSubscribe = (url: string) => invoke<PodcastFeed>("podcasts_subscribe", { url });
+export const podcastsUnsubscribe = (feedId: number, deleteFiles: boolean) =>
+  invoke<void>("podcasts_unsubscribe", { feedId, deleteFiles });
+export const podcastsRefresh = (feedId: number | null) => invoke<void>("podcasts_refresh", { feedId });
+export const podcastsSetSettings = (feedId: number, settings: FeedSettings) =>
+  invoke<void>("podcasts_set_settings", { feedId, settings });
+export const podcastsSetPlayed = (episodeId: number, played: boolean) =>
+  invoke<void>("podcasts_set_played", { episodeId, played });
+export const podcastsDownload = (episodeIds: number[]) => invoke<void>("podcasts_download", { episodeIds });
+export const onPodcastsChanged = (handler: () => void): Promise<UnlistenFn> => listen("podcasts://changed", () => handler());
+export const onPodcastProgress = (
+  handler: (p: { episodeId: number; done: number; total: number | null }) => void,
+): Promise<UnlistenFn> => listen<{ episodeId: number; done: number; total: number | null }>("podcasts://progress", (e) => handler(e.payload));
+
+export const purchasesStatus = () => invoke<PurchasesStatus>("purchases_status");
+export const purchasesSetWatching = (watching: boolean) => invoke<void>("purchases_set_watching", { watching });
+export const purchasesScan = () => invoke<void>("purchases_scan");
+export const purchasesAccept = (candidateId: number) => invoke<Purchase>("purchases_accept", { candidateId });
+export const purchasesIgnore = (candidateId: number) => invoke<void>("purchases_ignore", { candidateId });
+export const purchasesLinks = (artist: string, album: string) => invoke<StoreLink[]>("purchases_links", { artist, album });
+export const onPurchasesChanged = (handler: () => void): Promise<UnlistenFn> => listen("purchases://changed", () => handler());
 
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });

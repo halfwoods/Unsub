@@ -7,6 +7,8 @@ mod library;
 mod menu;
 mod party;
 mod playback;
+mod podcasts;
+mod purchases;
 mod queue;
 mod sharing;
 
@@ -17,6 +19,8 @@ use collection::CollectionState;
 use devices::DevicesState;
 use library::LibraryState;
 use playback::PlaybackState;
+use podcasts::PodcastsState;
+use purchases::PurchasesState;
 use sharing::SharingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,16 +33,23 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("artwork", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_owned();
+            let query = request.uri().query().map(str::to_owned);
             // Embedded art can take a moment to pull out of big files; keep it off the IPC thread.
-            std::thread::spawn(move || responder.respond(artwork::response(&app, &path)));
+            std::thread::spawn(move || responder.respond(artwork::response(&app, &path, query.as_deref())));
         })
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            app.manage(LibraryState::open(data_dir.join("Library.sqlite"))?);
+            let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
+            app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json")));
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
-            app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path));
+            app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(DevicesState::default());
+            let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
+            app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
+            let purchases_dir = app.path().audio_dir()?.join("AntiStreaming").join("Purchases");
+            app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
+            app.state::<PurchasesState>().apply(app.handle());
             let events = playback::spawn_event_worker(app.handle().clone())?;
             let player = Player::new(move |event| {
                 let _ = events.send(event);
@@ -59,6 +70,8 @@ pub fn run() {
             library::library_composers,
             library::library_set_enabled,
             library::library_playlists,
+            library::library_mixes,
+            library::library_mix_for,
             library::library_create_playlist,
             library::library_rename_playlist,
             library::library_delete_playlist,
@@ -87,6 +100,7 @@ pub fn run() {
             playback::player_set_shuffle,
             playback::player_set_repeat,
             playback::player_status,
+            playback::player_set_bit_perfect,
             party::party_view,
             party::party_play,
             party::party_set_settings,
@@ -94,6 +108,20 @@ pub fn run() {
             party::party_remove,
             party::party_move,
             party::party_reshuffle,
+            podcasts::podcasts_feeds,
+            podcasts::podcasts_episodes,
+            podcasts::podcasts_subscribe,
+            podcasts::podcasts_unsubscribe,
+            podcasts::podcasts_refresh,
+            podcasts::podcasts_set_settings,
+            podcasts::podcasts_set_played,
+            podcasts::podcasts_download,
+            purchases::purchases_status,
+            purchases::purchases_set_watching,
+            purchases::purchases_scan,
+            purchases::purchases_accept,
+            purchases::purchases_ignore,
+            purchases::purchases_links,
             sharing::sharing_status,
             sharing::sharing_update,
         ])

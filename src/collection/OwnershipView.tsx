@@ -10,8 +10,9 @@ import {
   collectionReport,
   onCollectionChanged,
   onLibraryChanged,
+  purchasesLinks,
 } from "../api/commands";
-import type { AlbumGroup, OwnershipReport, OwnStatus, ReportTrack } from "../api/types";
+import type { AlbumGroup, OwnershipReport, OwnStatus, ReportTrack, StoreLink } from "../api/types";
 import { formatClock, pluralize } from "../util/format";
 import "./OwnershipView.css";
 
@@ -187,6 +188,8 @@ export function OwnershipView() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("buy");
   const [reading, setReading] = useState(false);
+  // Exact store links from MusicBrainz, fetched per album on request (it allows one lookup a second).
+  const [links, setLinks] = useState<Record<string, StoreLink[] | "loading">>({});
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -296,11 +299,42 @@ export function OwnershipView() {
                   <span className="ownership-album-count">{pluralize(row.count, "song", "songs")}</span>
                   {row.album.tracks.some((t) => t.status === "buy") && (
                     <span className="ownership-stores">
-                      {STORES.map((store) => (
-                        <button key={store.name} className="ownership-store" onClick={() => void openUrl(store.url(query))}>
-                          {store.name}
-                        </button>
-                      ))}
+                      {(() => {
+                        const key = `${row.album.albumArtist}\u0000${row.album.album}`;
+                        const found = links[key];
+                        if (Array.isArray(found) && found.length > 0) {
+                          return found.map((link) => (
+                            <button key={link.url} className="ownership-store ownership-store--exact" onClick={() => void openUrl(link.url)}>
+                              {link.store}
+                            </button>
+                          ));
+                        }
+                        return (
+                          <>
+                            {STORES.map((store) => (
+                              <button key={store.name} className="ownership-store" onClick={() => void openUrl(store.url(query))}>
+                                {store.name}
+                              </button>
+                            ))}
+                            {found === undefined && (
+                              <button
+                                className="ownership-store"
+                                title="Look up exact store pages on MusicBrainz"
+                                onClick={() => {
+                                  setLinks((l) => ({ ...l, [key]: "loading" }));
+                                  void purchasesLinks(row.album.albumArtist, row.album.album).then(
+                                    (result) => setLinks((l) => ({ ...l, [key]: result })),
+                                    () => setLinks((l) => ({ ...l, [key]: [] })),
+                                  );
+                                }}
+                              >
+                                Find Stores
+                              </button>
+                            )}
+                            {found === "loading" && <span className="ownership-finding">Finding…</span>}
+                          </>
+                        );
+                      })()}
                     </span>
                   )}
                 </div>

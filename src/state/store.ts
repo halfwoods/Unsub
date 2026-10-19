@@ -31,8 +31,6 @@ export type GridGroup = "albums" | "artists" | "genres" | "composers";
 export type LibrarySource = "music" | "podcasts" | "audiobooks";
 
 /** Sources whose features land in later milestones; they show an iTunes-style intro placard. */
-export type PlacardSource = "inbox" | "purchased" | "mixes";
-
 export type PlaylistSourceId = `playlist:${number}`;
 
 /**
@@ -41,7 +39,15 @@ export type PlaylistSourceId = `playlist:${number}`;
  */
 export type DeviceSourceId = `device:${string}`;
 
-export type SourceId = LibrarySource | PlacardSource | DeviceSourceId | PlaylistSourceId | "toOwn" | "partyShuffle";
+export type SourceId =
+  | LibrarySource
+  | DeviceSourceId
+  | PlaylistSourceId
+  | "toOwn"
+  | "partyShuffle"
+  | "mixes"
+  | "inbox"
+  | "purchased";
 
 const SOURCE_KIND: Record<LibrarySource, MediaKind> = {
   music: "music",
@@ -94,7 +100,12 @@ const IDLE_PLAYBACK: PlaybackStatus = {
   sampleRate: null,
   outputSampleRate: null,
   volume: 0.75,
+  bitPerfect: false,
+  outputFormat: null,
 };
+
+/** How long a player notice stays in the LCD before the song info returns. */
+const NOTICE_MS = 4000;
 
 interface SelectModifiers {
   extend: boolean;
@@ -131,6 +142,7 @@ interface AppState {
   renamingPlaylist: number | null;
   smartEditor: SmartEditor | null;
   preferencesOpen: boolean;
+  notice: string | null;
   textSizes: TextSizes;
   rowHeight: number;
 
@@ -159,6 +171,7 @@ interface AppState {
   setPreferencesOpen: (open: boolean) => void;
   setTextSizes: (sizes: TextSizes) => void;
   playAlbum: (key: string) => Promise<void>;
+  playTrackIds: (trackIds: number[]) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
 }
 
@@ -193,6 +206,7 @@ export const useApp = create<AppState>((set, get) => ({
   renamingPlaylist: null,
   smartEditor: null,
   preferencesOpen: false,
+  notice: null,
   textSizes: loadTextSizes(),
   rowHeight: listRowHeight(loadTextSizes()),
 
@@ -346,6 +360,13 @@ export const useApp = create<AppState>((set, get) => ({
     void get().refresh();
   },
 
+  // Mixes arrive as ids; playing them works like any library list.
+  playTrackIds: async (trackIds) => {
+    if (trackIds.length === 0) return;
+    set({ playingTracks: [], playingSource: { type: "library" } });
+    await api.playerPlayList({ type: "library" }, trackIds, 0);
+  },
+
   playAlbum: async (key) => {
     const tracks = await api.libraryAlbumTracks(key);
     if (tracks.length === 0) return;
@@ -420,6 +441,11 @@ export const useApp = create<AppState>((set, get) => ({
       case "error":
         console.error("[player]", event.message);
         break;
+      case "notice": {
+        set({ notice: event.message });
+        setTimeout(() => get().notice === event.message && set({ notice: null }), NOTICE_MS);
+        break;
+      }
     }
   },
 }));

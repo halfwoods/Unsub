@@ -280,3 +280,15 @@
   margin: 6px 0 0;
   color: #5c5236;
 }
+
+/* Links that go straight to the album's page, not a search. */
+.ownership-store--exact {
+  border-color: #6e9fd8;
+  color: #1f5fae;
+  font-weight: bold;
+}
+
+.ownership-finding {
+  font-size: var(--font-size-small);
+  color: #8a8a8a;
+}

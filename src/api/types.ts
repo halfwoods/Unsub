@@ -83,6 +83,9 @@ export interface PlaybackStatus {
   sampleRate: number | null;
   outputSampleRate: number | null;
   volume: number;
+  bitPerfect: boolean;
+  /** What the device is actually running at, e.g. "24-bit 96 kHz". */
+  outputFormat: string | null;
 }
 
 export type PlayerEvent =
@@ -90,7 +93,8 @@ export type PlayerEvent =
   | ({ type: "stateChanged" } & PlaybackStatus)
   | { type: "trackStarted"; trackId: number }
   | { type: "trackEnded"; trackId: number }
-  | { type: "error"; trackId: number | null; message: string };
+  | { type: "error"; trackId: number | null; message: string }
+  | { type: "notice"; message: string };
 
 export type RepeatMode = "off" | "all" | "one";
 
@@ -283,4 +287,83 @@ export interface SharingStatus {
   /** LAN URLs phone apps should use, e.g. http://192.168.1.20:4533. */
   addresses: string[];
   error: string | null;
+}
+
+export interface Mix {
+  key: string;
+  name: string;
+  trackIds: number[];
+  /** Up to four covers from different albums, for the tile mosaic. */
+  artworkTrackIds: number[];
+}
+
+export type KeepRule = "all" | { lastN: number } | "unplayed";
+
+export interface FeedSettings {
+  autoDownloadLatest: number;
+  keep: KeepRule;
+}
+
+export interface PodcastFeed {
+  id: number;
+  url: string;
+  title: string;
+  author: string;
+  description: string;
+  artworkUrl: string | null;
+  link: string | null;
+  lastRefreshed: number | null;
+  unplayedCount: number;
+  settings: FeedSettings;
+}
+
+export interface PodcastEpisode {
+  id: number;
+  feedId: number;
+  title: string;
+  /** Raw feed text, often HTML: render as plain text only. */
+  description: string;
+  published: number | null;
+  durationMs: number | null;
+  played: boolean;
+  positionMs: number;
+  file: string | null;
+  /** The library track this episode became once downloaded. */
+  trackId: number | null;
+}
+
+export type PurchaseStore = "bandcamp" | "qobuz" | "sevenDigital" | "hdtracks" | "unknown";
+
+export interface PurchaseCandidate {
+  id: number;
+  path: string;
+  store: PurchaseStore;
+  artist: string;
+  album: string;
+  trackCount: number;
+  bytes: number;
+  formats: string[];
+  foundAt: number;
+}
+
+export interface Purchase {
+  id: number;
+  store: PurchaseStore;
+  artist: string;
+  album: string;
+  files: string[];
+  importedAt: number;
+  source: string;
+}
+
+export interface PurchasesStatus {
+  watching: boolean;
+  downloads: string;
+  candidates: PurchaseCandidate[];
+  purchases: Purchase[];
+}
+
+export interface StoreLink {
+  store: string;
+  url: string;
 }

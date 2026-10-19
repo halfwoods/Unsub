@@ -139,3 +139,28 @@
     background-position: 11px 0, 0 0;
   }
 }
+
+.lcd-mix {
+  position: absolute;
+  right: 8px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 16px;
+  border-radius: 8px;
+}
+
+.lcd-mix svg {
+  fill: none;
+  stroke: var(--lcd-ink-soft);
+  stroke-width: 1.2;
+}
+
+.lcd-mix:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.lcd-mix:active svg {
+  stroke: var(--lcd-ink);
+}

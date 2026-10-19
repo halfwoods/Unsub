@@ -10,6 +10,7 @@ import {
   onScanProgress,
   playerNext,
   playerPrevious,
+  playerSetBitPerfect,
   playerStatus,
   type MenuAction,
 } from "./api/commands";
@@ -19,6 +20,7 @@ import { Toolbar } from "./chrome/Toolbar";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
+import { loadBitPerfect } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
 import { useApp } from "./state/store";
 import "./theme/base.css";
@@ -81,6 +83,7 @@ function useBackendEvents() {
     void refreshDevices();
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
+    if (loadBitPerfect()) void playerSetBitPerfect(true);
     return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
   }, []);
 }
