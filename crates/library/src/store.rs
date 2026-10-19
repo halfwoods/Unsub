@@ -1,4 +1,4 @@
-use rusqlite::{Connection, named_params};
+use rusqlite::{Transaction, named_params};
 
 use crate::error::Result;
 use crate::model::Track;
@@ -46,6 +46,7 @@ const COLUMNS: &[&str] = &[
     "search_text",
     "parser_version",
     "enabled",
+    "in_cloud",
     "artist_group",
     "album_group",
 ];
@@ -73,9 +74,10 @@ pub(crate) enum WriteMode {
 }
 
 /// The single place rows are written, so scanned and imported tracks get
-/// identical derived sort and search columns. One transaction per call.
+/// identical derived sort and search columns. The caller owns the transaction,
+/// so a batch can be written together with other changes.
 pub(crate) fn write_tracks<'a>(
-    conn: &mut Connection,
+    tx: &Transaction<'_>,
     mode: WriteMode,
     tracks: impl IntoIterator<Item = &'a Track>,
 ) -> Result<()> {
@@ -100,7 +102,6 @@ pub(crate) fn write_tracks<'a>(
         COLUMNS.join(", ")
     );
 
-    let tx = conn.transaction()?;
     {
         let mut upsert = tx.prepare_cached(&sql)?;
         for track in tracks {
@@ -168,13 +169,14 @@ pub(crate) fn write_tracks<'a>(
                 ":key_genre": plain_key(&track.genre),
                 ":search_text": search_text,
                 // Imported rows have no file to re-read, so they count as current.
-                ":parser_version": TAG_PARSER_VERSION,
+                // A placeholder's tags were never read, so it must be read once it is local.
+                ":parser_version": if track.in_cloud { 0 } else { TAG_PARSER_VERSION },
+                ":in_cloud": track.in_cloud,
                 ":enabled": track.enabled,
                 ":artist_group": artist_group,
                 ":album_group": album_group,
             })?;
         }
     }
-    tx.commit()?;
     Ok(())
 }

@@ -12,6 +12,7 @@ rusqlite = { version = "0.40", features = ["array", "bundled", "fallible_uint", 
 lofty = "0.25"
 walkdir = "2.5"
 unicode-normalization = "0.1"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "bmp"] }
 
 [dev-dependencies]
 tempfile = "3"

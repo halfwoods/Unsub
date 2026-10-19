@@ -1,18 +1,27 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::vtab::array;
 use rusqlite::{Connection, params};
 
+use crate::cloud::platform_is_dataless;
 use crate::error::{Error, Result};
 use crate::model::{ExternalStats, Track};
 use crate::normalize::fold;
 use crate::schema;
 use crate::store::{WriteMode, write_tracks};
 
+/// `play_events.kind` values.
+pub(crate) const PLAY_EVENT: i64 = 0;
+pub(crate) const SKIP_EVENT: i64 = 1;
+
 pub struct Library {
     pub(crate) conn: Connection,
+    /// Where `artwork_thumbnail` keeps resized images; unset means no caching.
+    pub(crate) artwork_cache: Option<PathBuf>,
+    /// Tells whether a file is only a placeholder for contents in the cloud.
+    pub(crate) is_dataless: Box<dyn Fn(&Path) -> bool + Send>,
 }
 
 impl Library {
@@ -42,30 +51,73 @@ impl Library {
             |ctx| Ok(ctx.get_raw(0).as_str_or_null()?.map(fold)),
         )?;
         schema::migrate(&mut conn)?;
-        Ok(Library { conn })
+        Ok(Library {
+            conn,
+            artwork_cache: None,
+            is_dataless: Box::new(platform_is_dataless),
+        })
+    }
+
+    /// Replaces how a file is recognised as a cloud placeholder. By default the
+    /// operating system is asked (only macOS has any placeholders); a test, or a
+    /// platform with its own kind, can supply a different test.
+    pub fn set_dataless_check(&mut self, check: impl Fn(&Path) -> bool + Send + 'static) {
+        self.is_dataless = Box::new(check);
     }
 
     /// Loads rows from another source (a device database) keeping their own
     /// ids, which other data refers to. Nothing on disk is read: `path` is
     /// stored as given.
     pub fn import_tracks(&mut self, tracks: &[Track]) -> Result<()> {
-        write_tracks(&mut self.conn, WriteMode::Replace, tracks)
+        let tx = self.conn.transaction()?;
+        write_tracks(&tx, WriteMode::Replace, tracks)?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn record_play(&mut self, track_id: i64, played_at_unix: i64) -> Result<()> {
-        let changed = self.conn.execute(
+        self.record_event(
+            track_id,
+            played_at_unix,
+            PLAY_EVENT,
             "UPDATE tracks SET play_count = play_count + 1, last_played = ?2 WHERE id = ?1",
-            params![track_id, played_at_unix],
-        )?;
-        require_changed(changed, track_id)
+        )
     }
 
     pub fn record_skip(&mut self, track_id: i64, skipped_at_unix: i64) -> Result<()> {
-        let changed = self.conn.execute(
+        self.record_event(
+            track_id,
+            skipped_at_unix,
+            SKIP_EVENT,
             "UPDATE tracks SET skip_count = skip_count + 1, last_skipped = ?2 WHERE id = ?1",
-            params![track_id, skipped_at_unix],
+        )
+    }
+
+    /// Plays at or after `since`, newest first, as `(track id, unix time)`.
+    /// Skips are logged too but are not plays, so they are left out.
+    pub fn recent_plays(&self, since: i64) -> Result<Vec<(i64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT track_id, at FROM play_events WHERE kind = ?1 AND at >= ?2
+             ORDER BY at DESC, rowid DESC",
         )?;
-        require_changed(changed, track_id)
+        let plays = stmt.query_map(params![PLAY_EVENT, since], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        Ok(plays.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The counters answer "how many"; the log keeps "when", for history and
+    /// for learning which songs are played together.
+    fn record_event(&mut self, track_id: i64, at: i64, kind: i64, update: &str) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let changed = tx.execute(update, params![track_id, at])?;
+        require_changed(changed, track_id)?;
+        tx.execute(
+            "INSERT INTO play_events (track_id, at, kind) VALUES (?1, ?2, ?3)",
+            params![track_id, at, kind],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn set_rating(&mut self, track_id: i64, rating: u8) -> Result<()> {

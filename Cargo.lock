@@ -71,6 +71,8 @@ dependencies = [
  "antistreaming-ipod",
  "antistreaming-library",
  "antistreaming-playback",
+ "antistreaming-podcasts",
+ "antistreaming-purchases",
  "antistreaming-subsonic",
  "fastrand",
  "if-addrs",
@@ -122,7 +124,10 @@ dependencies = [
 name = "antistreaming-devicesync"
 version = "0.1.0"
 dependencies = [
+ "fs4",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -164,6 +169,7 @@ dependencies = [
  "coreaudio-rs",
  "cpal",
  "ffmpeg-next",
+ "lofty",
  "objc2-core-audio",
  "objc2-core-audio-types",
  "rtrb",

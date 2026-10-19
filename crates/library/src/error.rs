@@ -30,6 +30,8 @@ pub enum Error {
     InvalidRule(String),
     #[error("stored smart rules are unreadable: {0}")]
     StoredRules(#[from] serde_json::Error),
+    #[error("the operation was cancelled")]
+    Cancelled,
     #[error("database schema version {found} is newer than the supported version {supported}")]
     SchemaTooNew { found: u32, supported: u32 },
 }

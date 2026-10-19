@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lofty::config::ParseOptions;
 use lofty::file::TaggedFileExt;
@@ -21,9 +21,19 @@ impl Library {
         let Some(track) = self.track(track_id)? else {
             return Ok(None);
         };
-        let path = Path::new(&track.path);
-        Ok(embedded(path).or_else(|| sibling(path, &track.album)))
+        Ok(own_art(Path::new(&track.path), &track.album))
     }
+}
+
+/// The track's embedded picture, else an image beside the file.
+pub(crate) fn own_art(path: &Path, album: &str) -> Option<Artwork> {
+    embedded(path).or_else(|| {
+        let (image, mime) = sibling_path(path, album)?;
+        Some(Artwork {
+            mime: mime.to_owned(),
+            bytes: fs::read(image).ok()?,
+        })
+    })
 }
 
 fn embedded(path: &Path) -> Option<Artwork> {
@@ -44,7 +54,7 @@ fn embedded(path: &Path) -> Option<Artwork> {
 
 /// Candidates are matched against the directory listing rather than joined
 /// onto the path, so case differences and odd album names (slashes) are safe.
-fn sibling(track_path: &Path, album: &str) -> Option<Artwork> {
+pub(crate) fn sibling_path(track_path: &Path, album: &str) -> Option<(PathBuf, &'static str)> {
     let names: Vec<(String, String)> = fs::read_dir(track_path.parent()?)
         .ok()?
         .filter_map(|entry| {
@@ -61,14 +71,9 @@ fn sibling(track_path: &Path, album: &str) -> Option<Artwork> {
     for stem in stems {
         for (extension, mime) in FOLDER_ART_EXTENSIONS {
             let wanted = format!("{stem}.{extension}");
-            let Some((_, actual)) = names.iter().find(|(lowered, _)| *lowered == wanted) else {
-                continue;
-            };
-            let bytes = fs::read(track_path.with_file_name(OsStr::new(actual))).ok()?;
-            return Some(Artwork {
-                mime: mime.to_owned(),
-                bytes,
-            });
+            if let Some((_, actual)) = names.iter().find(|(lowered, _)| *lowered == wanted) {
+                return Some((track_path.with_file_name(OsStr::new(actual)), mime));
+            }
         }
     }
     None

@@ -134,6 +134,30 @@ pub(crate) fn artist_key(artist: &str) -> Option<String> {
         .filter(|key| !ANONYMOUS_ARTISTS.contains(&key.as_str()))
 }
 
+/// Every artist a credit names, as `artist_key` would key them: "A feat. B & C"
+/// is A, B and C. Used to see which artists work together.
+pub(crate) fn artist_names(credit: &str) -> Vec<String> {
+    let tidy = tidy(&credit.replace(['(', ')', '[', ']'], " "));
+    let mut names = Vec::new();
+    let mut rest = tidy.as_str();
+    loop {
+        let marker = FEATURE_MARKERS
+            .iter()
+            .chain(CO_ARTIST_MARKERS)
+            .filter_map(|marker| rest.find(marker).map(|start| (start, marker.len())))
+            .min();
+        let name = marker.map_or(rest, |(start, _)| &rest[..start]);
+        names.extend(
+            alphanumeric(strip_article(name.trim()))
+                .filter(|key| !ANONYMOUS_ARTISTS.contains(&key.as_str())),
+        );
+        match marker {
+            Some((start, length)) => rest = &rest[start + length..],
+            None => return names,
+        }
+    }
+}
+
 fn tidy(text: &str) -> String {
     fold(text)
         .replace(['\u{2013}', '\u{2014}', '\u{2015}'], "-")
@@ -409,6 +433,22 @@ mod tests {
         assert_eq!(artist_key("Jay-Z"), artist_key("Jay Z"));
         assert_ne!(artist_key("Queen"), artist_key("Queens of the Stone Age"));
         assert_ne!(artist_key("Extreme"), artist_key("X"));
+    }
+
+    #[test]
+    fn credits_list_every_named_artist_primary_first() {
+        assert_eq!(artist_names("Daft Punk"), ["daftpunk"]);
+        assert_eq!(
+            artist_names("Daft Punk feat. Pharrell Williams & Nile Rodgers"),
+            ["daftpunk", "pharrellwilliams", "nilerodgers"]
+        );
+        assert_eq!(
+            artist_names("The Weeknd, Daft Punk (ft. Someone)"),
+            ["weeknd", "daftpunk", "someone"]
+        );
+        assert_eq!(artist_names("Beyonc\u{e9} x Jay-Z"), ["beyonce", "jayz"]);
+        assert!(artist_names("Various Artists").is_empty());
+        assert!(artist_names("").is_empty());
     }
 
     #[test]

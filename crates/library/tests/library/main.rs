@@ -1,11 +1,16 @@
 mod albums;
 mod artwork;
+mod cloud;
 mod common;
 mod database;
 mod import;
 mod matching;
+mod mixes;
 mod mutate;
+mod overrides;
 mod playlists;
+mod playlog;
 mod query;
 mod scan;
 mod smart;
+mod thumbnails;

@@ -4,12 +4,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::OptionalExtension;
+use rusqlite::{OptionalExtension, params};
 use walkdir::{DirEntry, WalkDir};
 
+use crate::cloud::placeholder_meta;
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::{ScanProgress, ScanSummary, Track};
+use crate::model::{ScanProgress, ScanSummary, Track, TrackOverrides};
 use crate::store::{WriteMode, write_tracks};
 use crate::tags::{self, TAG_PARSER_VERSION, TrackMeta};
 
@@ -40,6 +41,8 @@ impl Library {
         let mut batch = Vec::with_capacity(BATCH_SIZE);
 
         for root in paths {
+            // The folder the user chose, which a placeholder's artist and album are read relative to.
+            let scanned_root = fs::canonicalize(root).ok();
             // Following links lets a symlinked music folder work; walkdir
             // reports cycles as errors instead of looping.
             let walker = WalkDir::new(root)
@@ -77,7 +80,7 @@ impl Library {
                 }
 
                 summary.scanned += 1;
-                match self.examine(&canonical, now) {
+                match self.examine(&canonical, scanned_root.as_deref(), now) {
                     Ok(Outcome::Unchanged) => summary.unchanged += 1,
                     Ok(Outcome::Added(track)) => {
                         summary.added += 1;
@@ -108,30 +111,51 @@ impl Library {
         Ok(summary)
     }
 
-    fn examine(&self, canonical: &Path, now: i64) -> Result<Outcome> {
-        let path = canonical
-            .to_str()
-            .ok_or_else(|| Error::NonUtf8Path(canonical.to_path_buf()))?
-            .to_owned();
-        let metadata = fs::metadata(canonical)?;
-        let file_size = metadata.len();
-        let date_modified = unix_secs(metadata.modified()?);
-
-        let stored: Option<(u64, i64, u32)> = self
+    fn examine(&self, canonical: &Path, root: Option<&Path>, now: i64) -> Result<Outcome> {
+        let facts = FileFacts::of(canonical)?;
+        let dataless = (self.is_dataless)(canonical);
+        let stored: Option<(u64, i64, u32, Option<String>, bool)> = self
             .conn
             .prepare_cached(
-                "SELECT file_size, date_modified, parser_version FROM tracks WHERE path = ?1",
+                "SELECT file_size, date_modified, parser_version, overrides, in_cloud
+                 FROM tracks WHERE path = ?1",
             )?
-            .query_row([&path], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .query_row([&facts.path], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
             .optional()?;
-        if let Some((size, modified, parser_version)) = stored
-            && (size, modified) == (file_size, date_modified)
-            && parser_version >= TAG_PARSER_VERSION
+        if let Some((size, modified, parser_version, _, in_cloud)) = &stored
+            && (*size, *modified) == (facts.file_size, facts.date_modified)
+            // A placeholder cannot be re-read, so what is known stands until it is local.
+            && (*parser_version >= TAG_PARSER_VERSION || dataless)
         {
+            if *in_cloud != dataless {
+                self.conn.execute(
+                    "UPDATE tracks SET in_cloud = ?2 WHERE path = ?1",
+                    params![facts.path, dataless],
+                )?;
+            }
             return Ok(Outcome::Unchanged);
         }
 
-        let track = new_track(tags::read(canonical)?, path, file_size, date_modified, now);
+        // Overrides outlive re-reads: a podcast's title stays what the feed said.
+        let overrides: Option<TrackOverrides> = stored
+            .as_ref()
+            .and_then(|(_, _, _, json, _)| json.as_deref())
+            .map(serde_json::from_str)
+            .transpose()?;
+        let track = if dataless {
+            // Reading the tags would download the file, so go by its name.
+            placeholder_track(canonical, root, facts, now, overrides.as_ref())
+        } else {
+            read_track(canonical, facts, now, overrides.as_ref())?
+        };
         Ok(if stored.is_some() {
             Outcome::Updated(track)
         } else {
@@ -139,13 +163,206 @@ impl Library {
         })
     }
 
+    /// Re-checks which of these tracks are placeholders. A file that has been
+    /// downloaded since is read properly, and one the system has evicted is
+    /// flagged while its known details stay. Returns the ids that changed.
+    pub fn refresh_cloud_status(&mut self, ids: &[i64]) -> Result<Vec<i64>> {
+        let now = now_unix();
+        let mut updated = Vec::new();
+        let mut reread = Vec::new();
+        let mut evicted = Vec::new();
+        {
+            let mut stored = self
+                .conn
+                .prepare("SELECT path, in_cloud, overrides FROM tracks WHERE id = ?1")?;
+            for id in ids {
+                let Some((path, in_cloud, overrides)) = stored
+                    .query_row([id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, bool>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    })
+                    .optional()?
+                else {
+                    continue;
+                };
+                let path = Path::new(&path);
+                // A file that has gone missing is a matter for the next scan.
+                let Ok(facts) = FileFacts::of(path) else {
+                    continue;
+                };
+                match (in_cloud, (self.is_dataless)(path)) {
+                    (true, false) => {
+                        let overrides: Option<TrackOverrides> =
+                            overrides.as_deref().map(serde_json::from_str).transpose()?;
+                        // Unreadable now that it is here: left flagged for the next attempt.
+                        if let Ok(track) = read_track(path, facts, now, overrides.as_ref()) {
+                            reread.push(track);
+                            updated.push(*id);
+                        }
+                    }
+                    (false, true) => {
+                        evicted.push(*id);
+                        updated.push(*id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let tx = self.conn.transaction()?;
+        write_tracks(&tx, WriteMode::RefreshTags, &reread)?;
+        for id in evicted {
+            tx.execute("UPDATE tracks SET in_cloud = 1 WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    /// Imports specific files with metadata the tags lack or get wrong, such as
+    /// podcast downloads. The files are always re-read, the overrides replace any
+    /// stored for the same file, and they are re-applied on every later rescan.
+    /// Returns the track ids in input order; a failure on any file adds none.
+    pub fn add_files(&mut self, files: &[(PathBuf, TrackOverrides)]) -> Result<Vec<i64>> {
+        let now = now_unix();
+        let tracks = files
+            .iter()
+            .map(|(path, overrides)| {
+                let canonical = fs::canonicalize(path)?;
+                let facts = FileFacts::of(&canonical)?;
+                read_track(&canonical, facts, now, Some(overrides))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let tx = self.conn.transaction()?;
+        write_tracks(&tx, WriteMode::RefreshTags, &tracks)?;
+        let mut ids = Vec::with_capacity(files.len());
+        {
+            // An existing row keeps its date added on refresh, so an explicit one is set here.
+            let mut store = tx.prepare(
+                "UPDATE tracks SET overrides = ?2, date_added = COALESCE(?3, date_added)
+                 WHERE path = ?1 RETURNING id",
+            )?;
+            for (track, (_, overrides)) in tracks.iter().zip(files) {
+                let json = (*overrides != TrackOverrides::default())
+                    .then(|| serde_json::to_string(overrides))
+                    .transpose()?;
+                ids.push(
+                    store.query_row(params![track.path, json, overrides.date_added], |row| {
+                        row.get(0)
+                    })?,
+                );
+            }
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
     fn flush(&mut self, batch: &mut Vec<Track>) -> Result<()> {
         if batch.is_empty() {
             return Ok(());
         }
-        write_tracks(&mut self.conn, WriteMode::RefreshTags, batch.iter())?;
+        let tx = self.conn.transaction()?;
+        write_tracks(&tx, WriteMode::RefreshTags, batch.iter())?;
+        tx.commit()?;
         batch.clear();
         Ok(())
+    }
+}
+
+struct FileFacts {
+    path: String,
+    file_size: u64,
+    date_modified: i64,
+}
+
+impl FileFacts {
+    fn of(canonical: &Path) -> Result<Self> {
+        let path = canonical
+            .to_str()
+            .ok_or_else(|| Error::NonUtf8Path(canonical.to_path_buf()))?
+            .to_owned();
+        let metadata = fs::metadata(canonical)?;
+        Ok(Self {
+            path,
+            file_size: metadata.len(),
+            date_modified: unix_secs(metadata.modified()?),
+        })
+    }
+}
+
+fn read_track(
+    canonical: &Path,
+    facts: FileFacts,
+    now: i64,
+    overrides: Option<&TrackOverrides>,
+) -> Result<Track> {
+    Ok(build_track(
+        tags::read(canonical)?,
+        facts,
+        now,
+        overrides,
+        false,
+    ))
+}
+
+fn placeholder_track(
+    canonical: &Path,
+    root: Option<&Path>,
+    facts: FileFacts,
+    now: i64,
+    overrides: Option<&TrackOverrides>,
+) -> Track {
+    build_track(
+        placeholder_meta(canonical, root),
+        facts,
+        now,
+        overrides,
+        true,
+    )
+}
+
+fn build_track(
+    mut meta: TrackMeta,
+    facts: FileFacts,
+    now: i64,
+    overrides: Option<&TrackOverrides>,
+    in_cloud: bool,
+) -> Track {
+    let mut date_added = now;
+    if let Some(overrides) = overrides {
+        apply_overrides(&mut meta, overrides);
+        date_added = overrides.date_added.unwrap_or(now);
+    }
+    Track {
+        in_cloud,
+        ..new_track(
+            meta,
+            facts.path,
+            facts.file_size,
+            facts.date_modified,
+            date_added,
+        )
+    }
+}
+
+fn apply_overrides(meta: &mut TrackMeta, overrides: &TrackOverrides) {
+    let text = |target: &mut String, value: &Option<String>| {
+        if let Some(value) = value {
+            target.clone_from(value);
+        }
+    };
+    text(&mut meta.title, &overrides.title);
+    text(&mut meta.artist, &overrides.artist);
+    text(&mut meta.album, &overrides.album);
+    text(&mut meta.album_artist, &overrides.album_artist);
+    text(&mut meta.genre, &overrides.genre);
+    if let Some(kind) = overrides.kind {
+        meta.kind = kind;
+    }
+    if overrides.year.is_some() {
+        meta.year = overrides.year;
     }
 }
 
@@ -188,6 +405,7 @@ fn new_track(
         kind: meta.kind,
         compilation: meta.compilation,
         enabled: true,
+        in_cloud: false,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,

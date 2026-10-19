@@ -76,6 +76,17 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (playlist_id, position)
     ) WITHOUT ROWID;
     CREATE INDEX playlist_items_track ON playlist_items(track_id);",
+    // `kind` is 0 for a play and 1 for a skip. `overrides` holds the JSON of a
+    // `TrackOverrides`, null for the vast majority of tracks.
+    "CREATE TABLE play_events (
+        track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+        at INTEGER NOT NULL,
+        kind INTEGER NOT NULL
+    );
+    CREATE INDEX play_events_at ON play_events(at);
+    CREATE INDEX play_events_track ON play_events(track_id);
+    ALTER TABLE tracks ADD COLUMN overrides TEXT;",
+    "ALTER TABLE tracks ADD COLUMN in_cloud INTEGER NOT NULL DEFAULT 0;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

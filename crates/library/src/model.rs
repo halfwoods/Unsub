@@ -109,6 +109,10 @@ pub struct Track {
     pub compilation: bool,
     /// The song checkbox: unchecked songs are skipped by playback and by "only checked" smart playlists.
     pub enabled: bool,
+    /// The file is only a placeholder in the cloud (iCloud Drive's "Optimize Mac
+    /// Storage"). Its details come from the file's name and folders until it is
+    /// downloaded and the scan or `refresh_cloud_status` reads its tags.
+    pub in_cloud: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -271,4 +275,31 @@ pub struct ExternalStats {
     pub rating: u8,
     pub date_added: Option<i64>,
     pub enabled: bool,
+}
+
+/// Metadata that wins over what a file's tags say. Stored with the track, so a
+/// rescan re-applies it instead of reverting to the tags.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TrackOverrides {
+    pub kind: Option<MediaKind>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub genre: Option<String>,
+    pub date_added: Option<i64>,
+    pub year: Option<i32>,
+}
+
+/// A themed, generated playlist. The key is stable for as long as the cluster it
+/// came from exists, so the UI can remember which mix is selected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mix {
+    pub key: String,
+    pub name: String,
+    pub track_ids: Vec<i64>,
+    /// Up to four tracks from distinct albums, for a collage.
+    pub artwork_track_ids: Vec<i64>,
 }
