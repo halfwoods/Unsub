@@ -59,7 +59,7 @@
 .song-row-static {
   display: grid;
   grid-template-columns: var(--grid);
-  height: 18px;
+  height: var(--list-row);
   background: var(--list-bg);
 }
 

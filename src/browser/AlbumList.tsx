@@ -9,10 +9,7 @@ import { NowPlayingIcon } from "./SongList";
 import "./AlbumList.css";
 import "./SongList.css";
 
-const ROW = 18;
 const ART = 140;
-/** Each album block is tall enough for its cover plus the album/artist caption. */
-const MIN_ROWS = Math.ceil((ART + 42) / ROW);
 const ALBUM_COLUMN = ART + 30;
 
 // The album column replaces Album; the rest are the song list's own columns.
@@ -44,11 +41,14 @@ export function AlbumList() {
   const playRow = useApp((s) => s.playRow);
   const groups = useMemo(() => groupTracks(tracks), [tracks]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rowHeight = useApp((s) => s.rowHeight);
+  // Each album block is tall enough for its cover plus the album/artist caption.
+  const minRows = Math.ceil((ART + 42) / rowHeight);
 
   const virtualizer = useVirtualizer({
     count: groups.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => Math.max(groups[i].tracks.length, MIN_ROWS) * ROW,
+    estimateSize: (i) => Math.max(groups[i].tracks.length, minRows) * rowHeight,
     overscan: 4,
   });
 
@@ -72,9 +72,9 @@ export function AlbumList() {
           {virtualizer.getVirtualItems().map((item) => {
             const group = groups[item.index];
             const first = group.tracks[0];
-            const rows = Math.max(group.tracks.length, MIN_ROWS);
+            const rows = Math.max(group.tracks.length, minRows);
             return (
-              <div key={item.key} className="album-block" style={{ transform: `translateY(${item.start}px)`, height: rows * ROW }}>
+              <div key={item.key} className="album-block" style={{ transform: `translateY(${item.start}px)`, height: rows * rowHeight }}>
                 <div className="album-block-info" style={{ width: ALBUM_COLUMN }}>
                   <Artwork trackId={first.id} size={ART} className="album-block-art" />
                   <div className="album-block-title">{first.album || "Unknown Album"}</div>

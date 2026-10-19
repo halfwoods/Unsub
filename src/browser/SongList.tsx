@@ -6,7 +6,6 @@ import { playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
 import { COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
 import "./SongList.css";
 
-const ROW_HEIGHT = 18;
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
 const ROWS_MIME = "application/x-antistreaming-rows";
 
@@ -41,6 +40,7 @@ export function SongList() {
   const isRegularPlaylist = useApp((s) => s.playlists.some((p) => p.id === playlistIdOf(s.source) && p.kind === "regular"));
   const { sortBy, selectRow, playRow, refresh, refreshPlaylists } = useApp.getState();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const rowHeight = useApp((s) => s.rowHeight);
 
   const columns = useMemo(() => (isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isRegularPlaylist]);
   // Reordering only makes sense while the playlist is shown in its own order.
@@ -50,13 +50,15 @@ export function SongList() {
   const virtualizer = useVirtualizer({
     count: tracks.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 24,
   });
 
   useEffect(() => {
     if (anchor !== null) virtualizer.scrollToIndex(anchor, { align: "auto" });
   }, [anchor, virtualizer]);
+
+  useEffect(() => virtualizer.measure(), [rowHeight, virtualizer]);
 
   const selectedPositions = () => tracks.flatMap((t, i) => (selection.has(t.id) ? [i] : []));
 
@@ -171,7 +173,7 @@ export function SongList() {
               </div>
             );
           })}
-          {dropIndex !== null && <div className="song-drop-line" style={{ top: dropIndex * ROW_HEIGHT - 1 }} />}
+          {dropIndex !== null && <div className="song-drop-line" style={{ top: dropIndex * rowHeight - 1 }} />}
         </div>
       </div>
     </div>

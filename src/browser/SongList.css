@@ -65,8 +65,8 @@
   min-height: 100%;
   background: repeating-linear-gradient(
     to bottom,
-    var(--list-bg) 0 18px,
-    var(--list-stripe) 18px 36px
+    var(--list-bg) 0 var(--list-row),
+    var(--list-stripe) var(--list-row) calc(var(--list-row) * 2)
   );
   background-attachment: local;
   pointer-events: none;
@@ -79,7 +79,7 @@
   right: 0;
   display: grid;
   grid-template-columns: var(--grid);
-  height: 18px;
+  height: var(--list-row);
   background: var(--list-bg);
 }
 
@@ -107,7 +107,7 @@
 .song-cell {
   min-width: 0;
   padding: 0 5px;
-  line-height: 17px;
+  line-height: calc(var(--list-row) - 1px);
   font-size: var(--font-size);
   white-space: nowrap;
   overflow: hidden;
@@ -146,7 +146,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 17px;
+  height: calc(var(--list-row) - 1px);
   vertical-align: top;
 }
 
@@ -170,7 +170,7 @@
   opacity: 0.6;
 }
 
-/* Small Aqua checkbox, sized to the 18px rows. */
+/* Small Aqua checkbox, sized to the list rows. */
 .song-checkbox {
   width: 12px;
   height: 12px;

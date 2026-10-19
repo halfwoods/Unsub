@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { applyTextSizes, listRowHeight, loadTextSizes, saveTextSizes, type TextSizes } from "../preferences/textSizes";
 import * as api from "../api/commands";
 import type {
   AlbumSummary,
@@ -129,6 +130,9 @@ interface AppState {
   expandedFolders: ReadonlySet<number>;
   renamingPlaylist: number | null;
   smartEditor: SmartEditor | null;
+  preferencesOpen: boolean;
+  textSizes: TextSizes;
+  rowHeight: number;
 
   setWindowActive: (active: boolean) => void;
   setSource: (source: SourceId) => void;
@@ -152,6 +156,8 @@ interface AppState {
   createPlaylist: (kind: Exclude<PlaylistKind, "smart">, fromSelection?: boolean) => Promise<void>;
   setRenamingPlaylist: (id: number | null) => void;
   openSmartEditor: (editor: SmartEditor | null) => void;
+  setPreferencesOpen: (open: boolean) => void;
+  setTextSizes: (sizes: TextSizes) => void;
   playAlbum: (key: string) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
 }
@@ -186,6 +192,9 @@ export const useApp = create<AppState>((set, get) => ({
   expandedFolders: new Set(),
   renamingPlaylist: null,
   smartEditor: null,
+  preferencesOpen: false,
+  textSizes: loadTextSizes(),
+  rowHeight: listRowHeight(loadTextSizes()),
 
   setWindowActive: (windowActive) => set({ windowActive }),
 
@@ -368,6 +377,14 @@ export const useApp = create<AppState>((set, get) => ({
   setRenamingPlaylist: (renamingPlaylist) => set({ renamingPlaylist }),
 
   openSmartEditor: (smartEditor) => set({ smartEditor }),
+
+  setPreferencesOpen: (preferencesOpen) => set({ preferencesOpen }),
+
+  setTextSizes: (textSizes) => {
+    saveTextSizes(textSizes);
+    applyTextSizes(textSizes);
+    set({ textSizes, rowHeight: listRowHeight(textSizes) });
+  },
 
   toggleDevice: (deviceId) =>
     set((s) => {

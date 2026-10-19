@@ -269,3 +269,18 @@ export interface PartyView {
   current: Track | null;
   upcoming: Track[];
 }
+
+export interface SharingSettings {
+  enabled: boolean;
+  port: number;
+  username: string;
+  password: string;
+}
+
+export interface SharingStatus {
+  settings: SharingSettings;
+  running: boolean;
+  /** LAN URLs phone apps should use, e.g. http://192.168.1.20:4533. */
+  addresses: string[];
+  error: string | null;
+}

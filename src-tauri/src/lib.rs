@@ -8,6 +8,7 @@ mod menu;
 mod party;
 mod playback;
 mod queue;
+mod sharing;
 
 use antistreaming_playback::Player;
 use tauri::Manager;
@@ -16,6 +17,7 @@ use collection::CollectionState;
 use devices::DevicesState;
 use library::LibraryState;
 use playback::PlaybackState;
+use sharing::SharingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,6 +36,8 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"))?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json")));
+            let library_path = app.state::<LibraryState>().db_path().to_path_buf();
+            app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path));
             app.manage(DevicesState::default());
             let events = playback::spawn_event_worker(app.handle().clone())?;
             let player = Player::new(move |event| {
@@ -90,6 +94,8 @@ pub fn run() {
             party::party_remove,
             party::party_move,
             party::party_reshuffle,
+            sharing::sharing_status,
+            sharing::sharing_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AntiStreaming");

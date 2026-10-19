@@ -19,6 +19,7 @@ import { Toolbar } from "./chrome/Toolbar";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
+import { Preferences } from "./preferences/Preferences";
 import { useApp } from "./state/store";
 import "./theme/base.css";
 import "./App.css";
@@ -26,8 +27,10 @@ import "./App.css";
 const VOLUME_STEP = 0.1;
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists } = useApp.getState();
+  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen } = useApp.getState();
   switch (action) {
+    case "preferences":
+      return setPreferencesOpen(true);
     case "new-playlist":
       return void createPlaylist("regular");
     case "new-playlist-from-selection":
@@ -100,6 +103,7 @@ function useGlobalKeys() {
 export default function App() {
   const windowActive = useApp((s) => s.windowActive);
   const smartEditor = useApp((s) => s.smartEditor);
+  const preferencesOpen = useApp((s) => s.preferencesOpen);
   useBackendEvents();
   useGlobalKeys();
 
@@ -113,6 +117,7 @@ export default function App() {
       <BottomBar />
       {/* Keyed so each opening starts from that playlist's saved rules. */}
       {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
+      {preferencesOpen && <Preferences />}
     </div>
   );
 }

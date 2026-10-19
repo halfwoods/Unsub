@@ -32,6 +32,11 @@ impl LibraryState {
         })
     }
 
+    /// Other long-lived readers (the sharing server) open their own connection to the same file.
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+
     pub fn queries(&self) -> MutexGuard<'_, Library> {
         // A panic mid-query can't leave SQLite inconsistent (transactions roll back), so recover.
         self.queries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())

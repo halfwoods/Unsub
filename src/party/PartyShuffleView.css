@@ -20,7 +20,7 @@
 
 .party-row {
   position: relative;
-  height: 18px;
+  height: var(--list-row);
   background: var(--list-bg);
 }
 

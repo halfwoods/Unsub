@@ -18,6 +18,8 @@ import type {
   PlaylistKind,
   RepeatMode,
   ScanProgress,
+  SharingSettings,
+  SharingStatus,
   SmartRules,
   Track,
   TrackQuery,
@@ -102,6 +104,9 @@ export const partyMove = (positions: number[], to: number) => invoke<PartyView>(
 export const partyReshuffle = () => invoke<PartyView>("party_reshuffle");
 export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => listen("party://changed", () => handler());
 
+export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
+export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
+
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());
 
@@ -114,6 +119,7 @@ export type MenuAction =
   | "new-playlist"
   | "new-playlist-from-selection"
   | "new-smart-playlist"
-  | "new-playlist-folder";
+  | "new-playlist-folder"
+  | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));
