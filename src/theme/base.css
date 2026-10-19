@@ -1,0 +1,69 @@
+@import "./tokens.css";
+@import "./controls.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  /* The window is transparent so we can draw iTunes' own rounded frame. */
+  background: transparent;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--font-size);
+  color: var(--list-ink);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(72, 132, 210, 0.7);
+  outline-offset: 1px;
+}
+
+/* Snow Leopard Aqua scrollers: inset groove, glossy blue thumb. */
+::-webkit-scrollbar {
+  width: 15px;
+  height: 15px;
+}
+
+::-webkit-scrollbar-track {
+  background: linear-gradient(to right, #d6d6d6, #f2f2f2 40%, #f7f7f7);
+  box-shadow: inset 1px 0 0 #bdbdbd;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  border: 1px solid #5f7fb3;
+  background:
+    linear-gradient(to right, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(to right, #9cb7e0, #6d90c9 60%, #8aa9da);
+  background-clip: padding-box;
+}
+
+[data-active="false"] ::-webkit-scrollbar-thumb {
+  border-color: #9a9a9a;
+  background: linear-gradient(to right, #e3e3e3, #c3c3c3 60%, #d4d4d4);
+}
+
+::-webkit-scrollbar-corner {
+  background: #ececec;
+}

@@ -1,0 +1,17 @@
+[package]
+name = "antistreaming-ipod"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+flate2 = "1.1.10"
+fs4 = { version = "1.1.0", features = ["sync"] }
+plist = { version = "1.10.1", default-features = false }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
+serde_json.workspace = true

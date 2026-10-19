@@ -1,0 +1,27 @@
+.placard {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(to bottom, #ffffff, #eef0f3);
+}
+
+.placard-card {
+  max-width: 420px;
+  text-align: center;
+}
+
+.placard-card h1 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: bold;
+  color: #4d4d4d;
+  text-shadow: 0 1px 0 #ffffff;
+}
+
+.placard-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: #6b6b6b;
+}

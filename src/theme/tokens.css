@@ -1,0 +1,100 @@
+/*
+ * Every size and color here was measured from iTunes 10.7's resources and Apple's 2010
+ * screenshots (see docs/SPEC.md). Change the look here, not in components.
+ */
+:root {
+  --font-ui: "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Tahoma, sans-serif;
+  --font-size: 11px;
+  --font-size-small: 10px;
+  --font-size-sidebar: 12px;
+
+  --toolbar-height: 64px;
+  --bottombar-height: 24px;
+  --sidebar-width: 183px;
+  --sidebar-row: 24px;
+  --list-row: 18px;
+  --list-header: 18px;
+
+  /* Toolbar + bottom bar: the same brushed gray, lighter when the window is inactive. */
+  --chrome-top: #e5e5e5;
+  --chrome-bottom: #b4b4b4;
+  --chrome-highlight: #f3f3f3;
+  --chrome-edge: #696c71;
+  --chrome-top-inactive: #f4f4f4;
+  --chrome-bottom-inactive: #d9d9d9;
+  --chrome-highlight-inactive: #fafafa;
+  --chrome-edge-inactive: #a7a7a7;
+
+  /* LCD: cream glass, darker reflective lower half. */
+  --lcd-top-a: #f0f2e6;
+  --lcd-top-b: #eaeddb;
+  --lcd-bottom-a: #e5e9d1;
+  --lcd-bottom-b: #f8fae4;
+  --lcd-border-top: #b2b2b2;
+  --lcd-border-side: #bebebe;
+  --lcd-border-bottom: #c4c4c4;
+  --lcd-ink: #2a2b24;
+  --lcd-ink-soft: #4b4d41;
+  --lcd-mark-a: #494b3f;
+  --lcd-mark-b: #545649;
+  --lcd-track-light-a: #b1b1b1;
+  --lcd-track-light-b: #d2d2d2;
+  --lcd-track-dark-a: #696969;
+  --lcd-track-dark-b: #a6a6a6;
+
+  /* Glossy silver buttons: white top half over a gray bottom half. */
+  --gloss-border: #7a7a7a;
+  --gloss-border-bottom: #707070;
+  --gloss-top-a: #f4f4f4;
+  --gloss-top-b: #ffffff;
+  --gloss-bottom-a: #e6e6e6;
+  --gloss-bottom-b: #bebebe;
+  --gloss-glow: #cfcfcf;
+  --glyph-a: #3d3d3d;
+  --glyph-b: #777777;
+
+  /* Volume slider: light where filled, dark groove where empty. */
+  --vol-fill-a: #b5b5b5;
+  --vol-fill-b: #dcdcdc;
+  --vol-empty-a: #6b6b6b;
+  --vol-empty-b: #b8b8b8;
+
+  /* Traffic lights (Snow Leopard Aqua). */
+  --light-red: #fa4a3f;
+  --light-red-glow: #ffbebc;
+  --light-red-edge: #6d211e;
+  --light-yellow: #f7c170;
+  --light-yellow-glow: #ffeb87;
+  --light-yellow-edge: #65420d;
+  --light-green: #93cd63;
+  --light-green-glow: #d1eb94;
+  --light-green-edge: #234219;
+  --light-off: #a6aaaf;
+  --light-off-glow: #e4e6e9;
+  --light-off-edge: #353b48;
+
+  /* Sidebar (source list). */
+  --sidebar-bg: #dadee7;
+  --sidebar-bg-inactive: #e8e8e8;
+  --sidebar-divider: #cdcdcf;
+  --sidebar-heading: #6f7a8c;
+  --sidebar-icon: #5f6878;
+  --select-top: #6aa6e0;
+  --select-bottom: #2c71be;
+  --select-edge-top: #5a92d3;
+  --select-edge-bottom: #085daf;
+  --select-unfocused-top: #c4cddf;
+  --select-unfocused-bottom: #9eacc6;
+  --select-unfocused-edge: #93a1bd;
+
+  /* Song list. */
+  --list-bg: #ffffff;
+  --list-stripe: #f1f5fa;
+  --list-ink: #000000;
+  --list-header-a: #e5e5e5;
+  --list-header-b: #ffffff;
+  --list-header-sorted-a: #b2b4b9;
+  --list-header-sorted-b: #e6e9ef;
+  --list-header-edge: #a6a6a6;
+  --list-header-divider: #c3c3c3;
+}

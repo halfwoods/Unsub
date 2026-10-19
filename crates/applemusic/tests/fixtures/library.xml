@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Synthesized export. @MEDIA@ is replaced by the tests with the percent-encoded path of a temp
+     directory holding the files the "exists" locations point at. -->
+<plist version="1.0">
+<dict>
+	<key>Major Version</key><integer>1</integer>
+	<key>Minor Version</key><integer>1</integer>
+	<key>Application Version</key><string>1.4.3.5</string>
+	<key>Features</key><integer>5</integer>
+	<key>Music Folder</key><string>file://localhost/Users/riley/Music/Music/Media.localized/</string>
+	<key>Tracks</key>
+	<dict>
+		<key>101</key>
+		<dict>
+			<key>Track ID</key><integer>101</integer>
+			<key>Name</key><string>Airbag</string>
+			<key>Artist</key><string>Radiohead</string>
+			<key>Album Artist</key><string>Radiohead</string>
+			<key>Album</key><string>OK Computer</string>
+			<key>Genre</key><string>Alternative</string>
+			<key>Kind</key><string>MPEG audio file</string>
+			<key>Size</key><integer>11520000</integer>
+			<key>Total Time</key><integer>287000</integer>
+			<key>Disc Number</key><integer>1</integer>
+			<key>Track Number</key><integer>1</integer>
+			<key>Year</key><integer>1997</integer>
+			<key>Date Added</key><date>2019-03-11T14:22:05Z</date>
+			<key>Play Count</key><integer>12</integer>
+			<key>Rating</key><integer>80</integer>
+			<key>Artwork Count</key><integer>1</integer>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60701</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Radiohead/OK%20Computer/01%20Airbag.mp3</string>
+		</dict>
+		<key>102</key>
+		<dict>
+			<key>Track ID</key><integer>102</integer>
+			<key>Name</key><string>Hunter</string>
+			<key>Artist</key><string>Björk</string>
+			<key>Album</key><string>Homogenic</string>
+			<key>Kind</key><string>Purchased AAC audio file</string>
+			<key>Purchased</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60702</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Bj%C3%B6rk/Homogenic/01%20Hunter.m4a</string>
+		</dict>
+		<key>103</key>
+		<dict>
+			<key>Track ID</key><integer>103</integer>
+			<key>Name</key><string>Hotel California</string>
+			<key>Artist</key><string>Eagles</string>
+			<key>Kind</key><string>Protected AAC audio file</string>
+			<key>Protected</key><true/>
+			<key>Purchased</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60703</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Eagles/Hotel%20California/01%20Hotel%20California.m4p</string>
+		</dict>
+		<key>104</key>
+		<dict>
+			<key>Track ID</key><integer>104</integer>
+			<key>Name</key><string>Teardrop</string>
+			<key>Artist</key><string>Massive Attack</string>
+			<key>Kind</key><string>Purchased AAC audio file</string>
+			<key>Purchased</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60704</string>
+			<key>Track Type</key><string>Remote</string>
+		</dict>
+		<key>105</key>
+		<dict>
+			<key>Track ID</key><integer>105</integer>
+			<key>Name</key><string>Aerodynamic</string>
+			<key>Artist</key><string>Daft Punk</string>
+			<key>Kind</key><string>Matched AAC audio file</string>
+			<key>Matched</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60705</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Daft%20Punk/Discovery/02%20Aerodynamic.m4a</string>
+		</dict>
+		<key>106</key>
+		<dict>
+			<key>Track ID</key><integer>106</integer>
+			<key>Name</key><string>Digital Love</string>
+			<key>Artist</key><string>Daft Punk</string>
+			<key>Kind</key><string>Matched AAC audio file</string>
+			<key>Matched</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60706</string>
+			<key>Track Type</key><string>Remote</string>
+		</dict>
+		<key>107</key>
+		<dict>
+			<key>Track ID</key><integer>107</integer>
+			<key>Name</key><string>Cruel Summer</string>
+			<key>Artist</key><string>Taylor Swift</string>
+			<key>Kind</key><string>Apple Music AAC audio file</string>
+			<key>Apple Music</key><true/>
+			<key>Protected</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60707</string>
+			<key>Track Type</key><string>Remote</string>
+		</dict>
+		<key>108</key>
+		<dict>
+			<key>Track ID</key><integer>108</integer>
+			<key>Name</key><string>Lover</string>
+			<key>Artist</key><string>Taylor Swift</string>
+			<key>Kind</key><string>Apple Music AAC audio file</string>
+			<key>Apple Music</key><true/>
+			<key>Protected</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60708</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Taylor%20Swift/Lover/03%20Lover.m4p</string>
+		</dict>
+		<key>109</key>
+		<dict>
+			<key>Track ID</key><integer>109</integer>
+			<key>Name</key><string>Gone</string>
+			<key>Artist</key><string>Nobody</string>
+			<key>Kind</key><string>MPEG audio file</string>
+			<key>Persistent ID</key><string>a1b2c3d4e5f60709</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Missing/Gone.mp3</string>
+		</dict>
+		<key>110</key>
+		<dict>
+			<key>Track ID</key><integer>110</integer>
+			<key>Name</key><string>Moved Away</string>
+			<key>Artist</key><string>Nobody</string>
+			<key>Kind</key><string>Matched AAC audio file</string>
+			<key>Matched</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070A</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Missing/Moved%20Away.m4a</string>
+		</dict>
+		<key>111</key>
+		<dict>
+			<key>Track ID</key><integer>111</integer>
+			<key>Name</key><string>Smells Like Teen Spirit</string>
+			<key>Artist</key><string>Nirvana</string>
+			<key>Kind</key><string>MPEG audio file</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070B</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost/C:/Users/riley/Music/iTunes/iTunes%20Media/Music/Nirvana/Nevermind/01%20Smells%20Like%20Teen%20Spirit.mp3</string>
+		</dict>
+		<key>112</key>
+		<dict>
+			<key>Track ID</key><integer>112</integer>
+			<key>Name</key><string>Episode 12</string>
+			<key>Artist</key><string>Radiolab</string>
+			<key>Genre</key><string>Podcast</string>
+			<key>Kind</key><string>MPEG audio file</string>
+			<key>Podcast</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070C</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Podcasts/Radiolab/Episode%2012.mp3</string>
+		</dict>
+		<key>113</key>
+		<dict>
+			<key>Track ID</key><integer>113</integer>
+			<key>Name</key><string>Episode 13</string>
+			<key>Artist</key><string>Radiolab</string>
+			<key>Podcast</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070D</string>
+			<key>Track Type</key><string>URL</string>
+			<key>Location</key><string>https://example.com/radiolab/episode-13.mp3</string>
+		</dict>
+		<key>114</key>
+		<dict>
+			<key>Track ID</key><integer>114</integer>
+			<key>Name</key><string>Take On Me</string>
+			<key>Artist</key><string>a-ha</string>
+			<key>Kind</key><string>MPEG-4 video file</string>
+			<key>Has Video</key><true/>
+			<key>Music Video</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070E</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Videos/Take%20On%20Me.m4v</string>
+		</dict>
+		<key>115</key>
+		<dict>
+			<key>Track ID</key><integer>115</integer>
+			<key>Name</key><string>Alien</string>
+			<key>Kind</key><string>Purchased MPEG-4 video file</string>
+			<key>Has Video</key><true/>
+			<key>Movie</key><true/>
+			<key>Purchased</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F6070F</string>
+			<key>Track Type</key><string>Remote</string>
+		</dict>
+		<key>116</key>
+		<dict>
+			<key>Track ID</key><integer>116</integer>
+			<key>Name</key><string>Pilot</string>
+			<key>Kind</key><string>MPEG-4 video file</string>
+			<key>Has Video</key><true/>
+			<key>TV Show</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60710</string>
+			<key>Track Type</key><string>File</string>
+		</dict>
+		<key>117</key>
+		<dict>
+			<key>Track ID</key><integer>117</integer>
+			<key>Name</key><string>Dune</string>
+			<key>Artist</key><string>Frank Herbert</string>
+			<key>Kind</key><string>Audiobook</string>
+			<key>Audiobooks</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60711</string>
+			<key>Track Type</key><string>File</string>
+			<key>Location</key><string>file://localhost@MEDIA@/Audiobooks/Dune/01.m4b</string>
+		</dict>
+		<key>118</key>
+		<dict>
+			<key>Track ID</key><integer>118</integer>
+			<key>Name</key><string>Untitled</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60712</string>
+		</dict>
+		<key>119</key>
+		<dict>
+			<key>Track ID</key><integer>119</integer>
+			<key>Name</key><string>Protected Without Purchase</string>
+			<key>Kind</key><string>Protected AAC audio file</string>
+			<key>Protected</key><true/>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60713</string>
+			<key>Track Type</key><string>File</string>
+		</dict>
+		<key>120</key>
+		<dict>
+			<key>Track ID</key><integer>120</integer>
+			<key>Name</key><string>Apple Music By Kind</string>
+			<key>Kind</key><string>Apple Music AAC audio file</string>
+			<key>Persistent ID</key><string>A1B2C3D4E5F60714</string>
+			<key>Track Type</key><string>Remote</string>
+		</dict>
+		<key>121</key>
+		<dict>
+			<key>Track ID</key><integer>121</integer>
+			<key>Name</key><string>No Persistent ID</string>
+			<key>Kind</key><string>MPEG audio file</string>
+		</dict>
+	</dict>
+	<key>Playlists</key>
+	<array>
+		<dict>
+			<key>Name</key><string>Library</string>
+			<key>Playlist ID</key><integer>900</integer>
+			<key>Master</key><true/>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>101</integer></dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

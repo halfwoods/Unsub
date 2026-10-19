@@ -1,0 +1,25 @@
+[package]
+name = "antistreaming-playback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+# `pcm` is the codec behind wav/aiff; `id3v1`/`id3v2` let the probe skip tags around MP3 frames.
+symphonia = { version = "0.6.1", default-features = false, features = [
+    "aac", "aiff", "alac", "flac", "id3v1", "id3v2", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav",
+] }
+cpal = "0.18.2"
+rtrb = "0.4"
+rubato = "5"
+
+# macOS only: read the output device's hardware format so it can be put back after playback.
+[target.'cfg(target_os = "macos")'.dependencies]
+coreaudio-rs = { version = "0.14", default-features = false, features = ["core_audio", "audio_toolbox"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware"] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+
+[dev-dependencies]
+serde_json.workspace = true

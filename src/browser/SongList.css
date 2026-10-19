@@ -1,0 +1,171 @@
+.song-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--list-bg);
+}
+
+.song-list-header {
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--grid);
+  height: var(--list-header);
+  border-bottom: 1px solid var(--list-header-edge);
+  /* Reserve the scrollbar gutter so header cells line up with row cells. */
+  padding-right: 15px;
+  background: linear-gradient(to bottom, var(--list-header-a), var(--list-header-b));
+}
+
+.song-list-header-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 5px;
+  font-size: var(--font-size);
+  border-right: 1px solid var(--list-header-divider);
+  background: inherit;
+}
+
+.song-list-header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The sorted column turns blue-gray only in the key window, like iTunes 10. */
+[data-active="true"] .song-list-header-cell--sorted {
+  background: linear-gradient(to bottom, var(--list-header-sorted-a), var(--list-header-sorted-b));
+  border-right-color: #aeb1b5;
+}
+
+.song-list-header-cell:active {
+  background: linear-gradient(to bottom, #d3d3d3, #ebebeb);
+}
+
+.sort-arrow {
+  flex: none;
+  margin-left: auto;
+  fill: #4a4a4a;
+}
+
+.song-list-body {
+  position: relative;
+  flex: 1;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  outline: none;
+}
+
+/* iTunes keeps the stripes going below the last song. */
+.song-list-stripes {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--list-bg) 0 18px,
+    var(--list-stripe) 18px 36px
+  );
+  background-attachment: local;
+  pointer-events: none;
+}
+
+.song-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: var(--grid);
+  height: 18px;
+  background: var(--list-bg);
+}
+
+.song-row--odd {
+  background: var(--list-stripe);
+}
+
+.song-row--selected {
+  color: #ffffff;
+  background: linear-gradient(to bottom, var(--select-unfocused-top), var(--select-unfocused-bottom));
+}
+
+.song-list-body:focus .song-row--selected,
+.song-list-body:focus-within .song-row--selected {
+  background: linear-gradient(to bottom, #5d94d6, #2a6fc4);
+  box-shadow: inset 0 1px 0 #4a83cc;
+}
+
+[data-active="false"] .song-row--selected {
+  color: #000000;
+  background: #d4d4d4;
+  box-shadow: none;
+}
+
+.song-cell {
+  min-width: 0;
+  padding: 0 5px;
+  line-height: 17px;
+  font-size: var(--font-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-cell--status {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.now-playing {
+  fill: #6b6b6b;
+  stroke: #6b6b6b;
+  stroke-width: 0;
+}
+
+.now-playing-wave {
+  fill: none;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.now-playing--on {
+  fill: #1f6fd8;
+  stroke: #1f6fd8;
+}
+
+.song-row--selected .now-playing {
+  fill: #ffffff;
+  stroke: #ffffff;
+}
+
+.rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 17px;
+  vertical-align: top;
+}
+
+.rating svg {
+  fill: currentColor;
+}
+
+.rating-dot {
+  width: 10px;
+  height: 10px;
+  display: grid;
+  place-items: center;
+}
+
+.rating-dot--shown::before {
+  content: "";
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}

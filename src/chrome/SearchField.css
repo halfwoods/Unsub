@@ -1,0 +1,74 @@
+.search-field {
+  display: flex;
+  align-items: center;
+  width: 168px;
+  min-width: 96px;
+  flex-shrink: 1;
+  height: 22px;
+  padding: 0 6px 0 7px;
+  border-radius: 11px;
+  border: 1px solid #8a8a8a;
+  border-top-color: #6f6f6f;
+  background: #ffffff;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.search-field:focus-within {
+  border-color: #5f8bd0;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(102, 152, 222, 0.75);
+}
+
+.search-glass {
+  flex: none;
+  fill: none;
+  stroke: #6d6d6d;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.search-caret {
+  fill: #6d6d6d;
+  stroke: none;
+}
+
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size);
+  color: #000000;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.search-field input::placeholder {
+  color: #9a9a9a;
+}
+
+.search-clear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #b5b5b5;
+}
+
+.search-clear svg {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.search-clear:active {
+  background: #8f8f8f;
+}

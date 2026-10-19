@@ -1,0 +1,54 @@
+/* Controls shared across views. */
+
+/* iTunes 10 tab strip: plain labels, the current one in a dark pill. */
+.pill-tabs {
+  flex: none;
+  height: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid #c4c4c4;
+  background: linear-gradient(to bottom, #fbfbfb, #ececec);
+}
+
+.pill-tab {
+  padding: 1px 11px 2px;
+  font-size: var(--font-size-small);
+  font-weight: bold;
+  color: #3c3c3c;
+  border-radius: 9px;
+}
+
+.pill-tab[aria-selected="true"] {
+  color: #ffffff;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.35);
+  background: linear-gradient(to bottom, #8e9092, #6c6f72);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* Aqua push button, as on iTunes 10's device and intro pages. */
+.push-button {
+  flex: none;
+  min-width: 74px;
+  height: 22px;
+  padding: 0 14px;
+  border-radius: 11px;
+  border: 1px solid #7a7a7a;
+  background: linear-gradient(to bottom, #ffffff, #f0f0f0 48%, #dedede 52%, #ececec);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  font-size: var(--font-size);
+  color: #1a1a1a;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+.push-button:active:not(:disabled) {
+  background: linear-gradient(to bottom, #cfd8e6, #b9c7dc 48%, #a8b9d3 52%, #c0cde0);
+}
+
+.push-button:disabled {
+  color: #8a8a8a;
+}

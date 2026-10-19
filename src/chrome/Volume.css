@@ -1,0 +1,79 @@
+.volume {
+  position: absolute;
+  left: 177px;
+  top: 32px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.volume-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+.volume-speaker {
+  fill: #4e4e4e;
+  stroke: #4e4e4e;
+  stroke-width: 0;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+.volume-wave {
+  fill: none;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.volume-track {
+  position: relative;
+  width: 100px;
+  height: 20px;
+  outline: none;
+}
+
+/* Light where filled, dark groove where empty: iTunes 10 inverts the usual slider shading. */
+.volume-groove {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 11px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: linear-gradient(to bottom, var(--vol-empty-a), #919191 30%, var(--vol-empty-b) 80%, #a4a4a4);
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.volume-fill {
+  height: 100%;
+  background: linear-gradient(to bottom, var(--vol-fill-a), #cecece 30%, var(--vol-fill-b) 80%, #d2d2d2);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.volume-knob {
+  position: absolute;
+  top: 0;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.38);
+  /* Brushed-metal cap: a conic sheen with a bright hub. */
+  background:
+    radial-gradient(circle, #fdfdfd 0 1.5px, transparent 2.5px),
+    conic-gradient(#d9d9d9, #fbfbfb 12%, #d0d0d0 25%, #f3f3f3 37%, #d9d9d9 50%, #fbfbfb 62%, #d0d0d0 75%, #f3f3f3 87%, #d9d9d9);
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.3);
+}
+
+.volume-track:focus-visible .volume-knob {
+  box-shadow: 0 0 0 2px rgba(72, 132, 210, 0.7);
+}
+
+.volume-track:active .volume-knob {
+  filter: brightness(0.86);
+}

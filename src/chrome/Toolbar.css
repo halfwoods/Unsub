@@ -1,0 +1,50 @@
+/* Shared by the toolbar and bottom bar: brushed gray with a faint grain, lighter when inactive. */
+.chrome-surface {
+  --surface-top: var(--chrome-top);
+  --surface-bottom: var(--chrome-bottom);
+  --surface-highlight: var(--chrome-highlight);
+  --surface-edge: var(--chrome-edge);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E"),
+    linear-gradient(to bottom, var(--surface-top), var(--surface-bottom));
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
+}
+
+[data-active="false"] .chrome-surface {
+  --surface-top: var(--chrome-top-inactive);
+  --surface-bottom: var(--chrome-bottom-inactive);
+  --surface-highlight: var(--chrome-highlight-inactive);
+  --surface-edge: var(--chrome-edge-inactive);
+}
+
+.toolbar {
+  position: relative;
+  flex: none;
+  height: var(--toolbar-height);
+  border-bottom: 1px solid var(--surface-edge);
+}
+
+/* The LCD floats in the space between the volume slider and the view buttons. */
+.toolbar-lcd {
+  position: absolute;
+  left: 348px;
+  right: 316px;
+  top: 11px;
+  display: flex;
+  justify-content: center;
+}
+
+.toolbar-lcd .lcd {
+  max-width: 540px;
+  min-width: 220px;
+}
+
+.toolbar-right {
+  position: absolute;
+  right: 10px;
+  top: 32px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}

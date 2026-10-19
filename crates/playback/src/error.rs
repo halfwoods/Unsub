@@ -1,0 +1,33 @@
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("cannot read audio file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("cannot decode audio: {0}")]
+    Decode(#[from] symphonia::core::errors::Error),
+    #[error("file has no playable audio track")]
+    NoAudioTrack,
+    #[error("the decoder crashed on this file: {0}")]
+    Panicked(String),
+    #[error("file contains no decodable audio")]
+    Empty,
+    #[error("unsupported audio: {0}")]
+    Unsupported(&'static str),
+    #[error("audio output: {0}")]
+    Output(#[from] cpal::Error),
+    #[error("no audio output device available")]
+    NoDevice,
+    #[error("audio output does not accept any sample format this player can write")]
+    NoSampleFormat,
+    #[error("audio output stopped consuming samples")]
+    OutputStalled,
+    #[error("cannot start sample rate conversion: {0}")]
+    ResamplerSetup(#[from] rubato::ResamplerConstructionError),
+    #[error("sample rate conversion failed: {0}")]
+    Resample(#[from] rubato::ResampleError),
+    #[error("resampler buffer mismatch: {0}")]
+    ResampleBuffer(#[from] rubato::audioadapter_buffers::SizeError),
+}

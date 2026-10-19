@@ -1,0 +1,26 @@
+[package]
+name = "antistreaming"
+description = "A music player for people who own their music"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519 on Windows).
+name = "antistreaming_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+fastrand = "2"
+antistreaming-library.workspace = true
+antistreaming-playback.workspace = true
+antistreaming-ipod.workspace = true
+antistreaming-applemusic.workspace = true
+serde.workspace = true
+serde_json.workspace = true

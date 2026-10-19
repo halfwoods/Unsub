@@ -1,0 +1,75 @@
+.traffic-lights {
+  position: absolute;
+  left: 6px;
+  top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 2;
+}
+
+.traffic-light {
+  --base: var(--light-off);
+  --glow: var(--light-off-glow);
+  --edge: var(--light-off-edge);
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--edge) 70%, transparent);
+  /* Aqua gel: dark band under a white gloss, glowing toward the bottom edge. */
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 88%, var(--glow) 0%, transparent 100%),
+    linear-gradient(to bottom, var(--base) 25%, color-mix(in srgb, var(--base) 55%, var(--glow)) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 1px color-mix(in srgb, var(--edge) 60%, transparent);
+}
+
+.traffic-light::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 1px;
+  height: 5px;
+  border-radius: 50%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.15));
+}
+
+[data-active="true"] .traffic-light--close {
+  --base: var(--light-red);
+  --glow: var(--light-red-glow);
+  --edge: var(--light-red-edge);
+}
+
+[data-active="true"] .traffic-light--minimize {
+  --base: var(--light-yellow);
+  --glow: var(--light-yellow-glow);
+  --edge: var(--light-yellow-edge);
+}
+
+[data-active="true"] .traffic-light--zoom {
+  --base: var(--light-green);
+  --glow: var(--light-green-glow);
+  --edge: var(--light-green-edge);
+}
+
+.traffic-light svg {
+  position: absolute;
+  inset: 2px;
+  opacity: 0;
+  fill: none;
+  stroke: color-mix(in srgb, var(--edge) 85%, black);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+/* Like the real buttons, hovering any one reveals all three glyphs. */
+.traffic-lights:hover .traffic-light svg {
+  opacity: 0.85;
+}
+
+.traffic-light:active {
+  filter: brightness(0.8);
+}

@@ -1,0 +1,193 @@
+.sidebar {
+  flex: none;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-divider);
+  /* The toolbar's dark edge fades into the source list. */
+  box-shadow: inset 0 1px 0 #aaadb2;
+}
+
+[data-active="false"] .sidebar {
+  background: var(--sidebar-bg-inactive);
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 7px;
+}
+
+.sidebar-heading {
+  margin: 0;
+  height: 17px;
+  padding: 3px 0 0 8px;
+  font-size: var(--font-size);
+  font-weight: bold;
+  text-transform: uppercase;
+  color: var(--sidebar-heading);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  line-height: 14px;
+}
+
+.sidebar-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--sidebar-row);
+  padding-left: 21px;
+  font-size: var(--font-size-sidebar);
+  white-space: nowrap;
+}
+
+.sidebar-item--child {
+  padding-left: 37px;
+}
+
+/* Disclosure triangle sits in the gutter left of the icon, like Snow Leopard source lists. */
+.sidebar-disclosure {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+}
+
+.sidebar-disclosure::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  border-style: solid;
+  border-width: 3.5px 0 3.5px 6px;
+  border-color: transparent transparent transparent #7d8594;
+  transition: transform 120ms ease-out;
+}
+
+.sidebar-disclosure--open::before {
+  transform: rotate(90deg);
+}
+
+.sidebar-item[aria-selected="true"] .sidebar-disclosure::before {
+  border-left-color: #ffffff;
+}
+
+.sidebar-eject {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0 6px 0 auto;
+}
+
+.sidebar-eject svg {
+  fill: #6f7787;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+.sidebar-item[aria-selected="true"] .sidebar-eject svg {
+  fill: #ffffff;
+  filter: none;
+}
+
+.sidebar-eject:active svg {
+  fill: #3d4350;
+}
+
+.sidebar-label {
+  margin-left: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-icon {
+  flex: none;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.75));
+}
+
+.source-icon-fill {
+  fill: var(--sidebar-icon);
+}
+
+.source-icon-stroke {
+  fill: none;
+  stroke: var(--sidebar-icon);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-item[aria-selected="true"] {
+  font-weight: bold;
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 1px 0 var(--select-unfocused-edge);
+  background: linear-gradient(to bottom, var(--select-unfocused-top), var(--select-unfocused-bottom));
+}
+
+/* Blue only while the window is key, matching Snow Leopard's source lists. */
+[data-active="true"] .sidebar-item[aria-selected="true"] {
+  box-shadow: inset 0 1px 0 var(--select-edge-top);
+  background: linear-gradient(to bottom, var(--select-top), var(--select-bottom) 96%, var(--select-edge-bottom));
+}
+
+.sidebar-item[aria-selected="true"] .source-icon {
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.3));
+}
+
+.sidebar-item[aria-selected="true"] .source-icon-fill {
+  fill: #ffffff;
+}
+
+.sidebar-item[aria-selected="true"] .source-icon-stroke {
+  stroke: #ffffff;
+}
+
+.artwork-pane {
+  flex: none;
+  border-top: 1px solid #a5a9b2;
+  background: #dfe3ea;
+}
+
+.artwork-pane-title {
+  height: 18px;
+  padding-top: 2px;
+  font-size: var(--font-size-small);
+  font-weight: bold;
+  text-align: center;
+  color: #4d5564;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  background: linear-gradient(to bottom, #e9ecf1, #d3d8e0);
+  border-bottom: 1px solid #b5bac4;
+}
+
+.artwork-pane-image {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+}
+
+.artwork-pane-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.artwork-pane-empty {
+  font-size: var(--font-size);
+  color: #8f8f8f;
+}

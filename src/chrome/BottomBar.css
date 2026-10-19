@@ -1,0 +1,81 @@
+.bottom-bar {
+  position: relative;
+  flex: none;
+  height: var(--bottombar-height);
+  border-top: 1px solid var(--surface-edge);
+  display: flex;
+  align-items: center;
+}
+
+.bottom-left {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+}
+
+.bottom-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+}
+
+.bottom-button svg {
+  fill: none;
+  stroke: #3e3e3e;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+/* Toggled modes turn blue, as in iTunes 10. */
+.bottom-button[aria-pressed="true"] svg {
+  stroke: #1c6fdb;
+}
+
+.bottom-button:active:not(:disabled) svg {
+  stroke: #1d1d1d;
+}
+
+.bottom-button:disabled svg {
+  opacity: 0.35;
+}
+
+.bottom-repeat {
+  position: relative;
+}
+
+.bottom-repeat--one::after {
+  content: "1";
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  min-width: 9px;
+  height: 9px;
+  border-radius: 5px;
+  background: #1c6fdb;
+  color: #ffffff;
+  font-size: 7px;
+  line-height: 9px;
+  font-weight: bold;
+  text-align: center;
+  pointer-events: none;
+}
+
+.bottom-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--font-size);
+  color: #1a1a1a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+[data-active="false"] .bottom-status {
+  color: #6a6a6a;
+}
