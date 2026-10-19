@@ -1,9 +1,9 @@
-import type { MouseEvent, ReactNode } from "react";
-import { artworkUrl, deviceEject } from "../api/commands";
+import { useState, type MouseEvent, type ReactNode } from "react";
+import { artworkUrl, deviceEject, partyAdd } from "../api/commands";
 import type { Device } from "../api/types";
 import { deviceSource, playSourceOf, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
-import { PlaylistRows } from "./PlaylistRows";
+import { PlaylistRows, TRACKS_MIME } from "./PlaylistRows";
 import "./Sidebar.css";
 
 interface SourceItem {
@@ -62,15 +62,35 @@ function ArtworkPane() {
   );
 }
 
-function Row({ id, label, icon, depth = 0, before, after }: SourceItem & { depth?: number; before?: ReactNode; after?: ReactNode }) {
+function Row({
+  id,
+  label,
+  icon,
+  depth = 0,
+  before,
+  after,
+  onDropTracks,
+}: SourceItem & { depth?: number; before?: ReactNode; after?: ReactNode; onDropTracks?: (trackIds: number[]) => void }) {
   const selected = useApp((s) => s.source === id);
   const setSource = useApp((s) => s.setSource);
+  const [dropTarget, setDropTarget] = useState(false);
   return (
     <li
       role="option"
       aria-selected={selected}
-      className={depth > 0 ? "sidebar-item sidebar-item--child" : "sidebar-item"}
+      className={[depth > 0 ? "sidebar-item sidebar-item--child" : "sidebar-item", dropTarget ? "sidebar-item--drop" : ""].join(" ")}
       onMouseDown={() => setSource(id)}
+      onDragOver={(e) => {
+        if (!onDropTracks || !e.dataTransfer.types.includes(TRACKS_MIME)) return;
+        e.preventDefault();
+        setDropTarget(true);
+      }}
+      onDragLeave={() => setDropTarget(false)}
+      onDrop={(e) => {
+        setDropTarget(false);
+        const tracks = e.dataTransfer.getData(TRACKS_MIME);
+        if (onDropTracks && tracks) onDropTracks(JSON.parse(tracks) as number[]);
+      }}
     >
       {before}
       <SourceIcon name={icon} />
@@ -176,7 +196,12 @@ export function Sidebar() {
         {rest.map((section) => (
           <Section key={section.heading} heading={section.heading}>
             {section.items.map((item) => (
-              <Row key={item.id} {...item} />
+              <Row
+                key={item.id}
+                {...item}
+                // Songs dropped on Party Shuffle join the end of its queue.
+                onDropTracks={item.id === "partyShuffle" ? (ids) => void partyAdd(ids, null) : undefined}
+              />
             ))}
             {section.heading === "Playlists" && <PlaylistRows />}
           </Section>

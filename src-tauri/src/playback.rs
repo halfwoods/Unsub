@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
 use crate::library::LibraryState;
+use crate::party::{self, PartyShuffle};
 use crate::queue::{PlayQueue, RepeatMode};
 
 pub const PLAYER_EVENT: &str = "player://event";
@@ -30,9 +31,11 @@ pub enum PlaySource {
     },
 }
 
-struct Playing {
-    source: PlaySource,
-    queue: PlayQueue,
+pub(crate) struct Playing {
+    pub(crate) source: PlaySource,
+    pub(crate) queue: PlayQueue,
+    /// Party Shuffle owns what comes next; the queue only ever holds its current and upcoming songs.
+    pub(crate) party: bool,
 }
 
 struct Modes {
@@ -41,9 +44,9 @@ struct Modes {
 }
 
 /// Resolves queued ids to files, whichever source they came from.
-struct Tracks<'a> {
-    library: &'a LibraryState,
-    devices: &'a DevicesState,
+pub(crate) struct Tracks<'a> {
+    pub(crate) library: &'a LibraryState,
+    pub(crate) devices: &'a DevicesState,
 }
 
 impl Tracks<'_> {
@@ -55,11 +58,12 @@ impl Tracks<'_> {
     }
 }
 
-/// Lock order is always playing → library/devices, from commands and engine events alike.
+/// Lock order is always playing → party → library/devices, from commands and engine events alike.
 pub struct PlaybackState {
-    player: Player,
+    pub(crate) player: Player,
     playing: Mutex<Option<Playing>>,
     modes: Mutex<Modes>,
+    party: Mutex<PartyShuffle>,
 }
 
 impl PlaybackState {
@@ -68,10 +72,15 @@ impl PlaybackState {
             player,
             playing: Mutex::new(None),
             modes: Mutex::new(Modes { shuffle: false, repeat: RepeatMode::Off }),
+            party: Mutex::new(PartyShuffle::default()),
         }
     }
 
-    fn playing(&self) -> MutexGuard<'_, Option<Playing>> {
+    pub(crate) fn party(&self) -> MutexGuard<'_, PartyShuffle> {
+        self.party.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn playing(&self) -> MutexGuard<'_, Option<Playing>> {
         self.playing.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
@@ -79,14 +88,14 @@ impl PlaybackState {
         self.modes.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
+    pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         let track_id = playing.queue.current();
         self.player.play(track_id, tracks.path(&playing.source, track_id)?);
         self.queue_following(tracks, playing)
     }
 
     /// Hands the engine the next track early so it can play gaplessly.
-    fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
+    pub(crate) fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         match playing.queue.peek_next() {
             Some(next) => self.player.queue_next(next, tracks.path(&playing.source, next)?),
             None => self.player.clear_next(),
@@ -136,6 +145,7 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
     let mut slot = playback.playing();
     let Some(playing) = slot.as_mut() else { return };
     let result = match event {
+        PlayerEvent::TrackStarted { track_id } if playing.party => party::on_track_started(app, &playback, &tracks, playing, track_id),
         PlayerEvent::TrackStarted { track_id } if playing.queue.sync_to(track_id) => playback.queue_following(&tracks, playing),
         // A play counts when the song reaches its end, as in iTunes. iPod counts sync back in milestone 13.
         PlayerEvent::TrackEnded { track_id } if playing.source == PlaySource::Library => {
@@ -163,7 +173,7 @@ pub fn player_play_list(
     };
     let queue = PlayQueue::new(track_ids, start_index, shuffle, repeat)
         .ok_or_else(|| CommandError::from(format!("no track at index {start_index}")))?;
-    let playing = Playing { source, queue };
+    let playing = Playing { source, queue, party: false };
     let mut slot = playback.playing();
     playback.start(&Tracks { library: &library, devices: &devices }, &playing)?;
     *slot = Some(playing);

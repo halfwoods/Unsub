@@ -1,4 +1,5 @@
 import { OwnershipView } from "../collection/OwnershipView";
+import { PartyShuffleView } from "../party/PartyShuffleView";
 import { DeviceSummary } from "../devices/DeviceSummary";
 import {
   isDeviceSource,
@@ -41,10 +42,6 @@ const PLACARDS: Record<LibrarySource | PlacardSource, { title: string; body: str
     title: "Mixes",
     body: "Playlists of songs that go great together, built on this computer from your own listening. Arrives in milestone 11.",
   },
-  partyShuffle: {
-    title: "Party Shuffle",
-    body: "A queue that never runs dry: it keeps adding songs from your library, and you can reorder what's up next. Arrives in milestone 4.",
-  },
 };
 
 function Placard({ source }: { source: LibrarySource | PlacardSource }) {
@@ -74,6 +71,7 @@ export function Content() {
     return device?.view ? <SongList /> : <DeviceSummary device={found} />;
   }
   if (source === "toOwn") return <OwnershipView />;
+  if (source === "partyShuffle") return <PartyShuffleView />;
   // Playlists always show their list, even empty, so songs can be dropped into it.
   if (isPlaylistSource(source) || (isLibrarySource(source) && (hasTracks || searching || !loaded))) {
     if (viewMode === "albumList") return <AlbumList />;

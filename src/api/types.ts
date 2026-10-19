@@ -253,3 +253,19 @@ export interface Playlist {
   smart: SmartRules | null;
   trackCount: number;
 }
+
+export type PartySource = { type: "library" } | { type: "playlist"; id: number };
+
+export interface PartySettings {
+  source: PartySource;
+  recent: number;
+  upcoming: number;
+  favorRated: boolean;
+}
+
+export interface PartyView {
+  settings: PartySettings;
+  history: Track[];
+  current: Track | null;
+  upcoming: Track[];
+}

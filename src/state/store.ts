@@ -30,7 +30,7 @@ export type GridGroup = "albums" | "artists" | "genres" | "composers";
 export type LibrarySource = "music" | "podcasts" | "audiobooks";
 
 /** Sources whose features land in later milestones; they show an iTunes-style intro placard. */
-export type PlacardSource = "inbox" | "purchased" | "mixes" | "partyShuffle";
+export type PlacardSource = "inbox" | "purchased" | "mixes";
 
 export type PlaylistSourceId = `playlist:${number}`;
 
@@ -40,7 +40,7 @@ export type PlaylistSourceId = `playlist:${number}`;
  */
 export type DeviceSourceId = `device:${string}`;
 
-export type SourceId = LibrarySource | PlacardSource | DeviceSourceId | PlaylistSourceId | "toOwn";
+export type SourceId = LibrarySource | PlacardSource | DeviceSourceId | PlaylistSourceId | "toOwn" | "partyShuffle";
 
 const SOURCE_KIND: Record<LibrarySource, MediaKind> = {
   music: "music",
@@ -291,8 +291,14 @@ export const useApp = create<AppState>((set, get) => ({
 
   // iTunes' play button with nothing loaded plays the selection, else the top of the list.
   togglePlay: async () => {
-    const { playback, tracks, selection } = get();
+    const { playback, tracks, selection, source } = get();
     if (playback.trackId !== null) return api.playerTogglePause();
+    // In Party Shuffle, Play starts the party rather than the (empty) song list.
+    if (source === "partyShuffle") {
+      set({ playingSource: { type: "library" } });
+      await api.partyPlay(null);
+      return;
+    }
     const selected = tracks.findIndex((t) => selection.has(t.id));
     await get().playRow(Math.max(selected, 0));
   },

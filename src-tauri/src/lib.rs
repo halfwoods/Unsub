@@ -4,6 +4,7 @@ mod devices;
 mod error;
 mod library;
 mod menu;
+mod party;
 mod playback;
 mod queue;
 
@@ -71,6 +72,7 @@ pub fn run() {
             collection::collection_load_xml,
             collection::collection_import_owned,
             collection::collection_locate_folder,
+            collection::collection_download_from_icloud,
             playback::player_play_list,
             playback::player_toggle_pause,
             playback::player_next,
@@ -80,6 +82,13 @@ pub fn run() {
             playback::player_set_shuffle,
             playback::player_set_repeat,
             playback::player_status,
+            party::party_view,
+            party::party_play,
+            party::party_set_settings,
+            party::party_add,
+            party::party_remove,
+            party::party_move,
+            party::party_reshuffle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AntiStreaming");

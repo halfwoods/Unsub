@@ -1,0 +1,85 @@
+.party {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--list-bg);
+}
+
+.party-header,
+.party-row {
+  display: grid;
+  grid-template-columns: 20px minmax(120px, 3fr) 52px minmax(90px, 2fr) minmax(90px, 2fr);
+}
+
+/* Always-on scrollbar, like the song list, so the header's gutter lines up with the rows. */
+.party-body {
+  flex: 1;
+  overflow-y: scroll;
+}
+
+.party-row {
+  position: relative;
+  height: 18px;
+  background: var(--list-bg);
+}
+
+.party-row.song-row--odd {
+  background: var(--list-stripe);
+}
+
+/* Already-played songs stay visible but recede, as in iTunes. */
+.party-row--history {
+  color: #9a9a9a;
+}
+
+.party-row--current {
+  font-weight: bold;
+}
+
+.party-body:focus .party-row.song-row--selected {
+  color: #ffffff;
+  background: linear-gradient(to bottom, #5d94d6, #2a6fc4);
+}
+
+.party-row.song-row--selected {
+  color: #ffffff;
+  background: linear-gradient(to bottom, var(--select-unfocused-top), var(--select-unfocused-bottom));
+}
+
+.party-time {
+  text-align: right;
+}
+
+.party-drop-line {
+  top: -1px;
+}
+
+.party-empty {
+  padding: 30px;
+  text-align: center;
+  color: #8a8a8a;
+}
+
+/* iTunes DJ's settings bar under the list. */
+.party-bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 7px 14px;
+  border-top: 1px solid #b5b5b5;
+  background: linear-gradient(to bottom, #f1f1f1, #dadada);
+  font-size: var(--font-size);
+}
+
+.party-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.party-bar .push-button {
+  margin-left: auto;
+}

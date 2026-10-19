@@ -291,6 +291,89 @@ pub fn collection_locate_folder(app: AppHandle) {
     });
 }
 
+/// Asks the Music app to fetch each song (by persistent ID) from iCloud. Music downloads on its own
+/// schedule; the songs then show up as owned files to import on the next Refresh.
+#[cfg(target_os = "macos")]
+const MUSIC_DOWNLOAD_SCRIPT: &str = r#"
+on run persistentIDs
+    set accepted to 0
+    tell application "Music"
+        set lib to library playlist 1
+        repeat with pid in persistentIDs
+            try
+                download (first track of lib whose persistent ID is (pid as text))
+                set accepted to accepted + 1
+            end try
+        end repeat
+    end tell
+    return accepted
+end run
+"#;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadRequest {
+    requested: usize,
+    accepted: usize,
+}
+
+/// "Download from iCloud" for purchased and uploaded/matched songs. macOS asks once before
+/// AntiStreaming may control Music; subscription songs aren't downloadable and are never sent.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<DownloadRequest> {
+    let ids: Vec<String> = {
+        let state = app.state::<CollectionState>();
+        let library = app.state::<LibraryState>();
+        let snapshot = state.snapshot();
+        let Some(snapshot) = snapshot.as_ref() else { return Ok(DownloadRequest { requested: 0, accepted: 0 }) };
+        build_report(snapshot, &library)?
+            .albums
+            .into_iter()
+            .flat_map(|album| album.tracks)
+            .filter(|track| track.status == OwnStatus::Redownload)
+            .map(|track| track.persistent_id)
+            .collect()
+    };
+    let requested = ids.len();
+    if requested == 0 {
+        return Ok(DownloadRequest { requested, accepted: 0 });
+    }
+    // osascript blocks while Music works through the list, so keep it off the IPC thread.
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write;
+        let mut child = std::process::Command::new("osascript")
+            .arg("-")
+            .args(&ids)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin.write_all(MUSIC_DOWNLOAD_SCRIPT.as_bytes())?;
+        }
+        child.wait_with_output()
+    })
+    .await
+    .map_err(|e| CommandError::from(e.to_string()))?
+    .map_err(|e| CommandError::from(e.to_string()))?;
+    if !output.status.success() {
+        // Most often the Automation permission was declined in System Settings.
+        return Err(CommandError::from(format!(
+            "Music didn't accept the request: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let accepted = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
+    Ok(DownloadRequest { requested, accepted })
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn collection_download_from_icloud() -> CommandResult<()> {
+    Err(CommandError::from("Downloading from iCloud through Music needs macOS.".to_owned()))
+}
+
 /// Adds every owned file the Music app has that AntiStreaming doesn't, in one import.
 #[tauri::command]
 pub fn collection_import_owned(app: AppHandle, state: State<'_, CollectionState>, library: State<'_, LibraryState>) -> CommandResult<usize> {

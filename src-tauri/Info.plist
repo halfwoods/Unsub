@@ -4,5 +4,7 @@
 <dict>
   <key>NSAppleMusicUsageDescription</key>
   <string>AntiStreaming reads your Music library to show which songs you stream but don't own yet, and to import the files you already own.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>AntiStreaming asks Music to download the songs you bought or uploaded to iCloud, so it can import them.</string>
 </dict>
 </plist>

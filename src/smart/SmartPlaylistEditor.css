@@ -82,26 +82,6 @@
   color: #b0b0b0;
 }
 
-/* Aqua pop-up buttons. */
-.smart-popup {
-  height: 20px;
-  padding: 0 20px 0 8px;
-  border: 1px solid #8f8f8f;
-  border-radius: 4px;
-  appearance: none;
-  -webkit-appearance: none;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='10'%3E%3Cpath d='M0 4h7L3.5 0zM0 6h7L3.5 10z' fill='%23444'/%3E%3C/svg%3E") no-repeat right 6px center,
-    linear-gradient(to bottom, #ffffff, #f1f1f1 48%, #e2e2e2 52%, #ededed);
-  font: inherit;
-  font-size: var(--font-size);
-}
-
-.smart-popup:disabled,
-.smart-input:disabled {
-  opacity: 0.5;
-}
-
 .smart-input {
   height: 20px;
   min-width: 160px;
@@ -111,6 +91,10 @@
   font: inherit;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.smart-input:disabled {
+  opacity: 0.5;
 }
 
 .smart-input--number {

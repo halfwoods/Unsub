@@ -9,6 +9,8 @@ import type {
   GenreSummary,
   LibraryStats,
   OwnershipReport,
+  PartySettings,
+  PartyView,
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
@@ -84,9 +86,21 @@ export const collectionLoadMusicApp = () => invoke<void>("collection_load_music_
 export const collectionLoadXml = () => invoke<void>("collection_load_xml");
 export const collectionImportOwned = () => invoke<number>("collection_import_owned");
 export const collectionLocateFolder = () => invoke<void>("collection_locate_folder");
+export const collectionDownloadFromIcloud = () =>
+  invoke<{ requested: number; accepted: number }>("collection_download_from_icloud");
 /** Carries an error message when reading the other library failed, else null. */
 export const onCollectionChanged = (handler: (error: string | null) => void): Promise<UnlistenFn> =>
   listen<string | null>("collection://changed", (e) => handler(e.payload));
+
+export const partyView = () => invoke<PartyView>("party_view");
+export const partyPlay = (index: number | null) => invoke<PartyView>("party_play", { index });
+export const partySetSettings = (settings: PartySettings) => invoke<PartyView>("party_set_settings", { settings });
+/** `at` 0 is "Play Next"; null appends. */
+export const partyAdd = (trackIds: number[], at: number | null) => invoke<PartyView>("party_add", { trackIds, at });
+export const partyRemove = (positions: number[]) => invoke<PartyView>("party_remove", { positions });
+export const partyMove = (positions: number[], to: number) => invoke<PartyView>("party_move", { positions, to });
+export const partyReshuffle = () => invoke<PartyView>("party_reshuffle");
+export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => listen("party://changed", () => handler());
 
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());

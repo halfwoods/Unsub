@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  collectionDownloadFromIcloud,
   collectionImportOwned,
   collectionLoadMusicApp,
   collectionLocateFolder,
@@ -82,6 +83,37 @@ function MissingFiles({ report }: { report: OwnershipReport }) {
       <button className="push-button" onClick={() => void collectionLocateFolder()}>
         Locate Folder…
       </button>
+    </div>
+  );
+}
+
+/** Purchases and uploads are yours in iCloud; Music can fetch them so they can be imported. */
+function Redownload({ report }: { report: OwnershipReport }) {
+  const [status, setStatus] = useState<string | null>(null);
+  if (report.totals.redownload === 0 || !IS_MAC) return null;
+  const start = async () => {
+    setStatus("Asking Music to download…");
+    try {
+      const { requested, accepted } = await collectionDownloadFromIcloud();
+      setStatus(
+        accepted > 0
+          ? `Music is downloading ${pluralize(accepted, "song", "songs")}${accepted < requested ? ` (${(requested - accepted).toLocaleString()} weren't available in iCloud)` : ""}. When it's done, click Refresh, then Import.`
+          : "Music couldn't find these songs in iCloud. If Sync Library is off, turn it on in Music › Settings › General.",
+      );
+    } catch (e) {
+      setStatus(String(e));
+    }
+  };
+  return (
+    <div className="ownership-missing">
+      <p>
+        <strong>{pluralize(report.totals.redownload, "song is", "songs are")} yours in iCloud</strong> (purchases and uploaded or
+        matched songs) but not on this Mac.
+      </p>
+      <button className="push-button" onClick={() => void start()}>
+        Download from iCloud
+      </button>
+      {status && <p className="ownership-status-note">{status}</p>}
     </div>
   );
 }
@@ -236,6 +268,7 @@ export function OwnershipView() {
       </header>
       {error && <div className="ownership-error-bar">{error}</div>}
       {filter === "locate" && <MissingFiles report={report} />}
+      {filter === "redownload" && <Redownload report={report} />}
       {filter === "buy" && report.totals.buy === 0 && (
         <div className="ownership-hint">
           No Apple Music catalog songs found. Songs you add from Apple Music only reach this list when Music › Settings ›

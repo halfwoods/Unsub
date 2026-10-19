@@ -69,6 +69,10 @@ Each milestone ends with something you can run.
     - Classify every song: in AntiStreaming / owned file to import / bought but not downloaded / uploaded or matched in iCloud / subscription-only (to buy).
     - Sidebar "To Own" under PURCHASES: a progress count ("412 of 1,203 owned"), one-click import of owned files, and a buy list grouped by album with store links.
     - Re-checks automatically as new purchases arrive.
+9c. **iCloud libraries:**
+    - **iCloud Drive folders:** add them like any folder. Evicted (cloud-only) files are recognized without forcing a download, then fetched on demand when played, or pinned to stay local. Progress is shown in the LCD.
+    - **iCloud Music Library:** To Own's Re-download group gets "Download from iCloud". AntiStreaming asks the Music app to download purchased and uploaded/matched songs (Music's scripting `download` command, one-time Automation permission), then imports the files. Subscription songs can't be downloaded and stay on the buy list.
+    - **Later:** read the cloud library directly via the Apple Music API (MusicKit, owner's developer account), without Sync Library. Metadata only.
 10. **Purchases** — watch Downloads for Bandcamp/Qobuz/7digital archives, auto-import, "where to buy" links from MusicBrainz.
 11. **Mixes** — on-device "more like this" playlists from play history and tags.
 12. **Own-your-cloud** — built-in Subsonic-compatible server so phone apps stream your library; client mode for Navidrome.
