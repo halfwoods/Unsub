@@ -2,12 +2,14 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::library;
+use crate::{import, library};
 
 /// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
 pub const MENU_ACTION_EVENT: &str = "menu://action";
 
 const ADD_TO_LIBRARY: &str = "add-to-library";
+const IMPORT_MUSIC: &str = "import-music-library";
+const IMPORT_XML: &str = "import-library-xml";
 const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
     ("new-playlist", "New Playlist", Some("CmdOrCtrl+N")),
     ("new-playlist-from-selection", "New Playlist from Selection", Some("Shift+CmdOrCtrl+N")),
@@ -43,6 +45,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     }
     file.append(&PredefinedMenuItem::separator(app)?)?;
     file.append(&MenuItem::with_id(app, ADD_TO_LIBRARY, "Add to Library…", true, Some("CmdOrCtrl+O"))?)?;
+    #[cfg(target_os = "macos")]
+    file.append(&MenuItem::with_id(app, IMPORT_MUSIC, "Import Music Library", true, None::<&str>)?)?;
+    file.append(&MenuItem::with_id(app, IMPORT_XML, "Import Library XML…", true, None::<&str>)?)?;
     file.append(&PredefinedMenuItem::separator(app)?)?;
     file.append(&PredefinedMenuItem::close_window(app, None)?)?;
     // Predefined edit items keep copy/paste and undo working in the search field.
@@ -84,6 +89,15 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
             let paths: Vec<_> = folders.unwrap_or_default().into_iter().filter_map(|f| f.into_path().ok()).collect();
             if !paths.is_empty() {
                 library::add_paths(&handle, paths);
+            }
+        });
+    } else if id == IMPORT_MUSIC {
+        import::run(app, None);
+    } else if id == IMPORT_XML {
+        let handle = app.clone();
+        app.dialog().file().set_title("Import Library XML").add_filter("Library XML", &["xml"]).pick_file(move |file| {
+            if let Some(path) = file.and_then(|f| f.into_path().ok()) {
+                import::run(&handle, Some(path));
             }
         });
     } else if FILE_ACTIONS.iter().chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id) {

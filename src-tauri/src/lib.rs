@@ -2,6 +2,7 @@ mod artwork;
 mod collection;
 mod devices;
 mod error;
+mod import;
 mod library;
 mod menu;
 mod party;

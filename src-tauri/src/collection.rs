@@ -152,7 +152,7 @@ fn wanted(item: &MusicLibraryItem) -> bool {
     matches!(item.media, MediaType::Music | MediaType::Audiobook)
 }
 
-fn external(item: &MusicLibraryItem) -> ExternalTrack {
+pub(crate) fn external(item: &MusicLibraryItem) -> ExternalTrack {
     ExternalTrack {
         external_id: item.persistent_id.clone(),
         title: item.title.clone(),
