@@ -12,8 +12,11 @@ import type {
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
+  Playlist,
+  PlaylistKind,
   RepeatMode,
   ScanProgress,
+  SmartRules,
   Track,
   TrackQuery,
 } from "./types";
@@ -24,6 +27,20 @@ export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("li
 export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
 export const libraryGenres = (query: TrackQuery) => invoke<GenreSummary[]>("library_genres", { query });
 export const libraryComposers = (query: TrackQuery) => invoke<ComposerSummary[]>("library_composers", { query });
+export const libraryPlaylists = () => invoke<Playlist[]>("library_playlists");
+export const libraryCreatePlaylist = (name: string, kind: PlaylistKind, parentId: number | null, trackIds: number[] = []) =>
+  invoke<Playlist>("library_create_playlist", { name, kind, parentId, trackIds });
+export const libraryRenamePlaylist = (id: number, name: string) => invoke<void>("library_rename_playlist", { id, name });
+export const libraryDeletePlaylist = (id: number) => invoke<void>("library_delete_playlist", { id });
+export const libraryMovePlaylist = (id: number, parentId: number | null, index: number) =>
+  invoke<void>("library_move_playlist", { id, parentId, index });
+export const libraryAddToPlaylist = (id: number, trackIds: number[], at: number | null = null) =>
+  invoke<void>("library_add_to_playlist", { id, trackIds, at });
+export const libraryRemoveFromPlaylist = (id: number, positions: number[]) =>
+  invoke<void>("library_remove_from_playlist", { id, positions });
+export const libraryMoveInPlaylist = (id: number, positions: number[], to: number) =>
+  invoke<void>("library_move_in_playlist", { id, positions, to });
+export const librarySetSmartRules = (id: number, rules: SmartRules) => invoke<void>("library_set_smart_rules", { id, rules });
 export const librarySetEnabled = (trackIds: number[], enabled: boolean) =>
   invoke<void>("library_set_enabled", { trackIds, enabled });
 export const libraryTrack = (trackId: number) => invoke<Track | null>("library_track", { trackId });
@@ -74,6 +91,15 @@ export const onCollectionChanged = (handler: (error: string | null) => void): Pr
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());
 
-export type MenuAction = "play-pause" | "next" | "previous" | "volume-up" | "volume-down";
+export type MenuAction =
+  | "play-pause"
+  | "next"
+  | "previous"
+  | "volume-up"
+  | "volume-down"
+  | "new-playlist"
+  | "new-playlist-from-selection"
+  | "new-smart-playlist"
+  | "new-playlist-folder";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

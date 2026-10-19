@@ -12,7 +12,7 @@ export interface Column {
   flex?: boolean;
   align?: "left" | "right" | "center";
   sort?: SortKey;
-  render: (track: Track, selected: boolean) => ReactNode;
+  render: (track: Track, selected: boolean, index: number) => ReactNode;
 }
 
 // iTunes 10's default Music columns, in its order.
@@ -34,3 +34,19 @@ export const COLUMNS: Column[] = [
 ];
 
 export const STATUS_COLUMN_WIDTH = 20;
+
+/** Regular playlists show their own order in a leading # column, as in iTunes. */
+export const POSITION_COLUMN: Column = {
+  id: "position",
+  title: "#",
+  width: 34,
+  align: "right",
+  sort: "playlistOrder",
+  render: (_track, _selected, index) => index + 1,
+};
+
+export const gridTemplate = (columns: Column[]) =>
+  [
+    `${STATUS_COLUMN_WIDTH}px`,
+    ...columns.map((c) => (c.flex ? `minmax(${Math.round(c.width / 3)}px, ${c.width}fr)` : `${c.width}px`)),
+  ].join(" ");

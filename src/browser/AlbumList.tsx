@@ -4,7 +4,7 @@ import type { Track } from "../api/types";
 import { useApp } from "../state/store";
 import { trackAlbumKey } from "./albumKeys";
 import { Artwork } from "./Artwork";
-import { COLUMNS, STATUS_COLUMN_WIDTH } from "./columns";
+import { COLUMNS, gridTemplate } from "./columns";
 import { NowPlayingIcon } from "./SongList";
 import "./AlbumList.css";
 import "./SongList.css";
@@ -17,10 +17,7 @@ const ALBUM_COLUMN = ART + 30;
 
 // The album column replaces Album; the rest are the song list's own columns.
 const TRACK_COLUMNS = COLUMNS.filter((c) => c.id !== "album");
-const GRID_TEMPLATE = [
-  `${STATUS_COLUMN_WIDTH}px`,
-  ...TRACK_COLUMNS.map((c) => (c.flex ? `minmax(${Math.round(c.width / 3)}px, ${c.width}fr)` : `${c.width}px`)),
-].join(" ");
+const GRID_TEMPLATE = gridTemplate(TRACK_COLUMNS);
 
 interface Group {
   start: number;
@@ -102,7 +99,7 @@ export function AlbumList() {
                         <div className="song-cell song-cell--status">{track.id === nowPlayingId && <NowPlayingIcon playing={playing} />}</div>
                         {TRACK_COLUMNS.map((c) => (
                           <div key={c.id} className="song-cell" style={{ textAlign: c.align ?? "left" }}>
-                            {c.render(track, selected)}
+                            {c.render(track, selected, index)}
                           </div>
                         ))}
                       </div>

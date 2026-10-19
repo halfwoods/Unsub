@@ -37,12 +37,8 @@
   stroke: #1c6fdb;
 }
 
-.bottom-button:active:not(:disabled) svg {
+.bottom-button:active svg {
   stroke: #1d1d1d;
-}
-
-.bottom-button:disabled svg {
-  opacity: 0.35;
 }
 
 .bottom-repeat {

@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Track, TrackQuery};
+use antistreaming_library::{
+    AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Playlist, PlaylistKind, SmartRules, Track,
+    TrackQuery,
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{CommandError, CommandResult};
@@ -95,6 +98,62 @@ pub fn library_album_tracks(state: State<'_, LibraryState>, key: String) -> Comm
 #[tauri::command]
 pub fn library_set_rating(state: State<'_, LibraryState>, track_id: i64, rating: u8) -> CommandResult<()> {
     Ok(state.queries().set_rating(track_id, rating)?)
+}
+
+#[tauri::command]
+pub fn library_playlists(state: State<'_, LibraryState>) -> CommandResult<Vec<Playlist>> {
+    Ok(state.queries().playlists()?)
+}
+
+#[tauri::command]
+pub fn library_create_playlist(
+    state: State<'_, LibraryState>,
+    name: String,
+    kind: PlaylistKind,
+    parent_id: Option<i64>,
+    track_ids: Vec<i64>,
+) -> CommandResult<Playlist> {
+    let mut library = state.queries();
+    let playlist = library.create_playlist(&name, kind, parent_id)?;
+    if !track_ids.is_empty() {
+        library.add_to_playlist(playlist.id, &track_ids, None)?;
+    }
+    Ok(playlist)
+}
+
+#[tauri::command]
+pub fn library_rename_playlist(state: State<'_, LibraryState>, id: i64, name: String) -> CommandResult<()> {
+    Ok(state.queries().rename_playlist(id, &name)?)
+}
+
+#[tauri::command]
+pub fn library_delete_playlist(state: State<'_, LibraryState>, id: i64) -> CommandResult<()> {
+    Ok(state.queries().delete_playlist(id)?)
+}
+
+#[tauri::command]
+pub fn library_move_playlist(state: State<'_, LibraryState>, id: i64, parent_id: Option<i64>, index: u32) -> CommandResult<()> {
+    Ok(state.queries().move_playlist(id, parent_id, index)?)
+}
+
+#[tauri::command]
+pub fn library_add_to_playlist(state: State<'_, LibraryState>, id: i64, track_ids: Vec<i64>, at: Option<u32>) -> CommandResult<()> {
+    Ok(state.queries().add_to_playlist(id, &track_ids, at)?)
+}
+
+#[tauri::command]
+pub fn library_remove_from_playlist(state: State<'_, LibraryState>, id: i64, positions: Vec<u32>) -> CommandResult<()> {
+    Ok(state.queries().remove_from_playlist(id, &positions)?)
+}
+
+#[tauri::command]
+pub fn library_move_in_playlist(state: State<'_, LibraryState>, id: i64, positions: Vec<u32>, to: u32) -> CommandResult<()> {
+    Ok(state.queries().move_in_playlist(id, &positions, to)?)
+}
+
+#[tauri::command]
+pub fn library_set_smart_rules(state: State<'_, LibraryState>, id: i64, rules: SmartRules) -> CommandResult<()> {
+    Ok(state.queries().set_smart_rules(id, &rules)?)
 }
 
 #[tauri::command]

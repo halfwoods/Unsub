@@ -4,11 +4,17 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::library;
 
-/// Controls menu items are handled by the UI, which owns "what Play means" (selection vs queue).
+/// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
 pub const MENU_ACTION_EVENT: &str = "menu://action";
 
 const ADD_TO_LIBRARY: &str = "add-to-library";
-const UI_ACTIONS: [(&str, &str, Option<&str>); 5] = [
+const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
+    ("new-playlist", "New Playlist", Some("CmdOrCtrl+N")),
+    ("new-playlist-from-selection", "New Playlist from Selection", Some("Shift+CmdOrCtrl+N")),
+    ("new-smart-playlist", "New Smart Playlist…", Some("Alt+CmdOrCtrl+N")),
+    ("new-playlist-folder", "New Playlist Folder", Some("Shift+Alt+CmdOrCtrl+N")),
+];
+const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("play-pause", "Play/Pause", None),
     ("next", "Next", Some("CmdOrCtrl+Right")),
     ("previous", "Previous", Some("CmdOrCtrl+Left")),
@@ -31,16 +37,14 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
-    let file = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[
-            &MenuItem::with_id(app, ADD_TO_LIBRARY, "Add to Library…", true, Some("CmdOrCtrl+O"))?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::close_window(app, None)?,
-        ],
-    )?;
+    let file = Submenu::new(app, "File", true)?;
+    for (id, label, accelerator) in FILE_ACTIONS {
+        file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
+    }
+    file.append(&PredefinedMenuItem::separator(app)?)?;
+    file.append(&MenuItem::with_id(app, ADD_TO_LIBRARY, "Add to Library…", true, Some("CmdOrCtrl+O"))?)?;
+    file.append(&PredefinedMenuItem::separator(app)?)?;
+    file.append(&PredefinedMenuItem::close_window(app, None)?)?;
     // Predefined edit items keep copy/paste and undo working in the search field.
     let edit = Submenu::with_items(
         app,
@@ -57,7 +61,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         ],
     )?;
     let controls = Submenu::new(app, "Controls", true)?;
-    for (index, (id, label, accelerator)) in UI_ACTIONS.into_iter().enumerate() {
+    for (index, (id, label, accelerator)) in CONTROL_ACTIONS.into_iter().enumerate() {
         if index == 3 {
             controls.append(&PredefinedMenuItem::separator(app)?)?;
         }
@@ -82,7 +86,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
                 library::add_paths(&handle, paths);
             }
         });
-    } else if UI_ACTIONS.iter().any(|(action, _, _)| *action == id) {
+    } else if FILE_ACTIONS.iter().chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id) {
         let _ = app.emit(MENU_ACTION_EVENT, id);
     }
 }

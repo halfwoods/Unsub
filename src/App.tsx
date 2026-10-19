@@ -17,6 +17,8 @@ import { Content } from "./browser/Content";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { Sidebar } from "./sidebar/Sidebar";
+import { newCondition } from "./smart/fields";
+import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { useApp } from "./state/store";
 import "./theme/base.css";
 import "./App.css";
@@ -24,8 +26,21 @@ import "./App.css";
 const VOLUME_STEP = 0.1;
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, playback } = useApp.getState();
+  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists } = useApp.getState();
   switch (action) {
+    case "new-playlist":
+      return void createPlaylist("regular");
+    case "new-playlist-from-selection":
+      return void createPlaylist("regular", true);
+    case "new-playlist-folder":
+      return void createPlaylist("folder");
+    // A new smart playlist starts like iTunes': one empty "Artist contains" rule, live updating.
+    case "new-smart-playlist":
+      return openSmartEditor({
+        id: null,
+        name: "untitled playlist",
+        rules: { matchAll: true, rules: [newCondition(playlists.map((p) => p.id))], limit: null, onlyChecked: false, live: true },
+      });
     case "play-pause":
       return void togglePlay();
     case "next":
@@ -42,7 +57,7 @@ function runMenuAction(action: MenuAction) {
 /** Subscribes to backend events for the lifetime of the window. */
 function useBackendEvents() {
   useEffect(() => {
-    const { refresh, refreshDevices, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
+    const { refresh, refreshDevices, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onMenuAction(runMenuAction),
@@ -51,6 +66,8 @@ function useBackendEvents() {
       onLibraryChanged(() => {
         setScan(null);
         void refresh();
+        // New songs change smart playlists' contents and counts.
+        void refreshPlaylists();
       }),
       getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
       getCurrentWebview().onDragDropEvent(({ payload }) => {
@@ -59,6 +76,7 @@ function useBackendEvents() {
     ];
     void refresh();
     void refreshDevices();
+    void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
   }, []);
@@ -81,6 +99,7 @@ function useGlobalKeys() {
 
 export default function App() {
   const windowActive = useApp((s) => s.windowActive);
+  const smartEditor = useApp((s) => s.smartEditor);
   useBackendEvents();
   useGlobalKeys();
 
@@ -92,6 +111,8 @@ export default function App() {
         <Content />
       </div>
       <BottomBar />
+      {/* Keyed so each opening starts from that playlist's saved rules. */}
+      {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
     </div>
   );
 }

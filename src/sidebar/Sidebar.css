@@ -191,3 +191,29 @@
   font-size: var(--font-size);
   color: #8f8f8f;
 }
+
+.sidebar-item--drop {
+  box-shadow: inset 0 0 0 2px #4a86d4;
+  border-radius: 3px;
+}
+
+.sidebar-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 0 6px 0 4px;
+  padding: 1px 3px;
+  font: inherit;
+  font-weight: normal;
+  color: #000000;
+  border: 1px solid #6b8fc9;
+  box-shadow: 0 0 0 2px rgba(102, 152, 222, 0.6);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Empty space under the playlists still takes drops, making a new playlist like iTunes. */
+.sidebar-drop-new {
+  height: 48px;
+  list-style: none;
+}

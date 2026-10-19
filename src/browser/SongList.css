@@ -178,3 +178,14 @@
   accent-color: #4a86d4;
   vertical-align: top;
 }
+
+/* Insertion line while reordering a playlist, iTunes blue. */
+.song-drop-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #3d7bd8;
+  pointer-events: none;
+  z-index: 2;
+}

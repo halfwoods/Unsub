@@ -1,4 +1,4 @@
-import { useApp, type SourceId } from "../state/store";
+import { isPlaylistSource, useApp, type SourceId } from "../state/store";
 import { formatBytes, formatTotalDuration, pluralize } from "../util/format";
 import "./BottomBar.css";
 
@@ -8,14 +8,13 @@ const NOUN: Partial<Record<SourceId, [string, string]>> = {
   audiobooks: ["audiobook", "audiobooks"],
 };
 
-function Icon({ d, label, on, disabled, onClick }: { d: string; label: string; on?: boolean; disabled?: boolean; onClick?: () => void }) {
+function Icon({ d, label, on, onClick }: { d: string; label: string; on?: boolean; onClick?: () => void }) {
   return (
     <button
       className="bottom-button"
       aria-label={label}
       aria-pressed={on}
-      disabled={disabled}
-      title={disabled ? `${label} (coming with playlists)` : label}
+      title={label}
       onClick={onClick}
     >
       <svg width={16} height={13} viewBox="0 0 16 13" aria-hidden="true">
@@ -39,12 +38,13 @@ export function BottomBar() {
   const toggleShuffle = useApp((s) => s.toggleShuffle);
   const cycleRepeat = useApp((s) => s.cycleRepeat);
   const toggleArtwork = useApp((s) => s.toggleArtwork);
-  const [one, many] = NOUN[source] ?? ["item", "items"];
+  const createPlaylist = useApp((s) => s.createPlaylist);
+  const [one, many] = NOUN[source] ?? (isPlaylistSource(source) ? ["song", "songs"] : ["item", "items"]);
 
   return (
     <footer className="bottom-bar chrome-surface" data-tauri-drag-region>
       <div className="bottom-left">
-        <Icon d={PLUS} label="Create a playlist" disabled />
+        <Icon d={PLUS} label="Create a playlist" onClick={() => void createPlaylist("regular")} />
         <Icon d={SHUFFLE} label="Shuffle" on={shuffle} onClick={toggleShuffle} />
         <span className={repeat === "one" ? "bottom-repeat bottom-repeat--one" : "bottom-repeat"}>
           <Icon d={REPEAT} label={`Repeat: ${repeat}`} on={repeat !== "off"} onClick={cycleRepeat} />

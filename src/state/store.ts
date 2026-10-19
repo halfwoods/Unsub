@@ -12,8 +12,11 @@ import type {
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
+  Playlist,
+  PlaylistKind,
   RepeatMode,
   ScanProgress,
+  SmartRules,
   SortKey,
   Track,
   TrackQuery,
@@ -27,17 +30,9 @@ export type GridGroup = "albums" | "artists" | "genres" | "composers";
 export type LibrarySource = "music" | "podcasts" | "audiobooks";
 
 /** Sources whose features land in later milestones; they show an iTunes-style intro placard. */
-export type PlacardSource =
-  | "inbox"
-  | "purchased"
-  | "mixes"
-  | "partyShuffle"
-  | "smart90s"
-  | "smartClassical"
-  | "smartTopRated"
-  | "smartRecentlyAdded"
-  | "smartRecentlyPlayed"
-  | "smartTop25";
+export type PlacardSource = "inbox" | "purchased" | "mixes" | "partyShuffle";
+
+export type PlaylistSourceId = `playlist:${number}`;
 
 /**
  * "device:<id>" is a device's Summary page; "device:<id>:<kind>" and
@@ -45,7 +40,7 @@ export type PlacardSource =
  */
 export type DeviceSourceId = `device:${string}`;
 
-export type SourceId = LibrarySource | PlacardSource | DeviceSourceId | "toOwn";
+export type SourceId = LibrarySource | PlacardSource | DeviceSourceId | PlaylistSourceId | "toOwn";
 
 const SOURCE_KIND: Record<LibrarySource, MediaKind> = {
   music: "music",
@@ -61,6 +56,17 @@ export function deviceSource(deviceId: string, view?: DeviceView): DeviceSourceI
 }
 
 export const isDeviceSource = (source: SourceId): source is DeviceSourceId => source.startsWith("device:");
+
+export const isPlaylistSource = (source: SourceId): source is PlaylistSourceId => source.startsWith("playlist:");
+export const playlistSource = (id: number): PlaylistSourceId => `playlist:${id}`;
+export const playlistIdOf = (source: SourceId) => (isPlaylistSource(source) ? Number(source.slice("playlist:".length)) : null);
+
+export interface SmartEditor {
+  /** null while creating a new smart playlist. */
+  id: number | null;
+  name: string;
+  rules: SmartRules;
+}
 
 export function parseDeviceSource(source: SourceId): { deviceId: string; view: DeviceView | null } | null {
   if (!isDeviceSource(source)) return null;
@@ -119,6 +125,10 @@ interface AppState {
   genres: GenreSummary[];
   composers: ComposerSummary[];
   gridGroup: GridGroup;
+  playlists: Playlist[];
+  expandedFolders: ReadonlySet<number>;
+  renamingPlaylist: number | null;
+  smartEditor: SmartEditor | null;
 
   setWindowActive: (active: boolean) => void;
   setSource: (source: SourceId) => void;
@@ -137,6 +147,11 @@ interface AppState {
   refreshDevices: () => Promise<void>;
   toggleDevice: (deviceId: string) => void;
   setGridGroup: (group: GridGroup) => void;
+  refreshPlaylists: () => Promise<void>;
+  toggleFolder: (id: number) => void;
+  createPlaylist: (kind: Exclude<PlaylistKind, "smart">, fromSelection?: boolean) => Promise<void>;
+  setRenamingPlaylist: (id: number | null) => void;
+  openSmartEditor: (editor: SmartEditor | null) => void;
   playAlbum: (key: string) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
 }
@@ -167,17 +182,25 @@ export const useApp = create<AppState>((set, get) => ({
   genres: [],
   composers: [],
   gridGroup: "albums",
+  playlists: [],
+  expandedFolders: new Set(),
+  renamingPlaylist: null,
+  smartEditor: null,
 
   setWindowActive: (windowActive) => set({ windowActive }),
 
   setSource: (source) => {
     const device = parseDeviceSource(source);
-    const isList = isLibrarySource(source) || device?.view != null;
-    // Device lists filter by their view on the backend, so the query's own kind stays unset.
+    const playlist = playlistIdOf(source);
+    const isList = isLibrarySource(source) || device?.view != null || playlist !== null;
+    // Device and playlist lists filter on the backend, so the query's own kind stays unset.
     const kind = isLibrarySource(source) ? SOURCE_KIND[source] : null;
+    const regular = get().playlists.find((p) => p.id === playlist)?.kind === "regular";
+    // A regular playlist opens in its own order (the # column); everything else sorts like the library.
+    const sortFor = (current: SortKey): SortKey => (regular ? "playlistOrder" : current === "playlistOrder" ? "artist" : current);
     set((s) => ({
       source,
-      query: { ...s.query, kind, search: null },
+      query: { ...s.query, kind, search: null, playlist, sort: sortFor(s.query.sort), descending: regular ? false : s.query.descending },
       tracks: isList ? s.tracks : [],
       stats: isList ? s.stats : null,
       selection: new Set(),
@@ -211,7 +234,7 @@ export const useApp = create<AppState>((set, get) => ({
     const { query, source } = get();
     const device = parseDeviceSource(source);
     let request: Promise<[Track[], LibraryStats]>;
-    if (isLibrarySource(source)) {
+    if (isLibrarySource(source) || isPlaylistSource(source)) {
       request = Promise.all([api.libraryTracks(query), api.libraryStats(query)]);
     } else if (device?.view) {
       const { deviceId, view } = device;
@@ -221,7 +244,7 @@ export const useApp = create<AppState>((set, get) => ({
     }
     // Album views need album rows too; iPod lists stay song-only until device albums exist.
     const { viewMode, gridGroup } = get();
-    const wantsAlbums = isLibrarySource(source) && (viewMode === "grid" || viewMode === "coverFlow");
+    const wantsAlbums = (isLibrarySource(source) || isPlaylistSource(source)) && (viewMode === "grid" || viewMode === "coverFlow");
     const grid = wantsAlbums && viewMode === "grid";
     const [[tracks, stats], albums, artists, genres, composers] = await Promise.all([
       request,
@@ -314,6 +337,31 @@ export const useApp = create<AppState>((set, get) => ({
     set({ playingTracks: tracks, playingSource: { type: "library" } });
     await api.playerPlayList({ type: "library" }, tracks.map((t) => t.id), 0);
   },
+
+  refreshPlaylists: async () => set({ playlists: await api.libraryPlaylists() }),
+
+  toggleFolder: (id) =>
+    set((s) => {
+      const expanded = new Set(s.expandedFolders);
+      if (expanded.has(id)) expanded.delete(id);
+      else expanded.add(id);
+      return { expandedFolders: expanded };
+    }),
+
+  // Like iTunes: the new playlist is selected and its name is ready to type over.
+  createPlaylist: async (kind, fromSelection = false) => {
+    const { selection, source } = get();
+    const trackIds = fromSelection && !isDeviceSource(source) ? [...selection] : [];
+    const name = kind === "folder" ? "untitled folder" : "untitled playlist";
+    const playlist = await api.libraryCreatePlaylist(name, kind, null, trackIds);
+    await get().refreshPlaylists();
+    get().setSource(playlistSource(playlist.id));
+    set({ renamingPlaylist: playlist.id });
+  },
+
+  setRenamingPlaylist: (renamingPlaylist) => set({ renamingPlaylist }),
+
+  openSmartEditor: (smartEditor) => set({ smartEditor }),
 
   toggleDevice: (deviceId) =>
     set((s) => {

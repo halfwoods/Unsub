@@ -1,15 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent } from "react";
-import { playSourceOf, sameSource, useApp } from "../state/store";
-import { COLUMNS, STATUS_COLUMN_WIDTH } from "./columns";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
+import { libraryAddToPlaylist, libraryMoveInPlaylist, libraryRemoveFromPlaylist } from "../api/commands";
+import { TRACKS_MIME } from "../sidebar/PlaylistRows";
+import { playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
+import { COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
 import "./SongList.css";
 
 const ROW_HEIGHT = 18;
-
-const GRID_TEMPLATE = [
-  `${STATUS_COLUMN_WIDTH}px`,
-  ...COLUMNS.map((c) => (c.flex ? `minmax(${Math.round(c.width / 3)}px, ${c.width}fr)` : `${c.width}px`)),
-].join(" ");
+/** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
+const ROWS_MIME = "application/x-antistreaming-rows";
 
 function SortArrow({ descending }: { descending: boolean }) {
   return (
@@ -38,9 +37,14 @@ export function SongList() {
     sameSource(s.playingSource, playSourceOf(s.source)) ? s.playback.trackId : null,
   );
   const playing = useApp((s) => s.playback.state === "playing");
-  const sortBy = useApp((s) => s.sortBy);
-  const selectRow = useApp((s) => s.selectRow);
-  const playRow = useApp((s) => s.playRow);
+  const playlistId = useApp((s) => playlistIdOf(s.source));
+  const isRegularPlaylist = useApp((s) => s.playlists.some((p) => p.id === playlistIdOf(s.source) && p.kind === "regular"));
+  const { sortBy, selectRow, playRow, refresh, refreshPlaylists } = useApp.getState();
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const columns = useMemo(() => (isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isRegularPlaylist]);
+  // Reordering only makes sense while the playlist is shown in its own order.
+  const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -54,6 +58,12 @@ export function SongList() {
     if (anchor !== null) virtualizer.scrollToIndex(anchor, { align: "auto" });
   }, [anchor, virtualizer]);
 
+  const selectedPositions = () => tracks.flatMap((t, i) => (selection.has(t.id) ? [i] : []));
+
+  const afterPlaylistEdit = async () => {
+    await Promise.all([refresh(), refreshPlaylists()]);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -65,14 +75,45 @@ export function SongList() {
     } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       useApp.setState({ selection: new Set(tracks.map((t) => t.id)) });
+    } else if ((e.key === "Backspace" || e.key === "Delete") && isRegularPlaylist && playlistId !== null && selection.size > 0) {
+      // In a playlist, Delete removes songs from the playlist only, never from the library.
+      e.preventDefault();
+      void libraryRemoveFromPlaylist(playlistId, selectedPositions()).then(afterPlaylistEdit);
     }
   };
 
+  const onDragStart = (e: DragEvent, index: number) => {
+    const dragged = selection.has(tracks[index].id) ? tracks.filter((t) => selection.has(t.id)) : [tracks[index]];
+    e.dataTransfer.effectAllowed = "copyMove";
+    e.dataTransfer.setData(TRACKS_MIME, JSON.stringify(dragged.map((t) => t.id)));
+    if (reorderable) {
+      e.dataTransfer.setData(ROWS_MIME, JSON.stringify(selection.has(tracks[index].id) ? selectedPositions() : [index]));
+    }
+  };
+
+  const onDragOver = (e: DragEvent, index: number) => {
+    if (!reorderable || !e.dataTransfer.types.includes(TRACKS_MIME)) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropIndex(e.clientY - rect.top > rect.height / 2 ? index + 1 : index);
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    const to = dropIndex;
+    setDropIndex(null);
+    if (playlistId === null || to === null) return;
+    const rows = e.dataTransfer.getData(ROWS_MIME);
+    const ids = e.dataTransfer.getData(TRACKS_MIME);
+    if (rows) void libraryMoveInPlaylist(playlistId, JSON.parse(rows) as number[], to).then(afterPlaylistEdit);
+    else if (ids) void libraryAddToPlaylist(playlistId, JSON.parse(ids) as number[], to).then(afterPlaylistEdit);
+  };
+
   return (
-    <div className="song-list" style={{ "--grid": GRID_TEMPLATE } as CSSProperties}>
+    <div className="song-list" style={{ "--grid": gridTemplate(columns) } as CSSProperties}>
       <div className="song-list-header" role="row">
         <div className="song-list-header-cell" />
-        {COLUMNS.map((c) => {
+        {columns.map((c) => {
           const sorted = c.sort === query.sort;
           return (
             <button
@@ -89,7 +130,16 @@ export function SongList() {
           );
         })}
       </div>
-      <div ref={scrollRef} className="song-list-body" tabIndex={0} onKeyDown={onKeyDown} role="grid" aria-rowcount={tracks.length}>
+      <div
+        ref={scrollRef}
+        className="song-list-body"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onDragLeave={(e) => e.currentTarget === e.target && setDropIndex(null)}
+        onDrop={onDrop}
+        role="grid"
+        aria-rowcount={tracks.length}
+      >
         <div className="song-list-stripes" />
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((row) => {
@@ -98,25 +148,30 @@ export function SongList() {
             const classes = ["song-row", row.index % 2 ? "song-row--odd" : "", selected ? "song-row--selected" : ""];
             return (
               <div
-                key={track.id}
+                // Playlists may repeat a song, so rows are keyed by position as well as id.
+                key={`${row.index}-${track.id}`}
                 role="row"
                 aria-selected={selected}
                 className={classes.join(" ")}
                 style={{ transform: `translateY(${row.start}px)` }}
+                draggable
+                onDragStart={(e) => onDragStart(e, row.index)}
+                onDragOver={(e) => onDragOver(e, row.index)}
                 onMouseDown={(e) => selectRow(row.index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
                 onDoubleClick={() => void playRow(row.index)}
               >
                 <div className="song-cell song-cell--status">
                   {track.id === nowPlayingId && <NowPlayingIcon playing={playing} />}
                 </div>
-                {COLUMNS.map((c) => (
+                {columns.map((c) => (
                   <div key={c.id} className="song-cell" style={{ textAlign: c.align ?? "left" }}>
-                    {c.render(track, selected)}
+                    {c.render(track, selected, row.index)}
                   </div>
                 ))}
               </div>
             );
           })}
+          {dropIndex !== null && <div className="song-drop-line" style={{ top: dropIndex * ROW_HEIGHT - 1 }} />}
         </div>
       </div>
     </div>

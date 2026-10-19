@@ -3,6 +3,7 @@ import { artworkUrl, deviceEject } from "../api/commands";
 import type { Device } from "../api/types";
 import { deviceSource, playSourceOf, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
+import { PlaylistRows } from "./PlaylistRows";
 import "./Sidebar.css";
 
 interface SourceItem {
@@ -34,12 +35,6 @@ const SECTIONS: { heading: string; items: SourceItem[] }[] = [
     heading: "Playlists",
     items: [
       { id: "partyShuffle", label: "Party Shuffle", icon: "partyShuffle" },
-      { id: "smart90s", label: "90’s Music", icon: "smart" },
-      { id: "smartClassical", label: "Classical Music", icon: "smart" },
-      { id: "smartTopRated", label: "My Top Rated", icon: "smart" },
-      { id: "smartRecentlyAdded", label: "Recently Added", icon: "smart" },
-      { id: "smartRecentlyPlayed", label: "Recently Played", icon: "smart" },
-      { id: "smartTop25", label: "Top 25 Most Played", icon: "smart" },
     ],
   },
 ];
@@ -183,6 +178,7 @@ export function Sidebar() {
             {section.items.map((item) => (
               <Row key={item.id} {...item} />
             ))}
+            {section.heading === "Playlists" && <PlaylistRows />}
           </Section>
         ))}
       </div>

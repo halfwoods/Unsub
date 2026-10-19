@@ -200,3 +200,56 @@ export interface ArtistSummary {
   albumCount: number;
   trackCount: number;
 }
+
+export type PlaylistKind = "regular" | "smart" | "folder";
+
+export type SmartField =
+  | "name" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "kind"
+  | "year" | "rating" | "plays" | "skips" | "lastPlayed" | "lastSkipped" | "dateAdded"
+  | "time" | "bitRate" | "sampleRate" | "size" | "checked" | "trackNumber" | "discNumber"
+  | "compilation" | "playlist";
+
+export type SmartOp =
+  | "contains" | "doesNotContain" | "is" | "isNot" | "startsWith" | "endsWith"
+  | "greaterThan" | "lessThan" | "inRange" | "before" | "after" | "inTheLast" | "notInTheLast"
+  | "isTrue" | "isFalse";
+
+export type DateUnit = "days" | "weeks" | "months";
+
+/** Values use storage units: rating 0–100, time in ms, size in bytes, dates in unix seconds. */
+export type SmartValue =
+  | { text: string }
+  | { number: number }
+  | { range: { from: number; to: number } }
+  | { relative: { amount: number; unit: DateUnit } }
+  | { playlist: number }
+  | "empty";
+
+export type SmartRule =
+  | { type: "condition"; field: SmartField; op: SmartOp; value: SmartValue }
+  | ({ type: "group" } & SmartRules);
+
+export type LimitUnit = "items" | "minutes" | "hours" | "megabytes" | "gigabytes";
+
+export type LimitOrder =
+  | "random" | "album" | "artist" | "genre" | "name" | "highestRating" | "lowestRating"
+  | "mostRecentlyPlayed" | "leastRecentlyPlayed" | "mostOftenPlayed" | "leastOftenPlayed"
+  | "mostRecentlyAdded" | "leastRecentlyAdded";
+
+export interface SmartRules {
+  matchAll: boolean;
+  rules: SmartRule[];
+  limit: { amount: number; unit: LimitUnit; selectedBy: LimitOrder } | null;
+  onlyChecked: boolean;
+  live: boolean;
+}
+
+export interface Playlist {
+  id: number;
+  name: string;
+  kind: PlaylistKind;
+  parentId: number | null;
+  position: number;
+  smart: SmartRules | null;
+  trackCount: number;
+}

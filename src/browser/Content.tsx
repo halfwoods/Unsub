@@ -3,6 +3,7 @@ import { DeviceSummary } from "../devices/DeviceSummary";
 import {
   isDeviceSource,
   isLibrarySource,
+  isPlaylistSource,
   parseDeviceSource,
   useApp,
   type LibrarySource,
@@ -44,12 +45,6 @@ const PLACARDS: Record<LibrarySource | PlacardSource, { title: string; body: str
     title: "Party Shuffle",
     body: "A queue that never runs dry: it keeps adding songs from your library, and you can reorder what's up next. Arrives in milestone 4.",
   },
-  smart90s: { title: "90’s Music", body: "Smart playlists arrive in milestone 4." },
-  smartClassical: { title: "Classical Music", body: "Smart playlists arrive in milestone 4." },
-  smartTopRated: { title: "My Top Rated", body: "Smart playlists arrive in milestone 4." },
-  smartRecentlyAdded: { title: "Recently Added", body: "Smart playlists arrive in milestone 4." },
-  smartRecentlyPlayed: { title: "Recently Played", body: "Smart playlists arrive in milestone 4." },
-  smartTop25: { title: "Top 25 Most Played", body: "Smart playlists arrive in milestone 4." },
 };
 
 function Placard({ source }: { source: LibrarySource | PlacardSource }) {
@@ -79,7 +74,8 @@ export function Content() {
     return device?.view ? <SongList /> : <DeviceSummary device={found} />;
   }
   if (source === "toOwn") return <OwnershipView />;
-  if (isLibrarySource(source) && (hasTracks || searching || !loaded)) {
+  // Playlists always show their list, even empty, so songs can be dropped into it.
+  if (isPlaylistSource(source) || (isLibrarySource(source) && (hasTracks || searching || !loaded))) {
     if (viewMode === "albumList") return <AlbumList />;
     if (viewMode === "grid") return <AlbumGrid />;
     if (viewMode === "coverFlow") return <CoverFlow />;
