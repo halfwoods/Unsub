@@ -3,50 +3,7 @@ use std::time::Instant;
 
 use antistreaming_library::{ExternalTrack, Library, MatchQuality, MediaKind, Track, TrackMatch};
 
-use crate::common::{scanned_library, track_titled};
-
-fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) -> Track {
-    Track {
-        id,
-        path: format!("/music/{id}.mp3"),
-        title: title.into(),
-        artist: artist.into(),
-        album_artist: artist.into(),
-        album: album.into(),
-        genre: String::new(),
-        composer: String::new(),
-        year: None,
-        track_number: None,
-        track_count: None,
-        disc_number: None,
-        disc_count: None,
-        duration_ms,
-        bitrate_kbps: None,
-        sample_rate: None,
-        bit_depth: None,
-        channels: None,
-        codec: "MP3".into(),
-        file_size: 1,
-        date_added: 0,
-        date_modified: 0,
-        play_count: 0,
-        last_played: None,
-        skip_count: 0,
-        rating: 0,
-        kind: MediaKind::Music,
-        compilation: false,
-        sort_title: None,
-        sort_artist: None,
-        sort_album: None,
-        sort_album_artist: None,
-    }
-}
-
-fn library_of(tracks: &[Track]) -> Library {
-    let mut library = Library::open_in_memory().unwrap();
-    library.import_tracks(tracks).unwrap();
-    library
-}
+use crate::common::{library_of, scanned_library, track, track_titled};
 
 fn external(title: &str, artist: &str, album: &str, duration_ms: Option<u64>) -> ExternalTrack {
     ExternalTrack {

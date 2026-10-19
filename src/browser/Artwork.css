@@ -1,0 +1,16 @@
+.artwork {
+  display: block;
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.artwork--empty {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(to bottom, #f2f2f2, #dcdcdc);
+}
+
+.artwork--empty svg {
+  fill: #b9b9b9;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.8));
+}

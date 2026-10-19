@@ -19,7 +19,7 @@ function SortArrow({ descending }: { descending: boolean }) {
   );
 }
 
-function NowPlayingIcon({ playing }: { playing: boolean }) {
+export function NowPlayingIcon({ playing }: { playing: boolean }) {
   return (
     <svg className={playing ? "now-playing now-playing--on" : "now-playing"} width={12} height={10} viewBox="0 0 12 10" aria-label={playing ? "Playing" : "Paused"}>
       <path d="M0 3h2.3L5.5 0.3v9.4L2.3 7H0z" />

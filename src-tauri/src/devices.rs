@@ -146,6 +146,8 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
         skip_count: track.skip_count,
         rating: track.rating,
         kind,
+        // iPods have no checkboxes; every song on one is in play.
+        enabled: true,
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
         sort_artist: track.sort_artist.clone(),

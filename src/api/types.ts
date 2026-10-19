@@ -17,13 +17,16 @@ export type SortKey =
   | "kind"
   | "bitrate"
   | "sampleRate"
-  | "size";
+  | "size"
+  | "playlistOrder";
 
 export interface TrackQuery {
   kind: MediaKind | null;
   search: string | null;
   sort: SortKey;
   descending: boolean;
+  /** Restricts the list to one playlist (regular, smart or folder). */
+  playlist?: number | null;
 }
 
 export interface Track {
@@ -54,6 +57,7 @@ export interface Track {
   skipCount: number;
   rating: number;
   kind: MediaKind;
+  enabled: boolean;
   compilation: boolean;
 }
 
@@ -177,6 +181,17 @@ export interface AlbumSummary {
   artworkTrackId: number;
   dateAdded: number;
   compilation: boolean;
+}
+
+export interface GenreSummary {
+  name: string;
+  albumCount: number;
+  trackCount: number;
+}
+
+export interface ComposerSummary {
+  name: string;
+  trackCount: number;
 }
 
 export interface ArtistSummary {

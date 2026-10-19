@@ -51,6 +51,28 @@ pub(crate) fn fold(text: &str) -> String {
         .collect()
 }
 
+/// Compilation albums file under this one artist, as in iTunes.
+pub(crate) const COMPILATIONS_GROUP: &str = "compilations";
+
+/// Which artist an album files under: "Compilations" for compilations,
+/// otherwise the album artist, falling back to the track artist. Migration 3
+/// repeats this in SQL for rows that predate the column.
+pub(crate) fn artist_group(album_artist: &str, artist: &str, compilation: bool) -> String {
+    if compilation {
+        COMPILATIONS_GROUP.to_owned()
+    } else {
+        fold(if album_artist.is_empty() {
+            artist
+        } else {
+            album_artist
+        })
+    }
+}
+
+pub(crate) fn album_group(artist_group: &str, album: &str) -> String {
+    format!("{artist_group}\u{1f}{}", fold(album))
+}
+
 /// Sort key for a name-like field. An explicit sort tag is taken verbatim
 /// (it already encodes the user's intent); otherwise a leading English
 /// article is dropped. Empty values yield `None` so SQLite's `NULLS LAST`

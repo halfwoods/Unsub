@@ -1,8 +1,12 @@
 import { create } from "zustand";
 import * as api from "../api/commands";
 import type {
+  AlbumSummary,
+  ArtistSummary,
+  ComposerSummary,
   Device,
   DeviceView,
+  GenreSummary,
   LibraryStats,
   MediaKind,
   PlaybackStatus,
@@ -16,6 +20,9 @@ import type {
 } from "../api/types";
 
 export type ViewMode = "list" | "albumList" | "grid" | "coverFlow";
+
+/** The grid's Albums / Artists / Genres / Composers switch. */
+export type GridGroup = "albums" | "artists" | "genres" | "composers";
 
 export type LibrarySource = "music" | "podcasts" | "audiobooks";
 
@@ -107,6 +114,11 @@ interface AppState {
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
   playingSource: PlaySource;
+  albums: AlbumSummary[];
+  artists: ArtistSummary[];
+  genres: GenreSummary[];
+  composers: ComposerSummary[];
+  gridGroup: GridGroup;
 
   setWindowActive: (active: boolean) => void;
   setSource: (source: SourceId) => void;
@@ -124,6 +136,8 @@ interface AppState {
   toggleArtwork: () => void;
   refreshDevices: () => Promise<void>;
   toggleDevice: (deviceId: string) => void;
+  setGridGroup: (group: GridGroup) => void;
+  playAlbum: (key: string) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
 }
 
@@ -148,6 +162,11 @@ export const useApp = create<AppState>((set, get) => ({
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
+  albums: [],
+  artists: [],
+  genres: [],
+  composers: [],
+  gridGroup: "albums",
 
   setWindowActive: (windowActive) => set({ windowActive }),
 
@@ -167,7 +186,13 @@ export const useApp = create<AppState>((set, get) => ({
     if (isList) void get().refresh();
   },
 
-  setViewMode: (viewMode) => set({ viewMode }),
+  // Album List only makes sense in album order, so iTunes switches the sort to it.
+  setViewMode: (viewMode) => {
+    const { query } = get();
+    const grouped = query.sort === "album" || query.sort === "albumArtist" || query.sort === "artist";
+    set({ viewMode, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false } : query });
+    void get().refresh();
+  },
 
   setSearch: (search) => {
     set((s) => ({ query: { ...s.query, search: search.trim() === "" ? null : search } }));
@@ -194,10 +219,20 @@ export const useApp = create<AppState>((set, get) => ({
     } else {
       return;
     }
-    const [tracks, stats] = await request;
+    // Album views need album rows too; iPod lists stay song-only until device albums exist.
+    const { viewMode, gridGroup } = get();
+    const wantsAlbums = isLibrarySource(source) && (viewMode === "grid" || viewMode === "coverFlow");
+    const grid = wantsAlbums && viewMode === "grid";
+    const [[tracks, stats], albums, artists, genres, composers] = await Promise.all([
+      request,
+      wantsAlbums ? api.libraryAlbums(query) : Promise.resolve([]),
+      grid && gridGroup === "artists" ? api.libraryArtists(query) : Promise.resolve([]),
+      grid && gridGroup === "genres" ? api.libraryGenres(query) : Promise.resolve([]),
+      grid && gridGroup === "composers" ? api.libraryComposers(query) : Promise.resolve([]),
+    ]);
     // Drop stale responses when the user typed or switched source mid-flight.
     if (get().query !== query || get().source !== source) return;
-    set({ tracks, stats });
+    set({ tracks, stats, albums, artists, genres, composers });
   },
 
   selectRow: (index, { extend, toggle }) => {
@@ -221,11 +256,13 @@ export const useApp = create<AppState>((set, get) => ({
     const { tracks, source } = get();
     if (index < 0 || index >= tracks.length) return;
     const playingSource = playSourceOf(source);
+    // iTunes skips unchecked songs when playing through a list, but plays one you double-click.
+    const queue = tracks.filter((t, i) => t.enabled || i === index);
     set({ playingTracks: tracks, playingSource });
     await api.playerPlayList(
       playingSource,
-      tracks.map((t) => t.id),
-      index,
+      queue.map((t) => t.id),
+      queue.indexOf(tracks[index]),
     );
   },
 
@@ -264,6 +301,18 @@ export const useApp = create<AppState>((set, get) => ({
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
     if (device && !devices.some((d) => d.id === device.deviceId)) get().setSource("music");
+  },
+
+  setGridGroup: (gridGroup) => {
+    set({ gridGroup });
+    void get().refresh();
+  },
+
+  playAlbum: async (key) => {
+    const tracks = await api.libraryAlbumTracks(key);
+    if (tracks.length === 0) return;
+    set({ playingTracks: tracks, playingSource: { type: "library" } });
+    await api.playerPlayList({ type: "library" }, tracks.map((t) => t.id), 0);
   },
 
   toggleDevice: (deviceId) =>

@@ -2,7 +2,7 @@ use antistreaming_library::{Error, Library};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-use crate::common::{all_kinds, copy_fixtures, scan};
+use crate::common::{all_kinds, copy_fixtures, rewind_schema, scan};
 
 #[test]
 fn open_creates_parent_directories_and_persists() {
@@ -34,7 +34,7 @@ fn open_enables_wal_and_stamps_the_schema_version() {
         .unwrap();
 
     assert_eq!(mode, "wal");
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn open_rejects_a_database_from_a_newer_build() {
         Library::open(&db_path),
         Err(Error::SchemaTooNew {
             found: 99,
-            supported: 2
+            supported: 3
         })
     ));
 }
@@ -65,13 +65,7 @@ fn migration_stamps_existing_rows_with_parser_version_one_so_they_are_reread() {
         let mut library = Library::open(&db_path).unwrap();
         scan(&mut library, fixtures.path());
     }
-    // Rewind to a version-1 database: no parser_version column yet.
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute_batch("ALTER TABLE tracks DROP COLUMN parser_version;")
-            .unwrap();
-        conn.pragma_update(None, "user_version", 1).unwrap();
-    }
+    rewind_schema(&db_path, 1);
 
     let mut library = Library::open(&db_path).unwrap();
 
@@ -86,7 +80,7 @@ fn migration_stamps_existing_rows_with_parser_version_one_so_they_are_reread() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     assert_eq!(parser_versions, [1]);
     assert_eq!(
         library.stats(&all_kinds()).unwrap().count,

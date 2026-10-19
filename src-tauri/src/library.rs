@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{Library, LibraryStats, Track, TrackQuery};
+use antistreaming_library::{AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Track, TrackQuery};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{CommandError, CommandResult};
@@ -60,6 +60,36 @@ pub fn library_track(state: State<'_, LibraryState>, track_id: i64) -> CommandRe
 #[tauri::command]
 pub fn library_stats(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<LibraryStats> {
     Ok(state.queries().stats(&query)?)
+}
+
+#[tauri::command]
+pub fn library_albums(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<AlbumSummary>> {
+    Ok(state.queries().albums(&query)?)
+}
+
+#[tauri::command]
+pub fn library_artists(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<ArtistSummary>> {
+    Ok(state.queries().artists(&query)?)
+}
+
+#[tauri::command]
+pub fn library_genres(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<GenreSummary>> {
+    Ok(state.queries().genres(&query)?)
+}
+
+#[tauri::command]
+pub fn library_composers(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<ComposerSummary>> {
+    Ok(state.queries().composers(&query)?)
+}
+
+#[tauri::command]
+pub fn library_set_enabled(state: State<'_, LibraryState>, track_ids: Vec<i64>, enabled: bool) -> CommandResult<()> {
+    Ok(state.queries().set_enabled(&track_ids, enabled)?)
+}
+
+#[tauri::command]
+pub fn library_album_tracks(state: State<'_, LibraryState>, key: String) -> CommandResult<Vec<Track>> {
+    Ok(state.queries().album_tracks(&key)?)
 }
 
 #[tauri::command]

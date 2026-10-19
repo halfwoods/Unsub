@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Library, Track, TrackQuery};
+use antistreaming_library::{Library, MediaKind, Track, TrackQuery};
+use rusqlite::Connection;
 use tempfile::TempDir;
 
 pub const FIXTURE_COUNT: u64 = 8;
@@ -65,4 +66,71 @@ pub fn track_titled(library: &Library, title: &str) -> Track {
         .into_iter()
         .find(|track| track.title == title)
         .unwrap_or_else(|| panic!("no track titled {title:?}"))
+}
+
+/// A synthetic row for tests that need exact control over the fields; use
+/// struct update syntax to vary the rest.
+pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) -> Track {
+    Track {
+        id,
+        path: format!("/music/{id}.mp3"),
+        title: title.into(),
+        artist: artist.into(),
+        album_artist: artist.into(),
+        album: album.into(),
+        genre: String::new(),
+        composer: String::new(),
+        year: None,
+        track_number: None,
+        track_count: None,
+        disc_number: None,
+        disc_count: None,
+        duration_ms,
+        bitrate_kbps: None,
+        sample_rate: None,
+        bit_depth: None,
+        channels: None,
+        codec: "MP3".into(),
+        file_size: 1,
+        date_added: 0,
+        date_modified: 0,
+        play_count: 0,
+        last_played: None,
+        skip_count: 0,
+        rating: 0,
+        kind: MediaKind::Music,
+        compilation: false,
+        enabled: true,
+        sort_title: None,
+        sort_artist: None,
+        sort_album: None,
+        sort_album_artist: None,
+    }
+}
+
+pub fn library_of(tracks: &[Track]) -> Library {
+    let mut library = Library::open_in_memory().unwrap();
+    library.import_tracks(tracks).unwrap();
+    library
+}
+
+/// Turns a current-schema database file back into an older one, as if it had
+/// been created by an older build, so migrations can be run on real data.
+pub fn rewind_schema(db_path: &Path, version: u32) {
+    let conn = Connection::open(db_path).unwrap();
+    conn.execute_batch(
+        "DROP TABLE playlist_items;
+         DROP TABLE playlists;
+         DROP INDEX tracks_artist_group;
+         DROP INDEX tracks_album_group;
+         ALTER TABLE tracks DROP COLUMN enabled;
+         ALTER TABLE tracks DROP COLUMN artist_group;
+         ALTER TABLE tracks DROP COLUMN album_group;",
+    )
+    .unwrap();
+    if version < 2 {
+        conn.execute_batch("ALTER TABLE tracks DROP COLUMN parser_version;")
+            .unwrap();
+    }
+    conn.pragma_update(None, "user_version", version).unwrap();
 }

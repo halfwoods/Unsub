@@ -1,0 +1,68 @@
+.album-list-header {
+  display: flex;
+}
+
+.album-list-header-tracks {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: var(--grid);
+}
+
+/* One block per album: cover column on the left, its tracks on the right. */
+.album-block {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  border-bottom: 1px solid #d9d9d9;
+}
+
+.album-block-info {
+  flex: none;
+  padding: 8px 14px 0;
+  background: #ffffff;
+  border-right: 1px solid #e3e3e3;
+}
+
+.album-block-art {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 2px 3px rgba(0, 0, 0, 0.25);
+}
+
+.album-block-title,
+.album-block-artist {
+  margin-top: 4px;
+  font-size: var(--font-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.album-block-title {
+  font-weight: bold;
+}
+
+.album-block-artist {
+  margin-top: 0;
+  color: #666666;
+}
+
+.album-block-tracks {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The song list's row look, laid out in flow instead of absolutely. */
+.song-row-static {
+  display: grid;
+  grid-template-columns: var(--grid);
+  height: 18px;
+  background: var(--list-bg);
+}
+
+.song-row-static.song-row--odd {
+  background: var(--list-stripe);
+}

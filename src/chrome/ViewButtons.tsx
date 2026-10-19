@@ -24,9 +24,7 @@ export function ViewButtons() {
             role="radio"
             aria-checked={viewMode === mode}
             aria-label={label}
-            // Album views arrive in milestone 6; the buttons stay so the toolbar matches iTunes.
-            disabled={mode !== "list"}
-            title={mode === "list" ? label : `${label} (coming in milestone 6)`}
+            title={label}
             className="view-button"
             onClick={() => setViewMode(mode)}
           >

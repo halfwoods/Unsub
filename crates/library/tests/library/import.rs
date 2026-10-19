@@ -72,6 +72,7 @@ fn imported_rows_sort_and_search_like_scanned_rows() {
         SortKey::Bitrate,
         SortKey::SampleRate,
         SortKey::Size,
+        SortKey::PlaylistOrder,
     ];
     let searches = [
         None,
@@ -90,6 +91,7 @@ fn imported_rows_sort_and_search_like_scanned_rows() {
                         sort: key,
                         descending,
                         ids: None,
+                        playlist: None,
                     };
                     assert_eq!(
                         titles(&device, &query),

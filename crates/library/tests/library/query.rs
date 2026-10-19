@@ -183,6 +183,7 @@ fn every_sort_key_yields_all_tracks() {
         SortKey::Bitrate,
         SortKey::SampleRate,
         SortKey::Size,
+        SortKey::PlaylistOrder,
     ];
 
     for key in keys {

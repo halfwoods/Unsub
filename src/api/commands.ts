@@ -3,8 +3,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AlbumSummary,
   ArtistSummary,
+  ComposerSummary,
   Device,
   DeviceView,
+  GenreSummary,
   LibraryStats,
   OwnershipReport,
   PlaybackStatus,
@@ -20,6 +22,10 @@ export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tra
 export const libraryAlbums = (query: TrackQuery) => invoke<AlbumSummary[]>("library_albums", { query });
 export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("library_artists", { query });
 export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
+export const libraryGenres = (query: TrackQuery) => invoke<GenreSummary[]>("library_genres", { query });
+export const libraryComposers = (query: TrackQuery) => invoke<ComposerSummary[]>("library_composers", { query });
+export const librarySetEnabled = (trackIds: number[], enabled: boolean) =>
+  invoke<void>("library_set_enabled", { trackIds, enabled });
 export const libraryTrack = (trackId: number) => invoke<Track | null>("library_track", { trackId });
 export const libraryStats = (query: TrackQuery) => invoke<LibraryStats>("library_stats", { query });
 export const libraryAddPaths = (paths: string[]) => invoke<void>("library_add_paths", { paths });

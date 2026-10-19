@@ -8,6 +8,9 @@ import {
   type LibrarySource,
   type PlacardSource,
 } from "../state/store";
+import { AlbumGrid } from "./AlbumGrid";
+import { AlbumList } from "./AlbumList";
+import { CoverFlow } from "./CoverFlow";
 import { SongList } from "./SongList";
 import "./Content.css";
 
@@ -67,6 +70,7 @@ export function Content() {
   const hasTracks = useApp((s) => s.tracks.length > 0);
   const searching = useApp((s) => s.query.search !== null);
   const loaded = useApp((s) => s.stats !== null);
+  const viewMode = useApp((s) => s.viewMode);
 
   if (isDeviceSource(source)) {
     const device = parseDeviceSource(source);
@@ -75,6 +79,11 @@ export function Content() {
     return device?.view ? <SongList /> : <DeviceSummary device={found} />;
   }
   if (source === "toOwn") return <OwnershipView />;
-  if (isLibrarySource(source) && (hasTracks || searching || !loaded)) return <SongList />;
+  if (isLibrarySource(source) && (hasTracks || searching || !loaded)) {
+    if (viewMode === "albumList") return <AlbumList />;
+    if (viewMode === "grid") return <AlbumGrid />;
+    if (viewMode === "coverFlow") return <CoverFlow />;
+    return <SongList />;
+  }
   return <Placard source={source} />;
 }

@@ -1,8 +1,11 @@
+mod albums;
 mod artwork;
 mod common;
 mod database;
 mod import;
 mod matching;
 mod mutate;
+mod playlists;
 mod query;
 mod scan;
+mod smart;

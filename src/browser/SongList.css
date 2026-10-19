@@ -169,3 +169,12 @@
   background: currentColor;
   opacity: 0.6;
 }
+
+/* Small Aqua checkbox, sized to the 18px rows. */
+.song-checkbox {
+  width: 12px;
+  height: 12px;
+  margin: 2px 0 0;
+  accent-color: #4a86d4;
+  vertical-align: top;
+}

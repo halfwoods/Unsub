@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { SortKey, Track } from "../api/types";
 import { formatClock } from "../util/format";
 import { Rating } from "./Rating";
+import { SongCheckbox } from "./SongCheckbox";
 
 export interface Column {
   id: string;
@@ -16,6 +17,7 @@ export interface Column {
 
 // iTunes 10's default Music columns, in its order.
 export const COLUMNS: Column[] = [
+  { id: "enabled", title: "", width: 22, align: "center", render: (t, selected) => <SongCheckbox track={t} selected={selected} /> },
   { id: "name", title: "Name", width: 240, flex: true, sort: "name", render: (t) => t.title },
   { id: "time", title: "Time", width: 52, align: "right", sort: "time", render: (t) => formatClock(t.durationMs) },
   { id: "artist", title: "Artist", width: 170, flex: true, sort: "artist", render: (t) => t.artist },

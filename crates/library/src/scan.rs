@@ -187,6 +187,7 @@ fn new_track(
         rating: 0,
         kind: meta.kind,
         compilation: meta.compilation,
+        enabled: true,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,
@@ -206,6 +207,10 @@ fn is_audio(path: &Path) -> bool {
 /// extensions but are not audio.
 fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name().as_encoded_bytes().starts_with(b".")
+}
+
+pub(crate) fn now_unix() -> i64 {
+    unix_secs(SystemTime::now())
 }
 
 fn unix_secs(time: SystemTime) -> i64 {

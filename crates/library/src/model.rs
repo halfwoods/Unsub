@@ -1,6 +1,8 @@
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
+use crate::smart::SmartRules;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MediaKind {
@@ -44,6 +46,8 @@ pub enum SortKey {
     Bitrate,
     SampleRate,
     Size,
+    /// Position within the playlist being listed; elsewhere it falls back to Artist.
+    PlaylistOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +59,8 @@ pub struct TrackQuery {
     pub descending: bool,
     /// Restricts the list to these track ids, e.g. a device playlist's members.
     pub ids: Option<Vec<i64>>,
+    /// Restricts the list to one playlist's contents. Combines with the other filters.
+    pub playlist: Option<i64>,
 }
 
 impl Default for TrackQuery {
@@ -65,6 +71,7 @@ impl Default for TrackQuery {
             sort: SortKey::Artist,
             descending: false,
             ids: None,
+            playlist: None,
         }
     }
 }
@@ -100,6 +107,8 @@ pub struct Track {
     pub rating: u8,
     pub kind: MediaKind,
     pub compilation: bool,
+    /// The song checkbox: unchecked songs are skipped by playback and by "only checked" smart playlists.
+    pub enabled: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -168,4 +177,98 @@ pub struct TrackMatch {
     pub external_id: String,
     pub track_id: i64,
     pub quality: MatchQuality,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaylistKind {
+    Regular,
+    Smart,
+    Folder,
+}
+
+impl ToSql for PlaylistKind {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(*self as i64))
+    }
+}
+
+impl FromSql for PlaylistKind {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value.as_i64()? {
+            0 => Ok(Self::Regular),
+            1 => Ok(Self::Smart),
+            2 => Ok(Self::Folder),
+            other => Err(FromSqlError::OutOfRange(other)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    pub kind: PlaylistKind,
+    pub parent_id: Option<i64>,
+    /// Index among its siblings.
+    pub position: u32,
+    pub smart: Option<SmartRules>,
+    /// Rows a listing would show: duplicates count, folders count their subtree once.
+    pub track_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumSummary {
+    /// Stable for as long as the album's artist and name tags are.
+    pub key: String,
+    pub album: String,
+    pub album_artist: String,
+    pub year: Option<i32>,
+    pub genre: String,
+    pub track_count: u32,
+    pub duration_ms: u64,
+    /// The album's first-added track; the one to ask `artwork()` about.
+    pub artwork_track_id: i64,
+    pub date_added: i64,
+    pub compilation: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistSummary {
+    pub key: String,
+    pub name: String,
+    pub album_count: u32,
+    pub track_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreSummary {
+    pub name: String,
+    pub album_count: u32,
+    pub track_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerSummary {
+    pub name: String,
+    pub track_count: u32,
+}
+
+/// Play data from another library for a track already in ours.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalStats {
+    pub play_count: u32,
+    pub skip_count: u32,
+    pub last_played: Option<i64>,
+    pub last_skipped: Option<i64>,
+    /// 0..=100, stored as given (capped at 100); the importer should round half stars.
+    pub rating: u8,
+    pub date_added: Option<i64>,
+    pub enabled: bool,
 }

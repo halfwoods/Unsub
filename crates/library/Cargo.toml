@@ -6,12 +6,12 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
-rusqlite = { version = "0.40", features = ["array", "bundled", "fallible_uint"] }
+rusqlite = { version = "0.40", features = ["array", "bundled", "fallible_uint", "functions"] }
 lofty = "0.25"
 walkdir = "2.5"
 unicode-normalization = "0.1"
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile = "3"

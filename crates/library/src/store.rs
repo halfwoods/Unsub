@@ -2,7 +2,7 @@ use rusqlite::{Connection, named_params};
 
 use crate::error::Result;
 use crate::model::Track;
-use crate::normalize::{fold, name_key, plain_key};
+use crate::normalize::{album_group, artist_group, fold, name_key, plain_key};
 use crate::tags::TAG_PARSER_VERSION;
 
 const COLUMNS: &[&str] = &[
@@ -45,6 +45,9 @@ const COLUMNS: &[&str] = &[
     "key_genre",
     "search_text",
     "parser_version",
+    "enabled",
+    "artist_group",
+    "album_group",
 ];
 
 /// What a rescan must not clobber: row identity and everything the user accumulates.
@@ -56,6 +59,7 @@ const KEPT_ON_REFRESH: &[&str] = &[
     "last_played",
     "skip_count",
     "rating",
+    "enabled",
 ];
 
 pub(crate) enum WriteMode {
@@ -118,6 +122,8 @@ pub(crate) fn write_tracks<'a>(
                 .map(String::as_str)
                 .join(" "),
             );
+            let artist_group = artist_group(&track.album_artist, &track.artist, track.compilation);
+            let album_group = album_group(&artist_group, &track.album);
             let id = match mode {
                 WriteMode::RefreshTags => None,
                 WriteMode::Replace => Some(track.id),
@@ -163,6 +169,9 @@ pub(crate) fn write_tracks<'a>(
                 ":search_text": search_text,
                 // Imported rows have no file to re-read, so they count as current.
                 ":parser_version": TAG_PARSER_VERSION,
+                ":enabled": track.enabled,
+                ":artist_group": artist_group,
+                ":album_group": album_group,
             })?;
         }
     }
