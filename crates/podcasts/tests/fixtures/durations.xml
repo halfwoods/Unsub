@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Durations</title>
+    <link>https://example.com/durations</link>
+    <description>One episode per itunes:duration spelling.</description>
+    <item>
+      <title>Seconds</title>
+      <guid>d-seconds</guid>
+      <enclosure url="https://example.com/a.mp3" length="1" type="audio/mpeg"/>
+      <itunes:duration>3723</itunes:duration>
+    </item>
+    <item>
+      <title>Minutes and seconds</title>
+      <guid>d-mmss</guid>
+      <enclosure url="https://example.com/b.mp3" length="1" type="audio/mpeg"/>
+      <itunes:duration>62:03</itunes:duration>
+    </item>
+    <item>
+      <title>Hours</title>
+      <guid>d-hhmmss</guid>
+      <enclosure url="https://example.com/c.mp3" length="1" type="audio/mpeg"/>
+      <itunes:duration>1:02:03</itunes:duration>
+    </item>
+    <item>
+      <title>Fractional</title>
+      <guid>d-frac</guid>
+      <enclosure url="https://example.com/d.mp3" length="1" type="audio/mpeg"/>
+      <itunes:duration>1:02:03.5</itunes:duration>
+    </item>
+    <item>
+      <title>Unparseable</title>
+      <guid>d-junk</guid>
+      <enclosure url="https://example.com/e.mp3" length="1" type="audio/mpeg"/>
+      <itunes:duration>about an hour</itunes:duration>
+    </item>
+    <item>
+      <title>Missing</title>
+      <guid>d-none</guid>
+      <enclosure url="https://example.com/f.mp3" length="1" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

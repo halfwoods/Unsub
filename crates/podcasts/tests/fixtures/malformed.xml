@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Broken</title>
+    <item>
+      <title>Unclosed <b>tag</title>
+      <enclosure url="https://example.com/x.mp3" length="1" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

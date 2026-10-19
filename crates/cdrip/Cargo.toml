@@ -1,0 +1,39 @@
+[package]
+name = "antistreaming-cdrip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+flacenc = { version = "0.5.1", default-features = false }
+lofty = "0.25"
+percent-encoding = "2.3"
+plist = { version = "1.10", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+sha1 = "0.11"
+thiserror.workspace = true
+# rustls with bundled web PKI roots, so TLS needs no system library.
+ureq = { version = "3.4", default-features = false, features = ["rustls", "gzip"] }
+
+# AudioToolbox's ExtAudioFile is the AAC and ALAC encoder (and writes the M4A container) on macOS.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-audio-toolbox = { version = "0.3", default-features = false, features = [
+    "std",
+    "AudioConverter",
+    "AudioFile",
+    "ExtendedAudioFile",
+    "objc2-core-audio-types",
+    "objc2-core-foundation",
+] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFURL", "CFString"] }
+
+[dev-dependencies]
+claxon = "0.4"
+tempfile = "3"
+
+# M4A is only produced on macOS, so only its tests need to decode it.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+symphonia = { version = "0.6.1", default-features = false, features = ["alac", "isomp4", "aac"] }

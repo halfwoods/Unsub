@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Cast</title>
+  <subtitle>A podcast published as Atom.</subtitle>
+  <id>urn:uuid:5f1c0000-0000-4000-8000-000000000001</id>
+  <updated>2025-02-03T10:00:00Z</updated>
+  <link rel="self" href="{{BASE}}/atom.xml"/>
+  <link rel="alternate" href="https://example.com/atomcast"/>
+  <author><name>Grace Host</name></author>
+  <logo>{{BASE}}/art/atom.jpg</logo>
+  <entry>
+    <title>Second Atom Episode</title>
+    <id>urn:uuid:5f1c0000-0000-4000-8000-000000000012</id>
+    <updated>2025-02-03T10:00:00Z</updated>
+    <published>2025-02-03T09:00:00Z</published>
+    <summary>Summary of the second episode.</summary>
+    <link rel="alternate" href="https://example.com/atomcast/2"/>
+    <link rel="enclosure" type="audio/mpeg" length="120000" href="{{BASE}}/audio/atom2.mp3"/>
+  </entry>
+  <entry>
+    <title>First Atom Episode</title>
+    <id>urn:uuid:5f1c0000-0000-4000-8000-000000000011</id>
+    <updated>2025-01-27T10:00:00Z</updated>
+    <content type="html">&lt;p&gt;Show notes.&lt;/p&gt;</content>
+    <link rel="enclosure" type="audio/mpeg" length="90000" href="{{BASE}}/audio/atom1.mp3"/>
+  </entry>
+  <entry>
+    <title>No audio here</title>
+    <id>urn:uuid:5f1c0000-0000-4000-8000-000000000013</id>
+    <updated>2025-02-01T10:00:00Z</updated>
+    <link rel="alternate" href="https://example.com/atomcast/3"/>
+  </entry>
+</feed>

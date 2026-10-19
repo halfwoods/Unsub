@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>No Guids</title>
+    <link>https://example.com/noguid</link>
+    <description>Items identified only by their enclosure.</description>
+    <item>
+      <title>Alpha</title>
+      <pubDate>Mon, 03 Feb 2025 08:00:00 GMT</pubDate>
+      <enclosure url="https://example.com/alpha.mp3" length="10" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Alpha again</title>
+      <pubDate>Mon, 03 Feb 2025 08:00:00 GMT</pubDate>
+      <guid>https://example.com/alpha.mp3</guid>
+      <enclosure url="https://example.com/alpha.mp3" length="10" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Beta</title>
+      <pubDate>Mon, 27 Jan 2025 08:00:00 GMT</pubDate>
+      <guid>shared-guid</guid>
+      <enclosure url="https://example.com/beta.mp3" length="10" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Beta duplicate</title>
+      <pubDate>Mon, 27 Jan 2025 08:00:00 GMT</pubDate>
+      <guid>shared-guid</guid>
+      <enclosure url="https://example.com/beta-copy.mp3" length="10" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

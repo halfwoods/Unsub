@@ -1,0 +1,24 @@
+[package]
+name = "antistreaming-purchases"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+lofty = "0.25"
+# Only reading and test fixtures need deflate; the default features pull in encryption and four
+# more compressors that store downloads do not use.
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sha2 = "0.10"
+notify = "8.2"
+ureq = "3"
+walkdir = "2.5"
+tempfile = "3"
+
+[dev-dependencies]
+filetime = "0.2"
+tiny_http = "0.12"

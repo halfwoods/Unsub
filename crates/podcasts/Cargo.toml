@@ -1,0 +1,22 @@
+[package]
+name = "antistreaming-podcasts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+# feed-rs was rejected: it drops the raw itunes:duration text (and mis-parses MM:SS), hides
+# per-item itunes:explicit and replaces a missing guid with a generated id.
+rss = { version = "2", default-features = false }
+atom_syndication = { version = "0.12", default-features = false }
+diligent-date-parser = "0.1"
+quick-xml = "0.41"
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+ureq = "3"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"
+tiny_http = "0.12"

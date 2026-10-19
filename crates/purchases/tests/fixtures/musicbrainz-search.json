@@ -1,0 +1,28 @@
+{
+ "created": "2026-10-19T22:43:45.063Z",
+ "count": 1,
+ "offset": 0,
+ "release-groups": [
+  {
+   "id": "b1392450-e666-3926-a536-22c65f834433",
+   "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+   "score": 100,
+   "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+   "artist-credit-id": "021661c1-84c5-30d7-9bb2-f0766affb734",
+   "count": 39,
+   "title": "OK Computer",
+   "first-release-date": "1997-05-21",
+   "primary-type": "Album",
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead",
+      "sort-name": "Radiohead"
+     }
+    }
+   ]
+  }
+ ]
+}

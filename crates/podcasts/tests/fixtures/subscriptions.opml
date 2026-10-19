@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>Imported</title></head>
+  <body>
+    <outline text="Podcasts">
+      <outline type="rss" text="Test Cast" xmlUrl="{{BASE}}/feed.xml" htmlUrl="https://example.com/testcast"/>
+      <outline type="rss" text="Atom Cast" xmlUrl="{{BASE}}/atom.xml"/>
+    </outline>
+    <outline type="rss" text="Gone" xmlUrl="{{BASE}}/missing.xml"/>
+  </body>
+</opml>

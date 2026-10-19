@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Test Cast</title>
+    <link>https://example.com/testcast</link>
+    <description>A show about testing.</description>
+    <language>en</language>
+    <atom:link href="{{BASE}}/feed.xml" rel="self" type="application/rss+xml"/>
+    <itunes:author>Ada Host</itunes:author>
+    <itunes:image href="{{BASE}}/art/show.jpg"/>
+    <itunes:explicit>false</itunes:explicit>
+    <item>
+      <title>Episode 3</title>
+      <description><![CDATA[<p>Third <b>episode</b>.</p>]]></description>
+      <pubDate>Mon, 20 Jan 2025 08:00:00 GMT</pubDate>
+      <guid isPermaLink="false">tc-003</guid>
+      <enclosure url="{{BASE}}/audio/ep3.mp3" length="250000" type="audio/mpeg"/>
+      <itunes:duration>1:02:03</itunes:duration>
+      <itunes:season>1</itunes:season>
+      <itunes:episode>3</itunes:episode>
+      <itunes:explicit>yes</itunes:explicit>
+      <itunes:image href="{{BASE}}/art/ep3.jpg"/>
+    </item>
+    <item>
+      <title>Episode 2</title>
+      <itunes:summary>Plain summary of episode two.</itunes:summary>
+      <pubDate>Mon, 13 Jan 2025 08:00:00 GMT</pubDate>
+      <guid isPermaLink="false">tc-002</guid>
+      <enclosure url="{{BASE}}/audio/ep2.mp3" length="150000" type="audio/mpeg"/>
+      <itunes:duration>62:03</itunes:duration>
+      <itunes:season>1</itunes:season>
+      <itunes:episode>2</itunes:episode>
+    </item>
+    <item>
+      <title>Episode 1</title>
+      <description>The first one.</description>
+      <pubDate>Mon, 06 Jan 2025 08:00:00 GMT</pubDate>
+      <guid isPermaLink="false">tc-001</guid>
+      <enclosure url="{{BASE}}/audio/ep1.mp3" length="200000" type="audio/mpeg"/>
+      <itunes:duration>3723</itunes:duration>
+    </item>
+    <item>
+      <title>Show notes only</title>
+      <description>A blog-style item without audio.</description>
+      <pubDate>Tue, 21 Jan 2025 08:00:00 GMT</pubDate>
+      <guid isPermaLink="false">tc-blog</guid>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,392 @@
+{
+ "release-offset": 0,
+ "release-count": 5,
+ "releases": [
+  {
+   "id": "0b6b4ba0-d36f-47bd-b4ea-6a5b91842d29",
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-07-01",
+   "media": [
+    {
+     "format": "CD",
+     "position": 1,
+     "track-count": 12
+    }
+   ],
+   "relations": [
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "4a78823c-1c53-4176-a5f3-58026c76f2bc",
+     "url": {
+      "resource": "https://www.discogs.com/release/1285412",
+      "id": "a1f44ffa-41eb-4f0a-bd08-70dc8fc275a0"
+     },
+     "type": "discogs",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    }
+   ]
+  },
+  {
+   "id": "175d6ac9-7185-357c-af04-5887dc3ea788",
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "2006-09-06",
+   "media": [
+    {
+     "format": "CD",
+     "position": 1,
+     "track-count": 12
+    }
+   ],
+   "relations": [
+    {
+     "type": "amazon asin",
+     "url": {
+      "resource": "https://www.amazon.co.jp/gp/product/B000GW87PM",
+      "id": "eb4d2163-2ae9-46ff-91e4-a53d44a01f39"
+     },
+     "type-id": "4f2e710d-166c-480c-a293-2e2c8d658d87",
+     "attribute-values": {},
+     "begin": null,
+     "target-type": "url",
+     "direction": "forward",
+     "target-credit": "",
+     "source-credit": "",
+     "attribute-ids": {},
+     "end": null,
+     "ended": false,
+     "attributes": []
+    },
+    {
+     "target-credit": "",
+     "attribute-ids": {},
+     "source-credit": "",
+     "ended": false,
+     "end": null,
+     "attributes": [],
+     "type": "discogs",
+     "type-id": "4a78823c-1c53-4176-a5f3-58026c76f2bc",
+     "url": {
+      "id": "ded18377-41c3-4831-8edd-d38e21efa09d",
+      "resource": "https://www.discogs.com/release/1366029"
+     },
+     "attribute-values": {},
+     "begin": null,
+     "target-type": "url",
+     "direction": "forward"
+    }
+   ]
+  },
+  {
+   "id": "8e2b5322-f9a6-4ab7-b3f4-f65e7ddbc9e4",
+   "title": "OK Computer: OKNOTOK 1997 2017",
+   "status": "Official",
+   "date": "2017-06-22",
+   "media": [
+    {
+     "format": "Digital Media",
+     "position": 1,
+     "track-count": 23
+    }
+   ],
+   "relations": [
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "ae5473e1-e10b-4ce4-b066-010298692919",
+      "resource": "https://www.hdtracks.com/#/album/5e043ed28e725b3854a2699e"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "attributes": [],
+     "attribute-ids": {},
+     "source-credit": "",
+     "ended": false,
+     "end": null,
+     "target-credit": "",
+     "target-type": "url",
+     "direction": "forward",
+     "attribute-values": {},
+     "begin": null,
+     "type": "purchase for download",
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "74f8a6e7-af80-4174-9061-a4b311604b40",
+      "resource": "https://www.qobuz.com/us-en/album/ok-computer-oknotok-1997-2017-radiohead/0634904086831"
+     }
+    },
+    {
+     "attributes": [],
+     "target-credit": "",
+     "ended": true,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "begin": null,
+     "attribute-values": {},
+     "direction": "forward",
+     "target-type": "url",
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "9269b9b9-104e-4f9e-9675-18e09f7a56ed",
+      "resource": "https://oknotok17-us.wasteheadquarters.com/products/digital"
+     },
+     "type": "purchase for download"
+    },
+    {
+     "target-credit": "",
+     "attribute-ids": {},
+     "source-credit": "",
+     "ended": true,
+     "end": null,
+     "attributes": [],
+     "type": "purchase for download",
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "22c34796-be3a-46de-b45c-690f895c0c72",
+      "resource": "http://www.hdtracks.com/ok-computer-oknotok-1997-2017"
+     },
+     "attribute-values": {},
+     "begin": null,
+     "target-type": "url",
+     "direction": "forward"
+    },
+    {
+     "attributes": [],
+     "target-credit": "",
+     "source-credit": "",
+     "attribute-ids": {},
+     "end": null,
+     "ended": false,
+     "attribute-values": {},
+     "begin": null,
+     "target-type": "url",
+     "direction": "forward",
+     "type": "streaming",
+     "url": {
+      "id": "74f8a6e7-af80-4174-9061-a4b311604b40",
+      "resource": "https://www.qobuz.com/us-en/album/ok-computer-oknotok-1997-2017-radiohead/0634904086831"
+     },
+     "type-id": "320adf26-96fa-4183-9045-1f5f32f833cb"
+    }
+   ]
+  },
+  {
+   "id": "a1ed87aa-2079-4e42-bbeb-6309b3b68674",
+   "title": "OK Computer: OKNOTOK 1997 2017",
+   "status": "Official",
+   "date": "2017-06-23",
+   "media": [
+    {
+     "format": "Digital Media",
+     "position": 1,
+     "track-count": 12
+    },
+    {
+     "format": "Digital Media",
+     "position": 2,
+     "track-count": 11
+    }
+   ],
+   "relations": [
+    {
+     "end": null,
+     "ended": false,
+     "source-credit": "",
+     "attribute-ids": {},
+     "target-credit": "",
+     "attributes": [],
+     "url": {
+      "resource": "https://music.apple.com/us/album/1239489060",
+      "id": "1e800aec-d754-441d-997b-c3cd0756b059"
+     },
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "type": "purchase for download",
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {}
+    },
+    {
+     "type-id": "320adf26-96fa-4183-9045-1f5f32f833cb",
+     "url": {
+      "id": "1e800aec-d754-441d-997b-c3cd0756b059",
+      "resource": "https://music.apple.com/us/album/1239489060"
+     },
+     "type": "streaming",
+     "begin": null,
+     "attribute-values": {},
+     "direction": "forward",
+     "target-type": "url",
+     "target-credit": "",
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "attributes": []
+    }
+   ]
+  },
+  {
+   "id": "11111111-1111-1111-1111-111111111111",
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "2017-06-23",
+   "media": [
+    {
+     "format": "Digital Media",
+     "position": 1,
+     "track-count": 12
+    }
+   ],
+   "relations": [
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://radiohead.bandcamp.com/album/ok-computer"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://www.7digital.com/artist/radiohead/release/ok-computer-oknotok-1997-2017"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://music.amazon.co.uk/albums/B01DPSNU78"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://itunes.apple.com/gb/album/ok-computer/1239489060"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://www.junodownload.com/products/radiohead-ok-computer/123/"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://www.qobuz.com/us-en/album/ok-computer-oknotok-1997-2017-radiohead/0634904086831"
+     },
+     "type": "purchase for download",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    },
+    {
+     "direction": "forward",
+     "target-type": "url",
+     "begin": null,
+     "attribute-values": {},
+     "type-id": "98e08c20-8402-4163-8970-53504bb6a1e4",
+     "url": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "resource": "https://open.spotify.com/album/6dVIqQ8qmQ5GBnJ9shOYGE"
+     },
+     "type": "free streaming",
+     "attributes": [],
+     "ended": false,
+     "end": null,
+     "attribute-ids": {},
+     "source-credit": "",
+     "target-credit": ""
+    }
+   ]
+  }
+ ]
+}
