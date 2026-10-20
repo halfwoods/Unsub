@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEven
 import { libraryAddToPlaylist, libraryMoveInPlaylist, libraryRemoveFromPlaylist } from "../api/commands";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
-import { cdIdOf, playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
+import { cdIdOf, isLibrarySource, playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
 import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
 import "./SongList.css";
 
@@ -44,6 +44,7 @@ export function SongList() {
   const rowHeight = useApp((s) => s.rowHeight);
 
   const isCd = useApp((s) => cdIdOf(s.source) !== null);
+  const isLibrary = useApp((s) => isLibrarySource(s.source));
   const columns = useMemo(() => (isCd ? CD_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isCd, isRegularPlaylist]);
   // Reordering only makes sense while the playlist is shown in its own order.
   const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
@@ -83,6 +84,9 @@ export function SongList() {
       // In a playlist, Delete removes songs from the playlist only, never from the library.
       e.preventDefault();
       void libraryRemoveFromPlaylist(playlistId, selectedPositions()).then(afterPlaylistEdit);
+    } else if ((e.key === "Backspace" || e.key === "Delete") && isLibrary && selection.size > 0) {
+      e.preventDefault();
+      useApp.getState().openLibrarySheet({ type: "delete", trackIds: [...selection] });
     }
   };
 
@@ -169,6 +173,13 @@ export function SongList() {
                     <NowPlayingIcon playing={playing} />
                   ) : isCd ? (
                     <CdImportStatus number={track.id} />
+                  ) : track.missing ? (
+                    // iTunes' exclamation mark: the file has gone; playing it offers to locate it.
+                    <svg className="missing-icon" width={12} height={12} viewBox="0 0 12 12" aria-label="File not found">
+                      <title>The file can't be found</title>
+                      <circle cx="6" cy="6" r="6" />
+                      <path d="M6 2.8v4M6 8.7v.4" />
+                    </svg>
                   ) : (
                     track.inCloud && (
                       <svg className="cloud-icon" width={13} height={9} viewBox="0 0 13 9" aria-label="In iCloud">

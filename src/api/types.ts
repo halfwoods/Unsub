@@ -27,6 +27,8 @@ export interface TrackQuery {
   descending: boolean;
   /** Restricts the list to one playlist (regular, smart or folder). */
   playlist?: number | null;
+  /** Restricts the list to these songs, e.g. Display Duplicates' finds. */
+  ids?: number[] | null;
 }
 
 export interface Track {
@@ -60,7 +62,61 @@ export interface Track {
   enabled: boolean;
   /** An iCloud Drive placeholder: playing it downloads it first. */
   inCloud: boolean;
+  /** Its file has gone; iTunes' "!" in the status column. */
+  missing: boolean;
+  sortTitle: string | null;
+  sortArtist: string | null;
+  sortAlbum: string | null;
+  sortAlbumArtist: string | null;
   compilation: boolean;
+}
+
+/**
+ * Get Info's changes: absent fields stay as they are, "" clears text, and null clears a
+ * number. Artwork travels separately, as a file path.
+ */
+export interface TrackEdits {
+  title?: string;
+  artist?: string;
+  albumArtist?: string;
+  album?: string;
+  genre?: string;
+  composer?: string;
+  year?: number | null;
+  trackNumber?: number | null;
+  trackCount?: number | null;
+  discNumber?: number | null;
+  discCount?: number | null;
+  compilation?: boolean;
+  sortTitle?: string;
+  sortArtist?: string;
+  sortAlbum?: string;
+  sortAlbumArtist?: string;
+  rating?: number;
+  enabled?: boolean;
+  kind?: MediaKind;
+}
+
+export type ArtworkChange = { type: "file"; path: string } | { type: "remove" };
+
+export interface EditReport {
+  written: number[];
+  /** Songs whose files couldn't take the tags (read-only, in iCloud…): changed in the library only. */
+  dbOnly: [number, string][];
+  moved: number[];
+  moveFailed: [number, string][];
+}
+
+export interface MediaSettings {
+  folder: string | null;
+  organize: boolean;
+  copyOnAdd: boolean;
+}
+
+export interface OrganizeProgress {
+  done: number;
+  total: number;
+  currentPath: string;
 }
 
 export interface LibraryStats {

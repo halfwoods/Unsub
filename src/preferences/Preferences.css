@@ -96,3 +96,30 @@
 .prefs .sheet-buttons {
   padding: 0 18px;
 }
+
+.prefs-box {
+  margin-bottom: 14px;
+  padding: 8px 12px 10px;
+  border: 1px solid #c7c7c7;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.prefs-box-title {
+  margin-bottom: 6px;
+  font-weight: bold;
+}
+
+.prefs-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prefs-folder-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

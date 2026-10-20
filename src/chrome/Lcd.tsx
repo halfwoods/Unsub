@@ -99,6 +99,7 @@ export function Lcd() {
   );
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
+  const organize = useApp((s) => s.organize);
   const syncingName = useApp((s) => s.devices.find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "iPod");
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
@@ -163,6 +164,16 @@ export function Lcd() {
         subtitle={`Song ${cdRip.index + 1} of ${cdRip.count}`}
         fraction={cdRip.fraction}
         onCancel={() => void cdStopImport()}
+      />
+    );
+  }
+
+  if (organize) {
+    return (
+      <ProgressLcd
+        title="Organizing Library"
+        subtitle={organize.currentPath.split(/[\\/]/).pop() ?? ""}
+        fraction={organize.total > 0 ? organize.done / organize.total : null}
       />
     );
   }

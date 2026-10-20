@@ -1,12 +1,14 @@
+import { audioDir, join } from "@tauri-apps/api/path";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
-import { playerSetBitPerfect, sharingStatus, sharingUpdate } from "../api/commands";
-import type { SharingSettings, SharingStatus } from "../api/types";
+import { libraryMediaSettings, librarySetMediaSettings, playerSetBitPerfect, sharingStatus, sharingUpdate } from "../api/commands";
+import type { MediaSettings, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
 import { loadBitPerfect, saveBitPerfect } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
 
-type Tab = "general" | "playback" | "sharing";
+type Tab = "general" | "playback" | "sharing" | "advanced";
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   {
@@ -24,7 +26,61 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
     label: "Sharing",
     icon: <path d="M11 10a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm10 0a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM3 27c0-4.5 3.6-7 8-7s8 2.5 8 7zm16.5 0c0-2.5-.9-4.5-2.4-5.8.9-.5 2.4-1.2 3.9-1.2 4.4 0 8 2.5 8 7z" />,
   },
+  {
+    id: "advanced",
+    label: "Advanced",
+    icon: (
+      <path d="M14 3h4l.7 3.4 2.2.9 2.9-1.9 2.8 2.8-1.9 2.9.9 2.2L29 14v4l-3.4.7-.9 2.2 1.9 2.9-2.8 2.8-2.9-1.9-2.2.9L18 29h-4l-.7-3.4-2.2-.9-2.9 1.9-2.8-2.8 1.9-2.9-.9-2.2L3 18v-4l3.4-.7.9-2.2-1.9-2.9 2.8-2.8 2.9 1.9 2.2-.9zm2 8a5 5 0 1 0 0 10 5 5 0 0 0 0-10z" />
+    ),
+  },
 ];
+
+/** iTunes' Advanced pane: where the library keeps its files, and how it treats them. */
+function AdvancedTab() {
+  const [settings, setSettings] = useState<MediaSettings | null>(null);
+  const showNotice = useApp((s) => s.showNotice);
+  useEffect(() => {
+    void libraryMediaSettings().then(setSettings);
+  }, []);
+  if (!settings) return null;
+  const save = (next: MediaSettings) => {
+    if (!next.folder) return;
+    setSettings(next);
+    void librarySetMediaSettings(next.folder, next.organize, next.copyOnAdd).catch((e: unknown) => showNotice(String(e)));
+  };
+  const change = async () => {
+    const folder = await open({ title: "Media Folder Location", directory: true, multiple: false, defaultPath: settings.folder ?? undefined });
+    if (typeof folder === "string") save({ ...settings, folder });
+  };
+  return (
+    <div className="prefs-advanced">
+      <div className="prefs-box">
+        <div className="prefs-box-title">Media folder location</div>
+        <div className="prefs-folder">
+          <span className="prefs-folder-path">{settings.folder}</span>
+          <button className="push-button" onClick={() => void change()}>
+            Change…
+          </button>
+          <button className="push-button" onClick={() => void audioDir().then((music) => join(music, "AntiStreaming")).then((folder) => save({ ...settings, folder }))}>
+            Reset
+          </button>
+        </div>
+      </div>
+      <label className="prefs-check">
+        <input type="checkbox" checked={settings.organize} onChange={(e) => save({ ...settings, organize: e.target.checked })} />
+        Keep media folder organized
+      </label>
+      <p className="prefs-note">
+        Places files into album and artist folders, and names the files based on the disc number, track number, and the song title.
+      </p>
+      <label className="prefs-check">
+        <input type="checkbox" checked={settings.copyOnAdd} onChange={(e) => save({ ...settings, copyOnAdd: e.target.checked })} />
+        Copy files to media folder when adding to library
+      </label>
+      <p className="prefs-note">Your originals stay where they are; the library uses the copies.</p>
+    </div>
+  );
+}
 
 function GeneralTab() {
   const sizes = useApp((s) => s.textSizes);
@@ -184,6 +240,7 @@ export function Preferences() {
           {tab === "general" && <GeneralTab />}
           {tab === "playback" && <PlaybackTab />}
           {tab === "sharing" && <SharingTab />}
+          {tab === "advanced" && <AdvancedTab />}
         </div>
         <div className="sheet-buttons">
           <button className="push-button push-button--default" onClick={() => setOpen(false)}>

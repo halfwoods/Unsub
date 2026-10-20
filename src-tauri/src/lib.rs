@@ -44,6 +44,7 @@ pub fn run() {
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json")));
+            app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("AntiStreaming"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(DevicesState::default());
@@ -59,6 +60,7 @@ pub fn run() {
             })?;
             app.manage(PlaybackState::new(player, app.handle().clone()));
             devices::watch(app.handle().clone());
+            library::check_missing(app.handle());
             cd::watch(app.handle().clone());
             Ok(())
         })
@@ -126,6 +128,13 @@ pub fn run() {
             purchases::purchases_accept,
             purchases::purchases_ignore,
             purchases::purchases_links,
+            library::library_edit_tracks,
+            library::library_media_settings,
+            library::library_set_media_settings,
+            library::library_organize,
+            library::library_duplicates,
+            library::library_relink,
+            library::library_delete,
             cd::cd_list,
             cd::cd_tracks,
             cd::cd_set_checked,

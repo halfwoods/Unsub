@@ -13,6 +13,7 @@ import type {
   GenreSummary,
   LibraryStats,
   MediaKind,
+  OrganizeProgress,
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
@@ -77,6 +78,13 @@ export const cdIdOf = (source: SourceId) => (source.startsWith("cd:") ? source.s
 export const isPlaylistSource = (source: SourceId): source is PlaylistSourceId => source.startsWith("playlist:");
 export const playlistSource = (id: number): PlaylistSourceId => `playlist:${id}`;
 export const playlistIdOf = (source: SourceId) => (isPlaylistSource(source) ? Number(source.slice("playlist:".length)) : null);
+
+/** Sheets over the library: Get Info, a missing file to locate, a delete to confirm, Organize Library. */
+export type LibrarySheet =
+  | { type: "info"; trackIds: number[] }
+  | { type: "locate"; track: Track }
+  | { type: "delete"; trackIds: number[] }
+  | { type: "organize" };
 
 export interface SmartEditor {
   /** null while creating a new smart playlist. */
@@ -148,6 +156,10 @@ interface AppState {
   cdRip: CdRipStatus | null;
   /** The iPod sync in progress, if any. */
   deviceSync: DeviceSyncStatus | null;
+  librarySheet: LibrarySheet | null;
+  /** Display Duplicates is on, showing only songs that have duplicates. */
+  duplicates: { exact: boolean } | null;
+  organize: OrganizeProgress | null;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -184,6 +196,9 @@ interface AppState {
   toggleArtwork: () => void;
   refreshDevices: () => Promise<void>;
   refreshCds: () => Promise<void>;
+  openLibrarySheet: (sheet: LibrarySheet | null) => void;
+  showDuplicates: (exact: boolean) => Promise<void>;
+  showAllSongs: () => void;
   toggleDevice: (deviceId: string) => void;
   setGridGroup: (group: GridGroup) => void;
   refreshPlaylists: () => Promise<void>;
@@ -221,6 +236,9 @@ export const useApp = create<AppState>((set, get) => ({
   cds: [],
   cdRip: null,
   deviceSync: null,
+  librarySheet: null,
+  duplicates: null,
+  organize: null,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
@@ -252,7 +270,8 @@ export const useApp = create<AppState>((set, get) => ({
     const sortFor = (current: SortKey): SortKey => (regular ? "playlistOrder" : current === "playlistOrder" ? "artist" : current);
     set((s) => ({
       source,
-      query: { ...s.query, kind, search: null, playlist, sort: sortFor(s.query.sort), descending: regular ? false : s.query.descending },
+      query: { ...s.query, kind, search: null, playlist, ids: null, sort: sortFor(s.query.sort), descending: regular ? false : s.query.descending },
+      duplicates: null,
       tracks: isList ? s.tracks : [],
       stats: isList ? s.stats : null,
       selection: new Set(),
@@ -341,6 +360,8 @@ export const useApp = create<AppState>((set, get) => ({
   playRow: async (index) => {
     const { tracks, source } = get();
     if (index < 0 || index >= tracks.length) return;
+    // iTunes' "The song could not be used because the original file could not be found."
+    if (tracks[index].missing) return set({ librarySheet: { type: "locate", track: tracks[index] } });
     const playingSource = playSourceOf(source);
     // iTunes skips unchecked songs when playing through a list, but plays one you double-click.
     const queue = tracks.filter((t, i) => t.enabled || i === index);
@@ -393,6 +414,22 @@ export const useApp = create<AppState>((set, get) => ({
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
     if (device && !devices.some((d) => d.id === device.deviceId)) get().setSource("music");
+  },
+
+  openLibrarySheet: (librarySheet) => set({ librarySheet }),
+
+  showDuplicates: async (exact) => {
+    const ids = (await api.libraryDuplicates(exact)).flat();
+    if (ids.length === 0) return get().showNotice(exact ? "No exact duplicates found" : "No duplicates found");
+    if (!isLibrarySource(get().source)) get().setSource("music");
+    // Sorted by name so each set of duplicates sits together.
+    set((s) => ({ duplicates: { exact }, query: { ...s.query, ids, search: null, sort: "name", descending: false }, selection: new Set() }));
+    void get().refresh();
+  },
+
+  showAllSongs: () => {
+    set((s) => ({ duplicates: null, query: { ...s.query, ids: null } }));
+    void get().refresh();
   },
 
   refreshCds: async () => {

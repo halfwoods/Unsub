@@ -25,3 +25,14 @@
   line-height: 17px;
   color: #6b6b6b;
 }
+
+.content-with-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.duplicates-bar span {
+  margin-right: auto;
+}

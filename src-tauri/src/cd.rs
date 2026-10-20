@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
-use crate::library;
+use crate::library::{self, LibraryState};
 use crate::playback::{PlaySource, PlaybackState, PLAYER_EVENT};
 
 pub const CHANGED_EVENT: &str = "cd://changed";
@@ -400,7 +400,9 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
     }
     let settings = RipSettings {
         format: format.into(),
-        dest_dir: app.path().audio_dir().map_err(|e| CommandError::from(e.to_string()))?.join("AntiStreaming").join("Music"),
+        dest_dir: app
+            .state::<LibraryState>()
+            .media_folder(&app.path().audio_dir().map_err(|e| CommandError::from(e.to_string()))?.join("AntiStreaming"))?,
         verify_accuraterip: verify,
         tracks: Some(numbers),
     };

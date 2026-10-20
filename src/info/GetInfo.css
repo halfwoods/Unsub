@@ -1,0 +1,165 @@
+.info-sheet {
+  width: 560px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.info-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px 12px;
+}
+
+.info-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--font-size);
+}
+
+.info-heading > * {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.info-heading strong {
+  font-size: 13px;
+}
+
+.info-heading span {
+  color: #555555;
+}
+
+/* A stack-of-songs badge standing in for artwork when several are selected. */
+.info-many {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  background: linear-gradient(to bottom, #9aa3ae, #6f7985);
+  box-shadow: 3px -3px 0 -1px #c3c9d1;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.info-body {
+  min-height: 250px;
+  padding: 16px 22px 8px;
+  background: #ffffff;
+  border-bottom: 1px solid #c4c4c4;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 7px 10px;
+}
+
+.info-label {
+  justify-self: end;
+  font-size: var(--font-size);
+  font-weight: bold;
+  color: #3c3c3c;
+}
+
+.info-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size);
+}
+
+.info-field .smart-input,
+.info-field .smart-popup {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-field--short .smart-input,
+.info-field--short .smart-popup {
+  flex: 0 0 140px;
+}
+
+.info-field--pair .smart-input {
+  flex: 0 0 52px;
+}
+
+.info-apply {
+  flex: none;
+}
+
+.info-check {
+  font-weight: normal;
+}
+
+.info-stars {
+  letter-spacing: 1px;
+}
+
+.info-summary {
+  font-size: var(--font-size);
+}
+
+.info-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  margin: 0;
+}
+
+.info-facts > div {
+  display: flex;
+  gap: 6px;
+}
+
+.info-facts dt {
+  font-weight: bold;
+  color: #3c3c3c;
+}
+
+.info-facts dd {
+  margin: 0;
+}
+
+.info-where {
+  margin: 14px 0 0;
+  overflow-wrap: anywhere;
+  color: #444444;
+}
+
+.info-flag {
+  color: #b5541c;
+}
+
+.info-artwork {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.info-artwork-note {
+  margin: 30px 0 18px;
+  font-size: var(--font-size);
+  color: #555555;
+}
+
+.info-artwork-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.info-buttons {
+  padding: 10px 18px 14px;
+}
+
+.info-spacer {
+  flex: 1;
+}

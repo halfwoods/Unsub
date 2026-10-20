@@ -17,6 +17,14 @@ const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
     ("new-smart-playlist", "New Smart Playlist…", Some("Alt+CmdOrCtrl+N")),
     ("new-playlist-folder", "New Playlist Folder", Some("Shift+Alt+CmdOrCtrl+N")),
 ];
+/// The selection-dependent half of iTunes 10's File menu.
+const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 5] = [
+    ("get-info", "Get Info", Some("CmdOrCtrl+I")),
+    ("show-in-finder", "Show in Finder", Some("Shift+CmdOrCtrl+R")),
+    ("show-duplicates", "Display Duplicates", None),
+    ("show-exact-duplicates", "Display Exact Duplicates", None),
+    ("organize-library", "Organize Library…", None),
+];
 const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("play-pause", "Play/Pause", None),
     ("next", "Next", Some("CmdOrCtrl+Right")),
@@ -51,6 +59,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     #[cfg(target_os = "macos")]
     file.append(&MenuItem::with_id(app, IMPORT_MUSIC, "Import Music Library", true, None::<&str>)?)?;
     file.append(&MenuItem::with_id(app, IMPORT_XML, "Import Library XML…", true, None::<&str>)?)?;
+    file.append(&PredefinedMenuItem::separator(app)?)?;
+    for (id, label, accelerator) in LIBRARY_ACTIONS {
+        file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
+    }
     file.append(&PredefinedMenuItem::separator(app)?)?;
     file.append(&PredefinedMenuItem::close_window(app, None)?)?;
     // Predefined edit items keep copy/paste and undo working in the search field.
@@ -103,7 +115,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
                 import::run(&handle, Some(path));
             }
         });
-    } else if id == PREFERENCES.0 || FILE_ACTIONS.iter().chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id) {
+    } else if id == PREFERENCES.0 || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id) {
         let _ = app.emit(MENU_ACTION_EVENT, id);
     }
 }

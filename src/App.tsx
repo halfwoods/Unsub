@@ -1,5 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect } from "react";
 import {
   libraryAddPaths,
@@ -7,6 +8,7 @@ import {
   onCdRip,
   onCloudDownload,
   onDeviceSync,
+  onOrganizeProgress,
   onDevicesChanged,
   onLibraryChanged,
   onMenuAction,
@@ -21,20 +23,40 @@ import {
 import { Content } from "./browser/Content";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
+import { LibrarySheets } from "./info/LibrarySheets";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
-import { useApp } from "./state/store";
+import { isLibrarySource, isPlaylistSource, useApp } from "./state/store";
 import "./theme/base.css";
 import "./App.css";
 
 const VOLUME_STEP = 0.1;
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen } = useApp.getState();
+  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, showDuplicates, showNotice } =
+    useApp.getState();
+  const { source, selection, tracks } = useApp.getState();
+  // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
+  const inLibrary = isLibrarySource(source) || isPlaylistSource(source);
   switch (action) {
+    case "get-info":
+      if (inLibrary && selection.size > 0) openLibrarySheet({ type: "info", trackIds: [...selection] });
+      return;
+    case "show-in-finder": {
+      const track = tracks.find((t) => selection.has(t.id));
+      if (!inLibrary || !track) return;
+      if (track.missing) return showNotice("The file for this song can't be found");
+      return void revealItemInDir(track.path);
+    }
+    case "show-duplicates":
+      return void showDuplicates(false);
+    case "show-exact-duplicates":
+      return void showDuplicates(true);
+    case "organize-library":
+      return openLibrarySheet({ type: "organize" });
     case "preferences":
       return setPreferencesOpen(true);
     case "new-playlist":
@@ -74,6 +96,7 @@ function useBackendEvents() {
       onCdChanged(() => void refreshCds()),
       onCdRip((cdRip) => useApp.setState({ cdRip })),
       onDeviceSync((deviceSync) => useApp.setState({ deviceSync })),
+      onOrganizeProgress((organize) => useApp.setState({ organize })),
       onScanProgress(setScan),
       onCloudDownload((p) =>
         useApp.setState({ cloudDownload: p && { trackId: p.trackId, fraction: p.total > 0 ? p.done / p.total : 0 } }),
@@ -132,6 +155,7 @@ export default function App() {
       {/* Keyed so each opening starts from that playlist's saved rules. */}
       {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
       {preferencesOpen && <Preferences />}
+      <LibrarySheets />
     </div>
   );
 }

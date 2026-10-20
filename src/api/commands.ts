@@ -7,11 +7,15 @@ import type {
   CdRipStatus,
   ComposerSummary,
   Device,
+  ArtworkChange,
   DeviceSyncStatus,
+  EditReport,
   DeviceView,
   GenreSummary,
   ImportFormat,
   LibraryStats,
+  MediaSettings,
+  OrganizeProgress,
   Mix,
   OwnershipReport,
   FeedSettings,
@@ -32,6 +36,7 @@ import type {
   SharingSettings,
   SyncPreview,
   SyncSettings,
+  TrackEdits,
   SharingStatus,
   SmartRules,
   Track,
@@ -74,6 +79,19 @@ export const deviceTracks = (deviceId: string, view: DeviceView, query: TrackQue
 export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuery) =>
   invoke<LibraryStats>("device_stats", { deviceId, view, query });
 export const deviceEject = (deviceId: string) => invoke<void>("device_eject", { deviceId });
+export const libraryEditTracks = (trackIds: number[], edits: TrackEdits, artwork: ArtworkChange | null) =>
+  invoke<EditReport>("library_edit_tracks", { trackIds, edits, artwork });
+export const libraryMediaSettings = () => invoke<MediaSettings>("library_media_settings");
+export const librarySetMediaSettings = (folder: string, organize: boolean, copyOnAdd: boolean) =>
+  invoke<void>("library_set_media_settings", { folder, organize, copyOnAdd });
+export const libraryOrganize = () => invoke<void>("library_organize");
+export const libraryDuplicates = (exact: boolean) => invoke<number[][]>("library_duplicates", { exact });
+export const libraryRelink = (trackId: number, path: string, searchFolder: boolean) =>
+  invoke<number>("library_relink", { trackId, path, searchFolder });
+export const libraryDelete = (trackIds: number[], moveFilesToTrash: boolean) =>
+  invoke<void>("library_delete", { trackIds, moveFilesToTrash });
+export const onOrganizeProgress = (handler: (progress: OrganizeProgress | null) => void): Promise<UnlistenFn> =>
+  listen<OrganizeProgress | null>("library://organize", (e) => handler(e.payload));
 export const deviceSyncSettings = (deviceId: string) => invoke<SyncSettings>("device_sync_settings", { deviceId });
 export const deviceSetSyncSettings = (deviceId: string, settings: SyncSettings) =>
   invoke<void>("device_set_sync_settings", { deviceId, settings });
@@ -196,6 +214,11 @@ export type MenuAction =
   | "new-playlist-from-selection"
   | "new-smart-playlist"
   | "new-playlist-folder"
+  | "get-info"
+  | "show-in-finder"
+  | "show-duplicates"
+  | "show-exact-duplicates"
+  | "organize-library"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

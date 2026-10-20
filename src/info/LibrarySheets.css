@@ -1,0 +1,14 @@
+/* A Mac alert: a short question, a line of detail, and its buttons. */
+.alert-sheet {
+  min-width: 0;
+  width: 440px;
+}
+
+.alert-sheet p {
+  margin: 0 0 10px;
+  line-height: 16px;
+}
+
+.alert-sheet .alert-title {
+  font-weight: bold;
+}

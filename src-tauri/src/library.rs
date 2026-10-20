@@ -1,16 +1,19 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use antistreaming_library::{
-    AlbumSummary, ArtistSummary, ComposerSummary, GenreSummary, Library, LibraryStats, Mix, Playlist, PlaylistKind, SmartRules,
-    Track, TrackQuery,
+    AlbumSummary, ArtistSummary, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, MediaSettings, Mix, OrganizeReport,
+    Playlist, PlaylistKind, SmartRules, Track, TrackEdits, TrackQuery,
 };
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{CommandError, CommandResult};
 
 pub const SCAN_PROGRESS_EVENT: &str = "library://scan-progress";
 pub const CHANGED_EVENT: &str = "library://changed";
+/// Organize Library's progress; `null` once it's done.
+pub const ORGANIZE_EVENT: &str = "library://organize";
 
 /// SQLite in WAL mode lets each job keep its own connection, so a long import or a slow
 /// artwork read never blocks the song list.
@@ -37,6 +40,27 @@ impl LibraryState {
     /// Other long-lived readers (the sharing server) open their own connection to the same file.
     pub fn db_path(&self) -> &std::path::Path {
         &self.db_path
+    }
+
+    /// Runs a change that touches files (tag writes, moves, the Trash) on its own connection,
+    /// taking turns with imports, so the song list stays responsive meanwhile.
+    fn with_writer<T>(&self, change: impl FnOnce(&mut Library) -> antistreaming_library::Result<T>) -> CommandResult<T> {
+        let _turn = self.scan_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut library = Library::open(&self.db_path)?;
+        Ok(change(&mut library)?)
+    }
+
+    /// Where the library keeps its files, defaulting to the folder rips, podcasts and purchases
+    /// already go to.
+    pub fn media_folder(&self, default: &Path) -> antistreaming_library::Result<PathBuf> {
+        let mut library = self.queries();
+        match library.media_settings()?.folder {
+            Some(folder) => Ok(folder),
+            None => {
+                library.set_media_folder(default)?;
+                Ok(default.to_path_buf())
+            }
+        }
     }
 
     pub fn queries(&self) -> MutexGuard<'_, Library> {
@@ -184,6 +208,107 @@ pub fn library_set_smart_rules(state: State<'_, LibraryState>, id: i64, rules: S
 #[tauri::command]
 pub fn library_add_paths(app: AppHandle, paths: Vec<PathBuf>) {
     add_paths(&app, paths);
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ArtworkChange {
+    File { path: PathBuf },
+    Remove,
+}
+
+/// Get Info's OK: writes the new tags into the files. Artwork comes as a file path so the
+/// image never crosses the bridge as JSON.
+#[tauri::command]
+pub async fn library_edit_tracks(
+    app: AppHandle,
+    track_ids: Vec<i64>,
+    mut edits: TrackEdits,
+    artwork: Option<ArtworkChange>,
+) -> CommandResult<EditReport> {
+    edits.artwork = match artwork {
+        Some(ArtworkChange::File { path }) => Some(Some(std::fs::read(&path).map_err(|e| CommandError::from(e.to_string()))?)),
+        Some(ArtworkChange::Remove) => Some(None),
+        None => None,
+    };
+    let report = app.state::<LibraryState>().with_writer(|library| library.edit_tracks(&track_ids, &edits))?;
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(report)
+}
+
+#[tauri::command]
+pub fn library_media_settings(state: State<'_, LibraryState>) -> CommandResult<MediaSettings> {
+    Ok(state.queries().media_settings()?)
+}
+
+#[tauri::command]
+pub async fn library_set_media_settings(app: AppHandle, folder: PathBuf, organize: bool, copy_on_add: bool) -> CommandResult<()> {
+    app.state::<LibraryState>().with_writer(|library| {
+        library.set_media_folder(&folder)?;
+        library.set_organize(organize)?;
+        library.set_copy_on_add(copy_on_add)
+    })
+}
+
+/// iTunes' Organize Library: moves every file in the media folder to where its tags say.
+#[tauri::command]
+pub fn library_organize(app: AppHandle) {
+    std::thread::spawn(move || {
+        let result: CommandResult<OrganizeReport> = app.state::<LibraryState>().with_writer(|library| {
+            library.organize_now(|progress| {
+                let _ = app.emit(ORGANIZE_EVENT, Some(progress));
+            })
+        });
+        let _ = app.emit(ORGANIZE_EVENT, None::<()>);
+        let message = match result {
+            Ok(report) if report.failed.is_empty() => format!("Organized {} files", report.moved),
+            Ok(report) => format!("Organized {} files; {} couldn't be moved", report.moved, report.failed.len()),
+            Err(error) => format!("Couldn't organize the library: {error}"),
+        };
+        let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+        let _ = app.emit(CHANGED_EVENT, ());
+    });
+}
+
+/// Groups of duplicates, as iTunes' Display Duplicates (or Display Exact Duplicates) finds them.
+#[tauri::command]
+pub fn library_duplicates(state: State<'_, LibraryState>, exact: bool) -> CommandResult<Vec<Vec<i64>>> {
+    Ok(state.queries().duplicates(exact)?)
+}
+
+/// Flags songs whose files have gone; run at launch, off the main thread.
+pub fn check_missing(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || match app.state::<LibraryState>().with_writer(|library| library.check_missing()) {
+        Ok(missing) if !missing.is_empty() => {
+            let _ = app.emit(CHANGED_EVENT, ());
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("[library] couldn't check for missing files: {error}"),
+    });
+}
+
+/// Points a missing song at its file's new home, then looks in the same folder for the
+/// others, as iTunes offered to. Returns how many more were found.
+#[tauri::command]
+pub async fn library_relink(app: AppHandle, track_id: i64, path: PathBuf, search_folder: bool) -> CommandResult<usize> {
+    let found = app.state::<LibraryState>().with_writer(|library| {
+        library.relink(track_id, &path)?;
+        match path.parent().filter(|_| search_folder) {
+            Some(folder) => Ok(library.relink_folder(folder)?.len()),
+            None => Ok(0),
+        }
+    })?;
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(found)
+}
+
+#[tauri::command]
+pub async fn library_delete(app: AppHandle, track_ids: Vec<i64>, move_files_to_trash: bool) -> CommandResult<()> {
+    let result = app.state::<LibraryState>().with_writer(|library| library.delete_tracks(&track_ids, move_files_to_trash));
+    // Some songs may have gone even if others couldn't be trashed.
+    let _ = app.emit(CHANGED_EVENT, ());
+    result
 }
 
 /// Imports on a background thread with its own connection, reporting progress to the LCD.

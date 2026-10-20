@@ -200,3 +200,21 @@
 .song-row--selected .cloud-icon {
   stroke: #ffffff;
 }
+
+.missing-icon circle {
+  fill: #9a9a9a;
+}
+
+.missing-icon path {
+  stroke: #ffffff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.song-row--selected .missing-icon circle {
+  fill: #ffffff;
+}
+
+.song-row--selected .missing-icon path {
+  stroke: #3d76c9;
+}

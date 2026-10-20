@@ -4,7 +4,7 @@ import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
 import { PodcastsView } from "../podcasts/PodcastsView";
 import { InboxView, PurchasedView } from "../purchases/PurchasesViews";
-import { cdIdOf, isDeviceSource, isPlaylistSource, parseDeviceSource, useApp } from "../state/store";
+import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, useApp } from "../state/store";
 import { AlbumGrid } from "./AlbumGrid";
 import { AlbumList } from "./AlbumList";
 import { CoverFlow } from "./CoverFlow";
@@ -31,12 +31,25 @@ function Songs() {
   return <SongList />;
 }
 
+function DuplicatesBar({ exact }: { exact: boolean }) {
+  const showAllSongs = useApp((s) => s.showAllSongs);
+  return (
+    <div className="party-bar duplicates-bar">
+      <span>{exact ? "Displaying Exact Duplicates" : "Displaying Duplicates"}</span>
+      <button className="push-button" onClick={showAllSongs}>
+        Show All
+      </button>
+    </div>
+  );
+}
+
 export function Content() {
   const source = useApp((s) => s.source);
   const devices = useApp((s) => s.devices);
   const hasTracks = useApp((s) => s.tracks.length > 0);
   const searching = useApp((s) => s.query.search !== null);
   const loaded = useApp((s) => s.stats !== null);
+  const duplicates = useApp((s) => s.duplicates);
 
   if (isDeviceSource(source)) {
     const device = parseDeviceSource(source);
@@ -59,6 +72,14 @@ export function Content() {
       return <InboxView />;
     case "purchased":
       return <PurchasedView />;
+  }
+  if (duplicates && isLibrarySource(source)) {
+    return (
+      <div className="content-with-bar">
+        <Songs />
+        <DuplicatesBar exact={duplicates.exact} />
+      </div>
+    );
   }
   const placard = PLACARDS[source];
   // Playlists always show their list, even empty, so songs can be dropped into it.
