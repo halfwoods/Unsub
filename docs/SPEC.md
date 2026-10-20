@@ -88,3 +88,11 @@ Each milestone ends with something you can run.
     - Supported: iPod classic, video, mini, nano 1G–5G, shuffle 1G–4G. Not supported: nano 6G/7G (HASHAB is uncracked), iPod touch/iPhone/iPad (Apple-private sync protocol).
 14. **Other devices** — the same sync model for USB mass-storage players, Rockbox, and Android (MTP).
 15. **Ship** — Windows build, installers, auto-update, Developer ID signing + notarization.
+16. **Radio** — internet radio the way iTunes 10 had it: **Radio** under LIBRARY.
+    - **Directory:** genre categories with disclosure triangles, then stations with their bit rate and description, from the open community directory Radio Browser (radio-browser.info: no account or key, a list of mirrors, and a User-Agent as its terms ask). Search across stations, and stations sorted by votes within a genre.
+    - **Your own stations:** File › Open Stream… (⌘U) for any stream URL, plus importing `.pls` and `.m3u` files. Stations go into playlists like songs, and a Recently Played group lists the last stations heard.
+    - **Streams:** Icecast/SHOUTcast over HTTP(S), with ICY metadata parsed out of the audio so the LCD shows the station and the now-playing "Artist – Title". HLS for broadcasters that only offer it. MP3, AAC, Ogg Vorbis and Opus.
+    - **Playback:** a live mode in the engine. No duration or seeking; elapsed time counts up. A few seconds of buffer, reconnect on drops, and a notice when a station can't be reached.
+    - **Rules:** Sound Check and crossfade don't apply to streams. Bit-perfect output still applies, for lossless streams such as FLAC-over-Icecast.
+    - **Implementation note:** the bundled FFmpeg is built without its own networking. The app fetches streams itself and feeds the bytes through a custom reader, the same path a growing download uses. The directory client, ICY parsing and HLS live in a new `crates/radio`.
+    - **Not planned:** recording streams.
