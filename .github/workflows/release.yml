@@ -349,6 +349,13 @@ jobs:
           merge-multiple: true
       # The LGPL asks for the source of the libraries that were built; hosting the exact tarballs
       # with the release avoids depending on upstream archives staying put.
+      # The Windows upload keeps its nsis/ and msi/ folders; the manifest and the release take
+      # every file from the top level.
+      - name: Bring every download to the top level
+        run: |
+          find artifacts -mindepth 2 -type f -exec mv -n -t artifacts {} +
+          find artifacts -mindepth 1 -type d -empty -delete
+          ls -l artifacts
       - name: Attach the library sources
         run: |
           scripts/build-ffmpeg-macos.sh --print-sources | while IFS=$'\t' read -r name sha256 url; do
