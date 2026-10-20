@@ -87,6 +87,8 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX play_events_track ON play_events(track_id);
     ALTER TABLE tracks ADD COLUMN overrides TEXT;",
     "ALTER TABLE tracks ADD COLUMN in_cloud INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE tracks ADD COLUMN missing INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

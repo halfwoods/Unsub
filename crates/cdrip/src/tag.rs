@@ -12,7 +12,7 @@ use crate::{Result, encode::Format};
 
 /// Everything written to one track.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct TrackTags {
+pub struct TrackTags {
     pub title: String,
     pub artist: String,
     pub album: String,

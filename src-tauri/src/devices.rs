@@ -8,6 +8,7 @@ use antistreaming_library::{Library, LibraryStats, MediaKind, Track, TrackQuery}
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::cd::Cds;
 use crate::error::{CommandError, CommandResult};
 use crate::playback::{PlaySource, PlaybackState};
 
@@ -43,6 +44,7 @@ struct KindCounts {
 pub struct DevicesState {
     /// Keyed by mount path, which is what discovery reports.
     connected: Mutex<HashMap<PathBuf, Arc<Connected>>>,
+    pub cds: Cds,
 }
 
 impl DevicesState {
@@ -148,8 +150,9 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
         kind,
         // iPods have no checkboxes; every song on one is in play.
         enabled: true,
-        // Songs on an iPod are on the iPod's own disk, never in iCloud.
+        // Songs on an iPod are on the iPod's own disk, never in iCloud or missing from the library.
         in_cloud: false,
+        missing: false,
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
         sort_artist: track.sort_artist.clone(),

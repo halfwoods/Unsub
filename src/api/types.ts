@@ -145,7 +145,49 @@ export interface Device {
 /** Which slice of a device a list shows: one media kind, or one of its playlists. */
 export type DeviceView = { kind: MediaKind } | { playlistId: string };
 
-export type PlaySource = { type: "library" } | { type: "device"; deviceId: string };
+export type PlaySource = { type: "library" } | { type: "device"; deviceId: string } | { type: "cd"; discId: string };
+
+export type AccurateRipResult =
+  | { result: "matched"; confidence: number }
+  | { result: "notInDatabase" }
+  | { result: "mismatch" }
+  | { result: "skipped" };
+
+export interface CdRelease {
+  title: string;
+  artist: string;
+  year: number | null;
+  discNumber: number;
+  discCount: number;
+}
+
+export type CdLookup = { state: "pending" } | { state: "found" } | { state: "notFound" } | { state: "failed"; message: string };
+
+export interface CdRipStatus {
+  discId: string;
+  current: number;
+  title: string;
+  queued: number[];
+  fraction: number;
+  /** Position of the current song among those being imported, from 0. */
+  index: number;
+  count: number;
+}
+
+/** An audio CD in the drive; its songs load like any list, with track numbers as ids. */
+export interface AudioCd {
+  id: string;
+  name: string;
+  trackCount: number;
+  lookup: CdLookup;
+  releases: CdRelease[];
+  chosen: number;
+  coverArtUrl: string | null;
+  imported: { number: number; accuraterip: AccurateRipResult }[];
+  importing: CdRipStatus | null;
+}
+
+export type ImportFormat = { codec: "flac" } | { codec: "alac" } | { codec: "aac"; kbps: number };
 
 export type OwnStatus = "inLibrary" | "import" | "locate" | "redownload" | "buy" | "unknown";
 

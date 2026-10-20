@@ -102,6 +102,7 @@ pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) 
         compilation: false,
         enabled: true,
         in_cloud: false,
+        missing: false,
         sort_title: None,
         sort_artist: None,
         sort_album: None,
@@ -119,8 +120,15 @@ pub fn library_of(tracks: &[Track]) -> Library {
 /// been created by an older build, so migrations can be run on real data.
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
-    conn.execute_batch("ALTER TABLE tracks DROP COLUMN in_cloud;")
-        .unwrap();
+    conn.execute_batch(
+        "DROP TABLE settings;
+         ALTER TABLE tracks DROP COLUMN missing;",
+    )
+    .unwrap();
+    if version < 5 {
+        conn.execute_batch("ALTER TABLE tracks DROP COLUMN in_cloud;")
+            .unwrap();
+    }
     if version < 4 {
         conn.execute_batch(
             "DROP TABLE play_events;

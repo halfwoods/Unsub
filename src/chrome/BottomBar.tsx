@@ -1,4 +1,5 @@
-import { isPlaylistSource, useApp, type SourceId } from "../state/store";
+import { CdActions } from "../cd/Cd";
+import { cdIdOf, isPlaylistSource, useApp, type SourceId } from "../state/store";
 import { formatBytes, formatTotalDuration, pluralize } from "../util/format";
 import "./BottomBar.css";
 
@@ -39,10 +40,11 @@ export function BottomBar() {
   const cycleRepeat = useApp((s) => s.cycleRepeat);
   const toggleArtwork = useApp((s) => s.toggleArtwork);
   const createPlaylist = useApp((s) => s.createPlaylist);
-  const [one, many] = NOUN[source] ?? (isPlaylistSource(source) ? ["song", "songs"] : ["item", "items"]);
+  const discId = cdIdOf(source);
+  const [one, many] = NOUN[source] ?? (isPlaylistSource(source) || discId !== null ? ["song", "songs"] : ["item", "items"]);
 
   return (
-    <footer className="bottom-bar chrome-surface" data-tauri-drag-region>
+    <footer className={discId === null ? "bottom-bar chrome-surface" : "bottom-bar bottom-bar--actions chrome-surface"} data-tauri-drag-region>
       <div className="bottom-left">
         <Icon d={PLUS} label="Create a playlist" onClick={() => void createPlaylist("regular")} />
         <Icon d={SHUFFLE} label="Shuffle" on={shuffle} onClick={toggleShuffle} />
@@ -56,6 +58,7 @@ export function BottomBar() {
           ? `${pluralize(stats.count, one, many)}, ${formatTotalDuration(stats.totalDurationMs)}, ${formatBytes(stats.totalBytes)}`
           : ""}
       </div>
+      {discId !== null && <CdActions discId={discId} />}
     </footer>
   );
 }

@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Library, MediaKind, ScanSummary, Track, TrackOverrides, ensure_local};
+use antistreaming_library::{
+    Library, MediaKind, ScanSummary, Track, TrackOverrides, ensure_local, is_dataless,
+};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -444,4 +446,14 @@ fn ensure_local_returns_at_once_for_files_that_are_already_here() {
     .unwrap();
 
     assert!(!reported);
+}
+
+#[test]
+fn ordinary_and_missing_files_are_not_placeholders() {
+    let dir = TempDir::new().unwrap();
+    let path = put(dir.path(), "song.mp3", b"present");
+
+    assert!(!is_dataless(&path));
+    assert!(!is_dataless(dir.path()));
+    assert!(!is_dataless(&dir.path().join("missing.mp3")));
 }

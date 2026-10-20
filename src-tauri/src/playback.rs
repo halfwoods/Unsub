@@ -41,6 +41,11 @@ pub enum PlaySource {
         #[serde(rename = "deviceId")]
         device_id: String,
     },
+    /// An audio CD, whose track ids are its track numbers.
+    Cd {
+        #[serde(rename = "discId")]
+        disc_id: String,
+    },
 }
 
 pub(crate) struct Playing {
@@ -66,6 +71,7 @@ impl Tracks<'_> {
         match source {
             PlaySource::Library => self.library.track_path(track_id),
             PlaySource::Device { device_id } => self.devices.track_path(device_id, track_id),
+            PlaySource::Cd { disc_id } => self.devices.cds.track_path(disc_id, track_id),
         }
     }
 }

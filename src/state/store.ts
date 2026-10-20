@@ -4,6 +4,8 @@ import * as api from "../api/commands";
 import type {
   AlbumSummary,
   ArtistSummary,
+  AudioCd,
+  CdRipStatus,
   ComposerSummary,
   Device,
   DeviceView,
@@ -39,9 +41,13 @@ export type PlaylistSourceId = `playlist:${number}`;
  */
 export type DeviceSourceId = `device:${string}`;
 
+/** "cd:<MusicBrainz DiscID>": an audio CD's songs. */
+export type CdSourceId = `cd:${string}`;
+
 export type SourceId =
   | LibrarySource
   | DeviceSourceId
+  | CdSourceId
   | PlaylistSourceId
   | "toOwn"
   | "partyShuffle"
@@ -64,6 +70,9 @@ export function deviceSource(deviceId: string, view?: DeviceView): DeviceSourceI
 
 export const isDeviceSource = (source: SourceId): source is DeviceSourceId => source.startsWith("device:");
 
+export const cdSource = (discId: string): CdSourceId => `cd:${discId}`;
+export const cdIdOf = (source: SourceId) => (source.startsWith("cd:") ? source.slice("cd:".length) : null);
+
 export const isPlaylistSource = (source: SourceId): source is PlaylistSourceId => source.startsWith("playlist:");
 export const playlistSource = (id: number): PlaylistSourceId => `playlist:${id}`;
 export const playlistIdOf = (source: SourceId) => (isPlaylistSource(source) ? Number(source.slice("playlist:".length)) : null);
@@ -83,13 +92,18 @@ export function parseDeviceSource(source: SourceId): { deviceId: string; view: D
   return { deviceId, view: { kind: part as MediaKind } };
 }
 
-export const sameSource = (a: PlaySource, b: PlaySource) =>
-  a.type === b.type && (a.type === "library" || (b.type === "device" && a.deviceId === b.deviceId));
+export const sameSource = (a: PlaySource, b: PlaySource) => {
+  if (a.type === "device") return b.type === "device" && a.deviceId === b.deviceId;
+  if (a.type === "cd") return b.type === "cd" && a.discId === b.discId;
+  return b.type === "library";
+};
 
 /** Where the rows on screen come from, which is also where playback must resolve them. */
 export function playSourceOf(source: SourceId): PlaySource {
   const device = parseDeviceSource(source);
-  return device ? { type: "device", deviceId: device.deviceId } : { type: "library" };
+  if (device) return { type: "device", deviceId: device.deviceId };
+  const discId = cdIdOf(source);
+  return discId === null ? { type: "library" } : { type: "cd", discId };
 }
 
 const IDLE_PLAYBACK: PlaybackStatus = {
@@ -128,6 +142,9 @@ interface AppState {
   scan: ScanProgress | null;
   showArtwork: boolean;
   devices: Device[];
+  cds: AudioCd[];
+  /** The CD import in progress, if any. */
+  cdRip: CdRipStatus | null;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -163,6 +180,7 @@ interface AppState {
   setScan: (scan: ScanProgress | null) => void;
   toggleArtwork: () => void;
   refreshDevices: () => Promise<void>;
+  refreshCds: () => Promise<void>;
   toggleDevice: (deviceId: string) => void;
   setGridGroup: (group: GridGroup) => void;
   refreshPlaylists: () => Promise<void>;
@@ -175,6 +193,8 @@ interface AppState {
   playAlbum: (key: string) => Promise<void>;
   playTrackIds: (trackIds: number[]) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
+  /** Shows a message in the LCD for a few seconds. */
+  showNotice: (message: string) => void;
 }
 
 const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", one: "off" };
@@ -195,6 +215,8 @@ export const useApp = create<AppState>((set, get) => ({
   scan: null,
   showArtwork: false,
   devices: [],
+  cds: [],
+  cdRip: null,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
@@ -218,7 +240,7 @@ export const useApp = create<AppState>((set, get) => ({
   setSource: (source) => {
     const device = parseDeviceSource(source);
     const playlist = playlistIdOf(source);
-    const isList = isLibrarySource(source) || device?.view != null || playlist !== null;
+    const isList = isLibrarySource(source) || device?.view != null || playlist !== null || cdIdOf(source) !== null;
     // Device and playlist lists filter on the backend, so the query's own kind stays unset.
     const kind = isLibrarySource(source) ? SOURCE_KIND[source] : null;
     const regular = get().playlists.find((p) => p.id === playlist)?.kind === "regular";
@@ -259,12 +281,23 @@ export const useApp = create<AppState>((set, get) => ({
   refresh: async () => {
     const { query, source } = get();
     const device = parseDeviceSource(source);
+    const discId = cdIdOf(source);
     let request: Promise<[Track[], LibraryStats]>;
     if (isLibrarySource(source) || isPlaylistSource(source)) {
       request = Promise.all([api.libraryTracks(query), api.libraryStats(query)]);
     } else if (device?.view) {
       const { deviceId, view } = device;
       request = Promise.all([api.deviceTracks(deviceId, view, query), api.deviceStats(deviceId, view, query)]);
+    } else if (discId !== null) {
+      // A CD is a dozen songs in disc order, so its totals are summed here.
+      request = api.cdTracks(discId).then((tracks): [Track[], LibraryStats] => [
+        tracks,
+        {
+          count: tracks.length,
+          totalDurationMs: tracks.reduce((sum, t) => sum + t.durationMs, 0),
+          totalBytes: tracks.reduce((sum, t) => sum + t.fileSize, 0),
+        },
+      ]);
     } else {
       return;
     }
@@ -358,6 +391,17 @@ export const useApp = create<AppState>((set, get) => ({
     if (device && !devices.some((d) => d.id === device.deviceId)) get().setSource("music");
   },
 
+  refreshCds: async () => {
+    const cds = await api.cdList();
+    set({ cds });
+    const discId = cdIdOf(get().source);
+    if (discId === null) return;
+    // Ejecting the CD you're looking at drops you back to Music; otherwise its names or
+    // checkboxes may have changed, e.g. MusicBrainz just answered.
+    if (cds.some((cd) => cd.id === discId)) void get().refresh();
+    else get().setSource("music");
+  },
+
   setGridGroup: (gridGroup) => {
     set({ gridGroup });
     void get().refresh();
@@ -444,11 +488,14 @@ export const useApp = create<AppState>((set, get) => ({
       case "error":
         console.error("[player]", event.message);
         break;
-      case "notice": {
-        set({ notice: event.message });
-        setTimeout(() => get().notice === event.message && set({ notice: null }), NOTICE_MS);
+      case "notice":
+        get().showNotice(event.message);
         break;
-      }
     }
+  },
+
+  showNotice: (message) => {
+    set({ notice: message });
+    setTimeout(() => get().notice === message && set({ notice: null }), NOTICE_MS);
   },
 }));

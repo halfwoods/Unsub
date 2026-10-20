@@ -3,6 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect } from "react";
 import {
   libraryAddPaths,
+  onCdChanged,
+  onCdRip,
   onCloudDownload,
   onDevicesChanged,
   onLibraryChanged,
@@ -63,11 +65,13 @@ function runMenuAction(action: MenuAction) {
 /** Subscribes to backend events for the lifetime of the window. */
 function useBackendEvents() {
   useEffect(() => {
-    const { refresh, refreshDevices, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
+    const { refresh, refreshDevices, refreshCds, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onMenuAction(runMenuAction),
       onDevicesChanged(() => void refreshDevices()),
+      onCdChanged(() => void refreshCds()),
+      onCdRip((cdRip) => useApp.setState({ cdRip })),
       onScanProgress(setScan),
       onCloudDownload((p) =>
         useApp.setState({ cloudDownload: p && { trackId: p.trackId, fraction: p.total > 0 ? p.done / p.total : 0 } }),
@@ -85,6 +89,7 @@ function useBackendEvents() {
     ];
     void refresh();
     void refreshDevices();
+    void refreshCds();
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     if (loadBitPerfect()) void playerSetBitPerfect(true);

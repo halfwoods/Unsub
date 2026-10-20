@@ -2,8 +2,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 import { libraryAddToPlaylist, libraryMoveInPlaylist, libraryRemoveFromPlaylist } from "../api/commands";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
-import { playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
-import { COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
+import { CdImportStatus } from "../cd/Cd";
+import { cdIdOf, playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
+import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
@@ -42,7 +43,8 @@ export function SongList() {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const rowHeight = useApp((s) => s.rowHeight);
 
-  const columns = useMemo(() => (isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isRegularPlaylist]);
+  const isCd = useApp((s) => cdIdOf(s.source) !== null);
+  const columns = useMemo(() => (isCd ? CD_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isCd, isRegularPlaylist]);
   // Reordering only makes sense while the playlist is shown in its own order.
   const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
 
@@ -165,6 +167,8 @@ export function SongList() {
                 <div className="song-cell song-cell--status">
                   {track.id === nowPlayingId ? (
                     <NowPlayingIcon playing={playing} />
+                  ) : isCd ? (
+                    <CdImportStatus number={track.id} />
                   ) : (
                     track.inCloud && (
                       <svg className="cloud-icon" width={13} height={9} viewBox="0 0 13 9" aria-label="In iCloud">

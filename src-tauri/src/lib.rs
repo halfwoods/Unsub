@@ -1,4 +1,5 @@
 mod artwork;
+mod cd;
 mod collection;
 mod devices;
 mod error;
@@ -56,6 +57,7 @@ pub fn run() {
             })?;
             app.manage(PlaybackState::new(player, app.handle().clone()));
             devices::watch(app.handle().clone());
+            cd::watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -122,6 +124,13 @@ pub fn run() {
             purchases::purchases_accept,
             purchases::purchases_ignore,
             purchases::purchases_links,
+            cd::cd_list,
+            cd::cd_tracks,
+            cd::cd_set_checked,
+            cd::cd_choose_release,
+            cd::cd_import,
+            cd::cd_stop_import,
+            cd::cd_eject,
             sharing::sharing_status,
             sharing::sharing_update,
         ])

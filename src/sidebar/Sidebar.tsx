@@ -1,7 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { artworkUrl, deviceEject, partyAdd } from "../api/commands";
+import { artworkUrl, cdEject, deviceEject, partyAdd } from "../api/commands";
 import type { Device } from "../api/types";
-import { deviceSource, playSourceOf, useApp, type SourceId } from "../state/store";
+import { cdSource, deviceSource, playSourceOf, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
 import { PlaylistRows, TRACKS_MIME } from "./PlaylistRows";
 import "./Sidebar.css";
@@ -48,14 +48,16 @@ function ArtworkPane() {
   // iTunes shows the selected item's art, falling back to what's playing.
   const trackId = selectedId ?? nowPlaying?.id ?? null;
   const artSource = selectedId !== null ? listSource : playingSource;
+  const cdCover = useApp((s) => (artSource.type === "cd" ? (s.cds.find((cd) => cd.id === artSource.discId)?.coverArtUrl ?? null) : null));
+  const src = trackId === null ? null : artSource.type === "cd" ? cdCover : artworkUrl(trackId, artSource);
   return (
     <div className="artwork-pane">
       <div className="artwork-pane-title">{selectedId !== null ? "Selected Item" : "Now Playing"}</div>
       <div className="artwork-pane-image">
-        {trackId !== null ? (
-          <img key={`${artSource.type}-${trackId}`} src={artworkUrl(trackId, artSource)} alt="" onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
-        ) : (
+        {trackId === null ? (
           <span className="artwork-pane-empty">Nothing Playing</span>
+        ) : (
+          src && <img key={`${artSource.type}-${trackId}`} src={src} alt="" onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
         )}
       </div>
     </div>
@@ -112,6 +114,16 @@ function Section({ heading, children }: { heading: string; children: ReactNode }
 }
 
 /** Mirrors iTunes 10: the device row opens Summary; expanding it lists what's on the iPod. */
+function EjectButton({ name, onEject }: { name: string; onEject: () => void }) {
+  return (
+    <button className="sidebar-eject" aria-label={`Eject ${name}`} onMouseDown={(e) => e.stopPropagation()} onClick={onEject}>
+      <svg width={11} height={10} viewBox="0 0 11 10" aria-hidden="true">
+        <path d="M5.5 0L11 6H0zM0 7.5h11V10H0z" />
+      </svg>
+    </button>
+  );
+}
+
 function DeviceRows({ device }: { device: Device }) {
   const expanded = useApp((s) => s.expandedDevices.has(device.id));
   const toggleDevice = useApp((s) => s.toggleDevice);
@@ -138,13 +150,7 @@ function DeviceRows({ device }: { device: Device }) {
             onClick={() => toggleDevice(device.id)}
           />
         }
-        after={
-          <button className="sidebar-eject" aria-label={`Eject ${device.name}`} onMouseDown={stop} onClick={() => void deviceEject(device.id)}>
-            <svg width={11} height={10} viewBox="0 0 11 10" aria-hidden="true">
-              <path d="M5.5 0L11 6H0zM0 7.5h11V10H0z" />
-            </svg>
-          </button>
-        }
+        after={<EjectButton name={device.name} onEject={() => void deviceEject(device.id)} />}
       />
       {expanded && (
         <>
@@ -173,6 +179,8 @@ function DeviceRows({ device }: { device: Device }) {
 export function Sidebar() {
   const showArtwork = useApp((s) => s.showArtwork);
   const devices = useApp((s) => s.devices);
+  const cds = useApp((s) => s.cds);
+  const showNotice = useApp((s) => s.showNotice);
   const [library, purchases, ...rest] = SECTIONS;
 
   return (
@@ -186,10 +194,19 @@ export function Sidebar() {
           </Section>
         ))}
         {/* iTunes only shows DEVICES while something is plugged in. */}
-        {devices.length > 0 && (
+        {devices.length + cds.length > 0 && (
           <Section heading="Devices">
             {devices.map((device) => (
               <DeviceRows key={device.id} device={device} />
+            ))}
+            {cds.map((cd) => (
+              <Row
+                key={cd.id}
+                id={cdSource(cd.id)}
+                label={cd.name}
+                icon="cd"
+                after={<EjectButton name={cd.name} onEject={() => void cdEject(cd.id).catch((e: unknown) => showNotice(String(e)))} />}
+              />
             ))}
           </Section>
         )}

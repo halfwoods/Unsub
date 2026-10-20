@@ -113,6 +113,9 @@ pub struct Track {
     /// Storage"). Its details come from the file's name and folders until it is
     /// downloaded and the scan or `refresh_cloud_status` reads its tags.
     pub in_cloud: bool,
+    /// The file was not found at `path` when last checked (`check_missing`); a
+    /// rescan that finds it clears the flag, `relink` points the track elsewhere.
+    pub missing: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,

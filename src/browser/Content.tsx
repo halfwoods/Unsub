@@ -4,7 +4,7 @@ import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
 import { PodcastsView } from "../podcasts/PodcastsView";
 import { InboxView, PurchasedView } from "../purchases/PurchasesViews";
-import { isDeviceSource, isPlaylistSource, parseDeviceSource, useApp } from "../state/store";
+import { cdIdOf, isDeviceSource, isPlaylistSource, parseDeviceSource, useApp } from "../state/store";
 import { AlbumGrid } from "./AlbumGrid";
 import { AlbumList } from "./AlbumList";
 import { CoverFlow } from "./CoverFlow";
@@ -44,6 +44,8 @@ export function Content() {
     if (!found) return null;
     return device?.view ? <SongList /> : <DeviceSummary device={found} />;
   }
+  // A CD has no albums to browse, so it is always the song list.
+  if (cdIdOf(source) !== null) return <SongList />;
   switch (source) {
     case "toOwn":
       return <OwnershipView />;

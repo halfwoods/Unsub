@@ -6,6 +6,7 @@ use rusqlite::vtab::array;
 use rusqlite::{Connection, params};
 
 use crate::cloud::platform_is_dataless;
+use crate::delete::move_to_trash;
 use crate::error::{Error, Result};
 use crate::model::{ExternalStats, Track};
 use crate::normalize::fold;
@@ -16,12 +17,16 @@ use crate::store::{WriteMode, write_tracks};
 pub(crate) const PLAY_EVENT: i64 = 0;
 pub(crate) const SKIP_EVENT: i64 = 1;
 
+type TrashFn = dyn Fn(&Path) -> std::io::Result<()> + Send;
+
 pub struct Library {
     pub(crate) conn: Connection,
     /// Where `artwork_thumbnail` keeps resized images; unset means no caching.
     pub(crate) artwork_cache: Option<PathBuf>,
     /// Tells whether a file is only a placeholder for contents in the cloud.
     pub(crate) is_dataless: Box<dyn Fn(&Path) -> bool + Send>,
+    /// Moves a file to the Trash.
+    pub(crate) trash: Box<TrashFn>,
 }
 
 impl Library {
@@ -55,6 +60,7 @@ impl Library {
             conn,
             artwork_cache: None,
             is_dataless: Box::new(platform_is_dataless),
+            trash: Box::new(move_to_trash),
         })
     }
 

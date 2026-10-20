@@ -67,6 +67,7 @@ impl Fixture {
             format,
             dest_dir: self.dest(),
             verify_accuraterip: false,
+            tracks: None,
         }
     }
 
@@ -320,6 +321,7 @@ fn a_named_volume_is_used_as_the_album_when_there_is_no_release() {
         format: flac(5),
         dest_dir: dir.path().join("out"),
         verify_accuraterip: false,
+        tracks: None,
     };
     let ripped = rip_with(
         &VolumeReader::new(dir.path()),
@@ -448,6 +450,74 @@ fn no_temporary_files_are_left_after_a_successful_rip() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn described_tracks_match_the_tags_the_rip_writes() {
+    let fixture = Fixture::new();
+    for release in [None, Some(release())] {
+        let described = describe_tracks(&fixture.disc, release.as_ref());
+        let settings = RipSettings {
+            dest_dir: fixture
+                .dir
+                .path()
+                .join(format!("described-{}", release.is_some())),
+            ..fixture.settings(flac(0))
+        };
+        let ripped = fixture
+            .rip(release.as_ref(), &settings, &offline())
+            .unwrap();
+        assert_eq!(described.len(), ripped.len());
+        for (tags, track) in described.iter().zip(&ripped) {
+            let written = read_tag(&track.path);
+            assert_eq!(written.title().as_deref(), Some(tags.title.as_str()));
+            assert_eq!(written.artist().as_deref(), Some(tags.artist.as_str()));
+            assert_eq!(written.album().as_deref(), Some(tags.album.as_str()));
+            assert_eq!(written.track(), Some(tags.track));
+        }
+    }
+    assert_eq!(describe_tracks(&fixture.disc, None)[0].title, "Track 01");
+}
+
+#[test]
+fn unchecked_tracks_are_skipped_without_renumbering_the_rest() {
+    let fixture = Fixture::new();
+    let settings = RipSettings {
+        tracks: Some(vec![2, 3]),
+        ..fixture.settings(flac(5))
+    };
+    let mut started = Vec::new();
+    let ripped = rip_with(
+        &fixture.reader(),
+        &fixture.disc,
+        Some(&release()),
+        &settings,
+        &offline(),
+        &mut |event| {
+            if let RipProgress::TrackStarted {
+                number,
+                index,
+                count,
+            } = event
+            {
+                started.push((number, index, count));
+            }
+        },
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+
+    assert_eq!(started, [(2, 0, 2), (3, 1, 2)]);
+    assert_eq!(ripped.iter().map(|t| t.number).collect::<Vec<_>>(), [2, 3]);
+    assert_eq!(files_under(&fixture.dest()).len(), 2);
+    // Track 2 is still named and numbered from its place on the disc, not as the first of two.
+    assert_eq!(
+        ripped[0].path.strip_prefix(fixture.dest()).unwrap(),
+        Path::new("The Beatles/Abbey Road/1-02 Something.flac")
+    );
+    let tag = read_tag(&ripped[0].path);
+    assert_eq!((tag.track(), tag.track_total()), (Some(2), Some(3)));
+    assert_eq!(decode_flac(&ripped[1].path), fixture.audio[2]);
 }
 
 #[test]
@@ -782,6 +852,7 @@ fn discs_with_data_tracks_skip_accuraterip() {
         format: flac(2),
         dest_dir: dir.path().join("out"),
         verify_accuraterip: true,
+        tracks: None,
     };
     let client = offline();
     let ripped = rip_with(
@@ -890,6 +961,7 @@ mod audiotoolbox {
                 format: Format::Aac { kbps },
                 dest_dir: dir.path().join(format!("aac-{kbps}")),
                 verify_accuraterip: false,
+                tracks: None,
             };
             rip_with(
                 &VolumeReader::new(dir.path()),

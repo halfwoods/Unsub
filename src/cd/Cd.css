@@ -1,0 +1,80 @@
+.bottom-right {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+}
+
+/* A push button slimmed to fit the 24px bottom bar, like iTunes 10's Import CD button. */
+.push-button.bottom-push {
+  height: 18px;
+  min-width: 0;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: var(--font-size-small);
+}
+
+.cd-lookup {
+  font-size: var(--font-size-small);
+  color: #555555;
+}
+
+.cd-release {
+  max-width: 200px;
+}
+
+.import-sheet {
+  min-width: 420px;
+}
+
+/* Labels sit on their field's first line, as in a Mac dialog, not centered on a long description. */
+.import-sheet .prefs-grid {
+  align-items: baseline;
+}
+
+.import-details {
+  margin: 0;
+  max-width: 280px;
+  font-size: var(--font-size-small);
+  line-height: 15px;
+  color: #555555;
+}
+
+.cd-status circle {
+  fill: #48a83a;
+}
+
+.cd-status path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cd-status--importing circle {
+  fill: #f08a1c;
+}
+
+.cd-status--importing {
+  animation: cd-importing 1.4s linear infinite;
+}
+
+.cd-status--mismatch circle {
+  fill: #d8a420;
+}
+
+@keyframes cd-importing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-status--importing {
+    animation: none;
+  }
+}

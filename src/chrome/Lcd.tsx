@@ -60,6 +60,23 @@ function Progress({ positionMs, durationMs }: { positionMs: number; durationMs: 
   );
 }
 
+/** The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar. */
+function ProgressLcd({ title, subtitle, fraction }: { title: string; subtitle: string; fraction: number | null }) {
+  return (
+    <div className="lcd lcd--playing">
+      <div className="lcd-title">{title}</div>
+      <div className="lcd-subtitle">{subtitle}</div>
+      <div className="lcd-timeline">
+        <div className={fraction === null ? "lcd-progress lcd-progress--busy" : "lcd-progress"}>
+          <div className="lcd-progress-groove">
+            {fraction !== null && <div className="lcd-progress-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Lcd() {
   const nowPlaying = useApp((s) => s.nowPlaying);
   const positionMs = useApp((s) => s.playback.positionMs);
@@ -69,6 +86,7 @@ export function Lcd() {
   const downloadingTitle = useApp((s) =>
     s.cloudDownload ? (s.playingTracks.find((t) => t.id === s.cloudDownload?.trackId)?.title ?? "") : "",
   );
+  const cdRip = useApp((s) => s.cdRip);
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const playTrackIds = useApp((s) => s.playTrackIds);
@@ -108,35 +126,16 @@ export function Lcd() {
     );
   }
 
-  if (cloudDownload) {
+  if (cloudDownload) return <ProgressLcd title="Downloading from iCloud" subtitle={downloadingTitle} fraction={cloudDownload.fraction} />;
+
+  // Each imported song is then added to the library, so the import outranks "Adding to Library".
+  if (cdRip) {
     return (
-      <div className="lcd lcd--playing">
-        <div className="lcd-title">Downloading from iCloud</div>
-        <div className="lcd-subtitle">{downloadingTitle}</div>
-        <div className="lcd-timeline">
-          <div className="lcd-progress">
-            <div className="lcd-progress-groove">
-              <div className="lcd-progress-fill" style={{ width: `${Math.round(cloudDownload.fraction * 100)}%` }} />
-            </div>
-          </div>
-        </div>
-      </div>
+      <ProgressLcd title={`Importing “${cdRip.title}”`} subtitle={`Song ${cdRip.index + 1} of ${cdRip.count}`} fraction={cdRip.fraction} />
     );
   }
 
-  if (scan) {
-    return (
-      <div className="lcd lcd--playing">
-        <div className="lcd-title">Adding to Library</div>
-        <div className="lcd-subtitle">{scan.currentPath.split(/[\\/]/).pop()}</div>
-        <div className="lcd-timeline">
-          <div className="lcd-progress lcd-progress--busy">
-            <div className="lcd-progress-groove" />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (scan) return <ProgressLcd title="Adding to Library" subtitle={scan.currentPath.split(/[\\/]/).pop() ?? ""} fraction={null} />;
 
   return (
     <div className="lcd lcd--idle">

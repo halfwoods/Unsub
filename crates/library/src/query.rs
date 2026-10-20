@@ -16,7 +16,7 @@ pub(crate) const TRACK_COLUMNS: &str =
     track_number, track_count, disc_number, disc_count, duration_ms, bitrate_kbps, sample_rate,
     bit_depth, channels, codec, file_size, date_added, date_modified, play_count, last_played,
     skip_count, rating, kind, compilation, sort_title, sort_artist, sort_album, sort_album_artist,
-    enabled, in_cloud";
+    enabled, in_cloud, missing";
 
 impl Library {
     pub fn tracks(&self, query: &TrackQuery) -> Result<Vec<Track>> {
@@ -100,6 +100,7 @@ pub(crate) fn track_from_row(row: &Row<'_>) -> rusqlite::Result<Track> {
         sort_album_artist: row.get(31)?,
         enabled: row.get(32)?,
         in_cloud: row.get(33)?,
+        missing: row.get(34)?,
     })
 }
 

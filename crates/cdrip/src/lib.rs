@@ -33,5 +33,6 @@ pub use encode::Format;
 pub use error::{Error, Result};
 pub use http::{MetadataClient, UreqClient};
 pub use musicbrainz::{Release, ReleaseTrack, lookup};
-pub use rip::{RipProgress, RipSettings, RippedTrack, rip, rip_with};
+pub use rip::{RipProgress, RipSettings, RippedTrack, describe_tracks, rip, rip_with};
+pub use tag::TrackTags;
 pub use toc::{Toc, musicbrainz_disc_id};

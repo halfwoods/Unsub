@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,16 @@ const AUDIO_EXTENSIONS: &[&str] = &[
 const BATCH_SIZE: usize = 500;
 const PROGRESS_INTERVAL: u64 = 50;
 
+/// What the library already holds about a file, to decide if it needs reading.
+struct Stored {
+    file_size: u64,
+    date_modified: i64,
+    parser_version: u32,
+    overrides: Option<String>,
+    in_cloud: bool,
+    missing: bool,
+}
+
 enum Outcome {
     Unchanged,
     Added(Track),
@@ -39,6 +49,7 @@ impl Library {
         let mut summary = ScanSummary::default();
         let mut seen = HashSet::new();
         let mut batch = Vec::with_capacity(BATCH_SIZE);
+        let media = self.media_settings()?;
 
         for root in paths {
             // The folder the user chose, which a placeholder's artist and album are read relative to.
@@ -82,9 +93,16 @@ impl Library {
                 summary.scanned += 1;
                 match self.examine(&canonical, scanned_root.as_deref(), now) {
                     Ok(Outcome::Unchanged) => summary.unchanged += 1,
-                    Ok(Outcome::Added(track)) => {
-                        summary.added += 1;
-                        batch.push(track);
+                    Ok(Outcome::Added(mut track)) => {
+                        match self.place_new_file(&mut track, &media) {
+                            Ok(()) => {
+                                summary.added += 1;
+                                batch.push(track);
+                            }
+                            Err(err) => summary
+                                .failed
+                                .push((canonical.display().to_string(), err.to_string())),
+                        }
                     }
                     Ok(Outcome::Updated(track)) => {
                         summary.updated += 1;
@@ -114,30 +132,32 @@ impl Library {
     fn examine(&self, canonical: &Path, root: Option<&Path>, now: i64) -> Result<Outcome> {
         let facts = FileFacts::of(canonical)?;
         let dataless = (self.is_dataless)(canonical);
-        let stored: Option<(u64, i64, u32, Option<String>, bool)> = self
+        let stored: Option<Stored> = self
             .conn
             .prepare_cached(
-                "SELECT file_size, date_modified, parser_version, overrides, in_cloud
+                "SELECT file_size, date_modified, parser_version, overrides, in_cloud, missing
                  FROM tracks WHERE path = ?1",
             )?
             .query_row([&facts.path], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
+                Ok(Stored {
+                    file_size: row.get(0)?,
+                    date_modified: row.get(1)?,
+                    parser_version: row.get(2)?,
+                    overrides: row.get(3)?,
+                    in_cloud: row.get(4)?,
+                    missing: row.get(5)?,
+                })
             })
             .optional()?;
-        if let Some((size, modified, parser_version, _, in_cloud)) = &stored
-            && (*size, *modified) == (facts.file_size, facts.date_modified)
+        if let Some(stored) = &stored
+            && (stored.file_size, stored.date_modified) == (facts.file_size, facts.date_modified)
             // A placeholder cannot be re-read, so what is known stands until it is local.
-            && (*parser_version >= TAG_PARSER_VERSION || dataless)
+            && (stored.parser_version >= TAG_PARSER_VERSION || dataless)
         {
-            if *in_cloud != dataless {
+            // The file is here, so a "missing" flag from an earlier check is out of date.
+            if stored.in_cloud != dataless || stored.missing {
                 self.conn.execute(
-                    "UPDATE tracks SET in_cloud = ?2 WHERE path = ?1",
+                    "UPDATE tracks SET in_cloud = ?2, missing = 0 WHERE path = ?1",
                     params![facts.path, dataless],
                 )?;
             }
@@ -147,7 +167,7 @@ impl Library {
         // Overrides outlive re-reads: a podcast's title stays what the feed said.
         let overrides: Option<TrackOverrides> = stored
             .as_ref()
-            .and_then(|(_, _, _, json, _)| json.as_deref())
+            .and_then(|stored| stored.overrides.as_deref())
             .map(serde_json::from_str)
             .transpose()?;
         let track = if dataless {
@@ -235,6 +255,20 @@ impl Library {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let mut tracks = tracks;
+        let media = self.media_settings()?;
+        // The same file twice in one call is placed once.
+        let mut placed: HashMap<String, String> = HashMap::new();
+        for track in &mut tracks {
+            if let Some(path) = placed.get(&track.path) {
+                track.path.clone_from(path);
+            } else if !self.path_in_library(Path::new(&track.path))? {
+                let original = track.path.clone();
+                self.place_new_file(track, &media)?;
+                placed.insert(original, track.path.clone());
+            }
+        }
+
         let tx = self.conn.transaction()?;
         write_tracks(&tx, WriteMode::RefreshTags, &tracks)?;
         let mut ids = Vec::with_capacity(files.len());
@@ -271,14 +305,14 @@ impl Library {
     }
 }
 
-struct FileFacts {
-    path: String,
-    file_size: u64,
-    date_modified: i64,
+pub(crate) struct FileFacts {
+    pub path: String,
+    pub file_size: u64,
+    pub date_modified: i64,
 }
 
 impl FileFacts {
-    fn of(canonical: &Path) -> Result<Self> {
+    pub(crate) fn of(canonical: &Path) -> Result<Self> {
         let path = canonical
             .to_str()
             .ok_or_else(|| Error::NonUtf8Path(canonical.to_path_buf()))?
@@ -292,7 +326,7 @@ impl FileFacts {
     }
 }
 
-fn read_track(
+pub(crate) fn read_track(
     canonical: &Path,
     facts: FileFacts,
     now: i64,
@@ -406,6 +440,7 @@ fn new_track(
         compilation: meta.compilation,
         enabled: true,
         in_cloud: false,
+        missing: false,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,
@@ -413,7 +448,7 @@ fn new_track(
     }
 }
 
-fn is_audio(path: &Path) -> bool {
+pub(crate) fn is_audio(path: &Path) -> bool {
     path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
         AUDIO_EXTENSIONS
             .iter()
@@ -423,7 +458,7 @@ fn is_audio(path: &Path) -> bool {
 
 /// Covers dotfiles and macOS AppleDouble (`._*`) sidecars, which carry audio
 /// extensions but are not audio.
-fn is_hidden(entry: &DirEntry) -> bool {
+pub(crate) fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name().as_encoded_bytes().starts_with(b".")
 }
 

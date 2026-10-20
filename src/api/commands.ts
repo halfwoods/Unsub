@@ -3,10 +3,13 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AlbumSummary,
   ArtistSummary,
+  AudioCd,
+  CdRipStatus,
   ComposerSummary,
   Device,
   DeviceView,
   GenreSummary,
+  ImportFormat,
   LibraryStats,
   Mix,
   OwnershipReport,
@@ -69,6 +72,15 @@ export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuer
   invoke<LibraryStats>("device_stats", { deviceId, view, query });
 export const deviceEject = (deviceId: string) => invoke<void>("device_eject", { deviceId });
 
+export const cdList = () => invoke<AudioCd[]>("cd_list");
+export const cdTracks = (discId: string) => invoke<Track[]>("cd_tracks", { discId });
+export const cdSetChecked = (discId: string, numbers: number[], checked: boolean) =>
+  invoke<void>("cd_set_checked", { discId, numbers, checked });
+export const cdChooseRelease = (discId: string, index: number) => invoke<void>("cd_choose_release", { discId, index });
+export const cdImport = (discId: string, format: ImportFormat, verify: boolean) => invoke<void>("cd_import", { discId, format, verify });
+export const cdStopImport = () => invoke<void>("cd_stop_import");
+export const cdEject = (discId: string) => invoke<void>("cd_eject", { discId });
+
 /** Thumbnail sizes are bucketed so a dragged size slider reuses a few cached images, not hundreds. */
 const THUMBNAIL_BUCKETS = [64, 128, 256, 512, 1024];
 
@@ -76,7 +88,9 @@ const THUMBNAIL_BUCKETS = [64, 128, 256, 512, 1024];
  * Artwork is served by a custom protocol so <img> can cache it without base64 round trips.
  * Pass `size` (CSS pixels) for a thumbnail sized for this screen.
  */
-export const artworkUrl = (trackId: number, source: PlaySource = { type: "library" }, size?: number) => {
+// CD songs have no embedded art (their cover comes from the Cover Art Archive), and their ids are
+// track numbers that would fetch some library song's art, so CDs are excluded by type.
+export const artworkUrl = (trackId: number, source: Exclude<PlaySource, { type: "cd" }> = { type: "library" }, size?: number) => {
   const url = convertFileSrc(source.type === "library" ? String(trackId) : `device/${source.deviceId}/${trackId}`, "artwork");
   if (!size) return url;
   const pixels = size * window.devicePixelRatio;
@@ -157,6 +171,9 @@ export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus
 
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());
+export const onCdChanged = (handler: () => void): Promise<UnlistenFn> => listen("cd://changed", () => handler());
+export const onCdRip = (handler: (status: CdRipStatus | null) => void): Promise<UnlistenFn> =>
+  listen<CdRipStatus | null>("cd://rip", (e) => handler(e.payload));
 
 export type MenuAction =
   | "play-pause"

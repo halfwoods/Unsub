@@ -8,6 +8,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("tag error: {0}")]
     Tags(#[from] lofty::error::FileParseError),
+    #[error("could not write tags: {0}")]
+    TagWrite(#[from] lofty::error::FileEncodingError),
     #[error("unsupported audio format")]
     UnsupportedFormat,
     #[error("path is not valid UTF-8: {}", .0.display())]
@@ -30,6 +32,14 @@ pub enum Error {
     InvalidRule(String),
     #[error("stored smart rules are unreadable: {0}")]
     StoredRules(#[from] serde_json::Error),
+    #[error("not a usable picture: {0}")]
+    InvalidArtwork(String),
+    #[error("another track already uses the path {0}")]
+    PathInUse(String),
+    #[error("choose a media folder first")]
+    NoMediaFolder,
+    #[error("could not move {} file(s) to the Trash", .0.len())]
+    TrashFailed(Vec<(i64, String)>),
     #[error("the operation was cancelled")]
     Cancelled,
     #[error("database schema version {found} is newer than the supported version {supported}")]

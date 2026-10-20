@@ -23,6 +23,9 @@ pub struct RipSettings {
     /// The library folder; files land in `<dest_dir>/<Album Artist>/<Album>/`.
     pub dest_dir: PathBuf,
     pub verify_accuraterip: bool,
+    /// The track numbers to rip (iTunes' checkboxes); `None` rips the whole disc. Skipped tracks
+    /// keep their place, so names, "N of M" and AccurateRip still follow the disc's own order.
+    pub tracks: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +38,7 @@ pub struct RippedTrack {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RipProgress {
+    /// `index` and `count` count only the tracks being ripped.
     TrackStarted {
         number: u8,
         index: usize,
@@ -99,15 +103,26 @@ pub fn rip_with(
             .flatten(),
     };
 
+    let selected: Vec<(usize, &DiscTrack)> = disc
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| {
+            settings
+                .tracks
+                .as_ref()
+                .is_none_or(|numbers| numbers.contains(&track.number))
+        })
+        .collect();
     let mut ripped = Vec::new();
-    for (index, track) in disc.tracks.iter().enumerate() {
+    for (position, &(index, track)) in selected.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             return Err(Error::Cancelled);
         }
         progress(RipProgress::TrackStarted {
             number: track.number,
-            index,
-            count: disc.tracks.len(),
+            index: position,
+            count: selected.len(),
         });
         let finished = session.rip_track(index, track, progress)?;
         progress(RipProgress::TrackFinished(finished.clone()));
@@ -290,6 +305,16 @@ fn fetch_database(disc: &Disc, client: &dyn MetadataClient) -> Option<Vec<accura
     accuraterip::fetch(&disc.toc, client).ok()
 }
 
+/// The tags each track will be given, in disc order, so a CD can be listed by the names its
+/// files will have before anything is ripped.
+pub fn describe_tracks(disc: &Disc, release: Option<&Release>) -> Vec<TrackTags> {
+    disc.tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| track_tags(disc, release, track, index))
+        .collect()
+}
+
 /// The tags and destination path for a track, from the release when there is one.
 fn describe(
     disc: &Disc,
@@ -298,6 +323,25 @@ fn describe(
     index: usize,
     settings: &RipSettings,
 ) -> (TrackTags, PathBuf) {
+    let tags = track_tags(disc, release, track, index);
+    let path = naming::track_path(
+        &settings.dest_dir,
+        &tags.album_artist,
+        &tags.album,
+        tags.disc,
+        tags.track,
+        &tags.title,
+        settings.format.extension(),
+    );
+    (tags, path)
+}
+
+fn track_tags(
+    disc: &Disc,
+    release: Option<&Release>,
+    track: &DiscTrack,
+    index: usize,
+) -> TrackTags {
     let disc_total = release.map_or(1, |release| release.disc_count);
     let disc_number = release.map_or(1, |release| release.disc_number);
     let track_total = u32::try_from(disc.tracks.len()).unwrap_or(u32::MAX);
@@ -308,7 +352,7 @@ fn describe(
     );
     let named = release.and_then(|release| release.tracks.get(index));
 
-    let tags = TrackTags {
+    TrackTags {
         title: named.map_or_else(
             || format!("Track {:02}", track.number),
             |named| named.title.clone(),
@@ -327,17 +371,7 @@ fn describe(
         album_artist_mbid: release.and_then(|release| release.artist_mbid.clone()),
         album,
         album_artist,
-    };
-    let path = naming::track_path(
-        &settings.dest_dir,
-        &tags.album_artist,
-        &tags.album,
-        tags.disc,
-        tags.track,
-        &tags.title,
-        settings.format.extension(),
-    );
-    (tags, path)
+    }
 }
 
 /// The volume name is the album when the drive found CD-TEXT; plain "Audio CD" says nothing.

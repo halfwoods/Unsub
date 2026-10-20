@@ -45,6 +45,12 @@ export const POSITION_COLUMN: Column = {
   render: (_track, _selected, index) => index + 1,
 };
 
+/** CDs list in disc order, so nothing sorts; # is the track number, and the library's Rating and Plays don't apply. */
+export const CD_COLUMNS: Column[] = [
+  { ...POSITION_COLUMN, sort: undefined, render: (track) => track.trackNumber ?? "" },
+  ...COLUMNS.filter((c) => c.id !== "rating" && c.id !== "plays").map((c) => ({ ...c, sort: undefined })),
+];
+
 export const gridTemplate = (columns: Column[]) =>
   [
     `${STATUS_COLUMN_WIDTH}px`,

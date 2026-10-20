@@ -47,6 +47,7 @@ const COLUMNS: &[&str] = &[
     "parser_version",
     "enabled",
     "in_cloud",
+    "missing",
     "artist_group",
     "album_group",
 ];
@@ -172,6 +173,7 @@ pub(crate) fn write_tracks<'a>(
                 // A placeholder's tags were never read, so it must be read once it is local.
                 ":parser_version": if track.in_cloud { 0 } else { TAG_PARSER_VERSION },
                 ":in_cloud": track.in_cloud,
+                ":missing": track.missing,
                 ":enabled": track.enabled,
                 ":artist_group": artist_group,
                 ":album_group": album_group,

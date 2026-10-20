@@ -75,3 +75,15 @@
 [data-active="false"] .bottom-status {
   color: #6a6a6a;
 }
+
+/* With buttons at the right (a CD's Import CD), the status shares the bar instead of centering across it. */
+.bottom-bar--actions .bottom-status {
+  position: static;
+  flex: 1;
+  min-width: 0;
+  display: block;
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
