@@ -16,7 +16,7 @@ mod store;
 mod tags;
 mod thumbnail;
 
-pub use cloud::ensure_local;
+pub use cloud::{ensure_local, is_dataless};
 pub use error::{Error, Result};
 pub use library::Library;
 pub use model::{

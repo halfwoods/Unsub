@@ -54,7 +54,7 @@ pub fn run() {
             let player = Player::new(move |event| {
                 let _ = events.send(event);
             })?;
-            app.manage(PlaybackState::new(player));
+            app.manage(PlaybackState::new(player, app.handle().clone()));
             devices::watch(app.handle().clone());
             Ok(())
         })

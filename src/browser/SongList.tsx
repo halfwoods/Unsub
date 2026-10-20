@@ -163,7 +163,15 @@ export function SongList() {
                 onDoubleClick={() => void playRow(row.index)}
               >
                 <div className="song-cell song-cell--status">
-                  {track.id === nowPlayingId && <NowPlayingIcon playing={playing} />}
+                  {track.id === nowPlayingId ? (
+                    <NowPlayingIcon playing={playing} />
+                  ) : (
+                    track.inCloud && (
+                      <svg className="cloud-icon" width={13} height={9} viewBox="0 0 13 9" aria-label="In iCloud">
+                        <path d="M3.5 8.5h6.3a2.7 2.7 0 0 0 .4-5.4A3.6 3.6 0 0 0 3.4 3a2.8 2.8 0 0 0 .1 5.5z" />
+                      </svg>
+                    )
+                  )}
                 </div>
                 {columns.map((c) => (
                   <div key={c.id} className="song-cell" style={{ textAlign: c.align ?? "left" }}>

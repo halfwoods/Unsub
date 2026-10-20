@@ -189,3 +189,14 @@
   pointer-events: none;
   z-index: 2;
 }
+
+/* iTunes 10.5's iCloud status glyph: an outline cloud for songs not on this Mac yet. */
+.cloud-icon {
+  fill: none;
+  stroke: #8a95a5;
+  stroke-width: 1.1;
+}
+
+.song-row--selected .cloud-icon {
+  stroke: #ffffff;
+}

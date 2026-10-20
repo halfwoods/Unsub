@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,6 +16,16 @@ use crate::podcasts::PodcastsState;
 use crate::queue::{PlayQueue, RepeatMode};
 
 pub const PLAYER_EVENT: &str = "player://event";
+/// Progress while a song in iCloud Drive downloads before it can play; `null` when done.
+pub const DOWNLOADING_EVENT: &str = "player://downloading";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Downloading {
+    track_id: i64,
+    done: u64,
+    total: u64,
+}
 
 /// iTunes restarts the current song instead of going back once you're this far in.
 const PREVIOUS_RESTARTS_AFTER_MS: u64 = 3_000;
@@ -62,15 +73,23 @@ impl Tracks<'_> {
 /// Lock order is always playing → party → library/devices, from commands and engine events alike.
 pub struct PlaybackState {
     pub(crate) player: Player,
+    app: AppHandle,
     playing: Mutex<Option<Playing>>,
     modes: Mutex<Modes>,
     party: Mutex<PartyShuffle>,
+    /// Bumped on every start, so a slow iCloud download can't play a song the user skipped.
+    starts: AtomicU64,
+    /// Bumped on every queue_following, so a slow prefetch can't queue a stale next song.
+    nexts: AtomicU64,
 }
 
 impl PlaybackState {
-    pub fn new(player: Player) -> Self {
+    pub fn new(player: Player, app: AppHandle) -> Self {
         Self {
             player,
+            app,
+            starts: AtomicU64::new(0),
+            nexts: AtomicU64::new(0),
             playing: Mutex::new(None),
             modes: Mutex::new(Modes { shuffle: false, repeat: RepeatMode::Off }),
             party: Mutex::new(PartyShuffle::default()),
@@ -91,17 +110,82 @@ impl PlaybackState {
 
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         let track_id = playing.queue.current();
-        self.player.play(track_id, tracks.path(&playing.source, track_id)?);
-        self.queue_following(tracks, playing)
+        let path = tracks.path(&playing.source, track_id)?;
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if !antistreaming_library::is_dataless(&path) {
+            self.player.play(track_id, path);
+            return self.queue_following(tracks, playing);
+        }
+        // Opening a cloud-only file would block the engine while macOS downloads it, so fetch
+        // it first and start playing once it's local, showing progress in the LCD meanwhile.
+        self.player.stop();
+        let next = match playing.queue.peek_next() {
+            Some(next) => Some((next, tracks.path(&playing.source, next)?)),
+            None => None,
+        };
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            let cancel = AtomicBool::new(false);
+            let result = antistreaming_library::ensure_local(
+                &path,
+                &mut |done, total| {
+                    let _ = app.emit(DOWNLOADING_EVENT, Some(Downloading { track_id, done, total }));
+                },
+                &cancel,
+            );
+            let _ = app.emit(DOWNLOADING_EVENT, None::<Downloading>);
+            let playback = app.state::<PlaybackState>();
+            if playback.starts.load(Ordering::SeqCst) != start {
+                return;
+            }
+            match result {
+                Ok(()) => {
+                    mark_local(&app, track_id);
+                    playback.player.play(track_id, path);
+                    if let Some((next, next_path)) = next {
+                        playback.queue_when_local(next, next_path);
+                    }
+                }
+                Err(error) => {
+                    let _ = app.emit(PLAYER_EVENT, PlayerEvent::Notice { message: format!("Couldn't download from iCloud: {error}") });
+                }
+            }
+        });
+        Ok(())
     }
 
     /// Hands the engine the next track early so it can play gaplessly.
     pub(crate) fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         match playing.queue.peek_next() {
-            Some(next) => self.player.queue_next(next, tracks.path(&playing.source, next)?),
-            None => self.player.clear_next(),
+            Some(next) => self.queue_when_local(next, tracks.path(&playing.source, next)?),
+            None => {
+                self.nexts.fetch_add(1, Ordering::SeqCst);
+                self.player.clear_next();
+            }
         }
         Ok(())
+    }
+
+    /// Queues the next song for gapless play, prefetching it from iCloud first when needed so the
+    /// engine never decodes ahead into a placeholder.
+    fn queue_when_local(&self, track_id: i64, path: PathBuf) {
+        let next = self.nexts.fetch_add(1, Ordering::SeqCst) + 1;
+        if !antistreaming_library::is_dataless(&path) {
+            self.player.queue_next(track_id, path);
+            return;
+        }
+        self.player.clear_next();
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            let fetched = antistreaming_library::ensure_local(&path, &mut |_, _| {}, &AtomicBool::new(false));
+            let playback = app.state::<PlaybackState>();
+            if fetched.is_ok() {
+                mark_local(&app, track_id);
+                if playback.nexts.load(Ordering::SeqCst) == next {
+                    playback.player.queue_next(track_id, path);
+                }
+            }
+        });
     }
 
     /// Stops and forgets the queue when its source goes away, e.g. an iPod is unplugged.
@@ -111,6 +195,14 @@ impl PlaybackState {
             self.player.stop();
             *slot = None;
         }
+    }
+}
+
+/// A song that just came down from iCloud gets its real tags read and loses its cloud badge.
+fn mark_local(app: &AppHandle, track_id: i64) {
+    let refreshed = app.state::<LibraryState>().queries().refresh_cloud_status(&[track_id]);
+    if refreshed.is_ok_and(|changed| !changed.is_empty()) {
+        let _ = app.emit(crate::library::CHANGED_EVENT, ());
     }
 }
 

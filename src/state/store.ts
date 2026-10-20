@@ -143,6 +143,8 @@ interface AppState {
   smartEditor: SmartEditor | null;
   preferencesOpen: boolean;
   notice: string | null;
+  /** A cloud-only song being fetched before it plays. */
+  cloudDownload: { trackId: number; fraction: number } | null;
   textSizes: TextSizes;
   rowHeight: number;
 
@@ -207,6 +209,7 @@ export const useApp = create<AppState>((set, get) => ({
   smartEditor: null,
   preferencesOpen: false,
   notice: null,
+  cloudDownload: null,
   textSizes: loadTextSizes(),
   rowHeight: listRowHeight(loadTextSizes()),
 

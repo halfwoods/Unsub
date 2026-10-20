@@ -98,6 +98,10 @@ export const playerSetBitPerfect = (enabled: boolean) => invoke<void>("player_se
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));
+export const onCloudDownload = (
+  handler: (progress: { trackId: number; done: number; total: number } | null) => void,
+): Promise<UnlistenFn> =>
+  listen<{ trackId: number; done: number; total: number } | null>("player://downloading", (e) => handler(e.payload));
 export const onScanProgress = (handler: (progress: ScanProgress) => void): Promise<UnlistenFn> =>
   listen<ScanProgress>("library://scan-progress", (e) => handler(e.payload));
 export const onLibraryChanged = (handler: () => void): Promise<UnlistenFn> =>

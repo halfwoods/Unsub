@@ -65,6 +65,10 @@ export function Lcd() {
   const positionMs = useApp((s) => s.playback.positionMs);
   const durationMs = useApp((s) => s.playback.durationMs);
   const scan = useApp((s) => s.scan);
+  const cloudDownload = useApp((s) => s.cloudDownload);
+  const downloadingTitle = useApp((s) =>
+    s.cloudDownload ? (s.playingTracks.find((t) => t.id === s.cloudDownload?.trackId)?.title ?? "") : "",
+  );
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const playTrackIds = useApp((s) => s.playTrackIds);
@@ -99,6 +103,22 @@ export function Lcd() {
           <button className="lcd-time lcd-time--remaining" onClick={() => setShowTotal((t) => !t)}>
             {showTotal ? formatClock(durationMs) : `-${formatClock(Math.max(0, durationMs - positionMs))}`}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (cloudDownload) {
+    return (
+      <div className="lcd lcd--playing">
+        <div className="lcd-title">Downloading from iCloud</div>
+        <div className="lcd-subtitle">{downloadingTitle}</div>
+        <div className="lcd-timeline">
+          <div className="lcd-progress">
+            <div className="lcd-progress-groove">
+              <div className="lcd-progress-fill" style={{ width: `${Math.round(cloudDownload.fraction * 100)}%` }} />
+            </div>
+          </div>
         </div>
       </div>
     );

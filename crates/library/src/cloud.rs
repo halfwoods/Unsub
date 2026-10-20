@@ -30,6 +30,12 @@ pub(crate) fn platform_is_dataless(_path: &Path) -> bool {
     false
 }
 
+/// Whether `path` is an iCloud Drive placeholder whose contents aren't on this machine yet.
+/// Never downloads; callers use it to fetch a file before something blocks on opening it.
+pub fn is_dataless(path: &Path) -> bool {
+    platform_is_dataless(path)
+}
+
 /// What `ensure_local` needs from the operating system, so a test can stand in
 /// for a cloud that cannot be conjured on demand.
 trait Storage {

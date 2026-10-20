@@ -58,6 +58,8 @@ export interface Track {
   rating: number;
   kind: MediaKind;
   enabled: boolean;
+  /** An iCloud Drive placeholder: playing it downloads it first. */
+  inCloud: boolean;
   compilation: boolean;
 }
 

@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect } from "react";
 import {
   libraryAddPaths,
+  onCloudDownload,
   onDevicesChanged,
   onLibraryChanged,
   onMenuAction,
@@ -68,6 +69,9 @@ function useBackendEvents() {
       onMenuAction(runMenuAction),
       onDevicesChanged(() => void refreshDevices()),
       onScanProgress(setScan),
+      onCloudDownload((p) =>
+        useApp.setState({ cloudDownload: p && { trackId: p.trackId, fraction: p.total > 0 ? p.done / p.total : 0 } }),
+      ),
       onLibraryChanged(() => {
         setScan(null);
         void refresh();
