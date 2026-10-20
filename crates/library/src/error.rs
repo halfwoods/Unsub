@@ -34,6 +34,8 @@ pub enum Error {
     StoredRules(#[from] serde_json::Error),
     #[error("not a usable picture: {0}")]
     InvalidArtwork(String),
+    #[error("not a usable station: {0}")]
+    InvalidStation(String),
     #[error("another track already uses the path {0}")]
     PathInUse(String),
     #[error("not a believable loudness measurement: {0}")]

@@ -54,6 +54,11 @@ pub(crate) fn fold(text: &str) -> String {
 /// Compilation albums file under this one artist, as in iTunes.
 pub(crate) const COMPILATIONS_GROUP: &str = "compilations";
 
+/// Stations file under one group no tagged name can fold to (it holds a control
+/// character), so a group lookup never pools them with songs that have no
+/// artist or album.
+pub(crate) const RADIO_GROUP: &str = "\u{1e}radio";
+
 /// Which artist an album files under: "Compilations" for compilations,
 /// otherwise the album artist, falling back to the track artist. Migration 3
 /// repeats this in SQL for rows that predate the column.

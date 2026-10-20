@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::error::Result;
 use crate::library::Library;
+use crate::model::RADIO;
 use crate::normalize::{artist_key, title_key};
 
 /// Within this many milliseconds of each other, two lengths are the same recording.
@@ -20,9 +21,10 @@ impl Library {
     /// Duplicates": the album must match too, and lengths within two seconds.
     /// Groups are ordered by their lowest id, and ids within one ascend.
     pub fn duplicates(&self, exact: bool) -> Result<Vec<Vec<i64>>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, title, artist, album, duration_ms FROM tracks ORDER BY id")?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, title, artist, album, duration_ms FROM tracks
+                 WHERE kind <> {RADIO} ORDER BY id"
+        ))?;
         let mut rows = stmt.query([])?;
         let mut buckets: BTreeMap<(String, String), Vec<Row>> = BTreeMap::new();
         while let Some(row) = rows.next()? {

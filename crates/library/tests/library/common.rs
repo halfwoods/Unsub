@@ -123,8 +123,13 @@ pub fn library_of(tracks: &[Track]) -> Library {
 /// been created by an older build, so migrations can be run on real data.
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
-    conn.execute_batch("ALTER TABLE tracks DROP COLUMN has_lyrics;")
-        .unwrap();
+    if version < 10 {
+        conn.execute_batch("DROP TABLE stations;").unwrap();
+    }
+    if version < 9 {
+        conn.execute_batch("ALTER TABLE tracks DROP COLUMN has_lyrics;")
+            .unwrap();
+    }
     if version < 8 {
         conn.execute_batch(
             "ALTER TABLE tracks DROP COLUMN bookmark_ms;

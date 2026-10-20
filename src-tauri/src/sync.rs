@@ -243,6 +243,8 @@ fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
             MediaKind::Music => IpodMediaKind::Music,
             MediaKind::Podcast => IpodMediaKind::Podcast,
             MediaKind::Audiobook => IpodMediaKind::Audiobook,
+            // `select` leaves stations out, so none reaches here.
+            MediaKind::Radio => IpodMediaKind::Other,
         },
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
@@ -296,7 +298,8 @@ fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::
     let mut chosen = Chosen { tracks: Vec::new(), playlists: Vec::new(), in_cloud: 0, missing: 0 };
     let mut seen = HashSet::new();
     for track in candidates {
-        if !seen.insert(track.id) || (settings.only_checked && !track.enabled) {
+        // A playlist can hold radio stations, which no device can carry.
+        if track.kind == MediaKind::Radio || !seen.insert(track.id) || (settings.only_checked && !track.enabled) {
             continue;
         }
         if track.missing {

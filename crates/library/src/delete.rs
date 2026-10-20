@@ -6,6 +6,7 @@ use rusqlite::OptionalExtension;
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::model::MediaKind;
 use crate::organize::prune_empty_dirs;
 
 /// Never deletes outright: the Trash can be emptied by the user, not by us.
@@ -43,17 +44,19 @@ impl Library {
         let mut removable = Vec::new();
         let mut failures = Vec::new();
         for id in ids {
-            let path: Option<String> = self
+            let row: Option<(String, MediaKind)> = self
                 .conn
-                .query_row("SELECT path FROM tracks WHERE id = ?1", [id], |row| {
-                    row.get(0)
+                .query_row("SELECT path, kind FROM tracks WHERE id = ?1", [id], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
                 })
                 .optional()?;
-            let Some(path) = path else {
+            let Some((path, kind)) = row else {
                 continue;
             };
             let path = Path::new(&path);
-            if move_files_to_trash && fs::symlink_metadata(path).is_ok() {
+            // A station's path is a URL: there is never a file to trash.
+            if move_files_to_trash && kind != MediaKind::Radio && fs::symlink_metadata(path).is_ok()
+            {
                 if let Err(err) = (self.trash)(path) {
                     failures.push((*id, err.to_string()));
                     continue;

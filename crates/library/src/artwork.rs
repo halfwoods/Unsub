@@ -8,7 +8,7 @@ use lofty::picture::{MimeType, PictureType};
 
 use crate::error::Result;
 use crate::library::Library;
-use crate::model::Artwork;
+use crate::model::{Artwork, MediaKind};
 use crate::tags;
 
 const FOLDER_ART_STEMS: [&str; 3] = ["cover", "folder", "front"];
@@ -21,6 +21,10 @@ impl Library {
         let Some(track) = self.track(track_id)? else {
             return Ok(None);
         };
+        // A station's path is a URL, not somewhere to look for a picture.
+        if track.kind == MediaKind::Radio {
+            return Ok(None);
+        }
         Ok(own_art(Path::new(&track.path), &track.album))
     }
 }

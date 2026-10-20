@@ -16,6 +16,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::model::MediaKind;
 use crate::tags::{self, repair_mojibake};
 
 /// Lyrics come from files and sidecars of any origin, and no song needs more.
@@ -64,15 +65,18 @@ impl Library {
     /// The text is untrusted: it is cut at 256 KB, stripped of control
     /// characters and given `\n` line endings.
     pub fn lyrics(&self, id: i64) -> Result<Option<Lyrics>> {
-        let row: Option<(String, bool)> = self
+        let row: Option<(String, bool, MediaKind)> = self
             .conn
             .query_row(
-                "SELECT path, in_cloud FROM tracks WHERE id = ?1",
+                "SELECT path, in_cloud, kind FROM tracks WHERE id = ?1",
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
-        let (path, in_cloud) = row.ok_or(Error::TrackNotFound(id))?;
+        let (path, in_cloud, kind) = row.ok_or(Error::TrackNotFound(id))?;
+        if kind == MediaKind::Radio {
+            return Ok(None);
+        }
         let path = Path::new(&path);
         let pinned = self.stored_overrides(id)?.and_then(|o| o.lyrics);
         let embedded = if in_cloud || (self.is_dataless)(path) {

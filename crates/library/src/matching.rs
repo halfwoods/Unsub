@@ -5,7 +5,7 @@ use rusqlite::OptionalExtension;
 
 use crate::error::Result;
 use crate::library::Library;
-use crate::model::{ExternalTrack, MatchQuality, TrackMatch};
+use crate::model::{ExternalTrack, MatchQuality, RADIO, TrackMatch};
 use crate::normalize::{artist_key, title_key};
 
 const EXACT_TOLERANCE_MS: u64 = 3_000;
@@ -34,7 +34,7 @@ type Buckets = HashMap<String, HashMap<String, Vec<Candidate>>>;
 type Rank = (u8, bool, u64, i64);
 
 impl Library {
-    /// One result per input, in input order, against every kind in the library.
+    /// One result per input, in input order, against every kind of file in the library.
     /// A false "you own this" costs more than a miss, so anything ambiguous in
     /// title, artist or duration is left unmatched.
     pub fn match_external(&self, tracks: &[ExternalTrack]) -> Result<Vec<Option<TrackMatch>>> {
@@ -71,9 +71,10 @@ impl Library {
             }
         }
 
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, title, artist, album_artist, album, duration_ms FROM tracks")?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, title, artist, album_artist, album, duration_ms FROM tracks
+                 WHERE kind <> {RADIO}"
+        ))?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let Some(by_artist) =

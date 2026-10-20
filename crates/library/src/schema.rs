@@ -103,6 +103,14 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tracks ADD COLUMN remember_position INTEGER;",
     // Read from the file's tags at scan time; rows from before it are re-read.
     "ALTER TABLE tracks ADD COLUMN has_lyrics INTEGER NOT NULL DEFAULT 0;",
+    // A station is a `tracks` row of kind radio (its `path` is the stream URL);
+    // what only stations have is kept here so songs do not carry it.
+    "CREATE TABLE stations (
+        track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+        homepage TEXT,
+        favicon_url TEXT,
+        radio_browser_uuid TEXT UNIQUE
+    );",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

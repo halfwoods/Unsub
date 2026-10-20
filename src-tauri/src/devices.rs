@@ -206,6 +206,8 @@ fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Err
                 MediaKind::Music => counts.music += 1,
                 MediaKind::Podcast => counts.podcast += 1,
                 MediaKind::Audiobook => counts.audiobook += 1,
+                // iPods hold no radio stations; media_kind never yields one.
+                MediaKind::Radio => {}
             }
             Some(to_track(track, kind))
         })

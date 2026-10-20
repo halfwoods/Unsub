@@ -9,7 +9,7 @@ use image::imageops::FilterType;
 use crate::artwork::{own_art, sibling_path};
 use crate::error::Result;
 use crate::library::Library;
-use crate::model::Artwork;
+use crate::model::{Artwork, MediaKind};
 
 const JPEG_QUALITY: u8 = 85;
 
@@ -23,7 +23,7 @@ impl Library {
     /// shows an album's cover on every song. `artwork()` still returns the
     /// original, per track.
     pub fn artwork_thumbnail(&self, track_id: i64, size: u32) -> Result<Option<Artwork>> {
-        let Some(track) = self.track(track_id)? else {
+        let Some(track) = self.track(track_id)?.filter(|t| t.kind != MediaKind::Radio) else {
             return Ok(None);
         };
         let size = size.max(1);

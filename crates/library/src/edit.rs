@@ -253,6 +253,14 @@ impl Library {
         for id in ids.iter().filter(|id| seen.insert(**id)) {
             tracks.push(self.track(*id)?.ok_or(Error::TrackNotFound(*id))?);
         }
+        // A station and a song cannot be turned into each other.
+        if edits.kind == Some(MediaKind::Radio)
+            || (edits.kind.is_some() && tracks.iter().any(|t| t.kind == MediaKind::Radio))
+        {
+            return Err(Error::InvalidStation(
+                "stations and songs cannot change into each other".to_owned(),
+            ));
+        }
 
         let media = self.media_settings()?;
         let now = now_unix();
@@ -377,6 +385,9 @@ impl Library {
 
 /// Why the file cannot be written, if it plainly cannot.
 fn unwritable(track: &Track) -> Option<String> {
+    if track.kind == MediaKind::Radio {
+        return Some("a station has no file".to_owned());
+    }
     if track.in_cloud {
         return Some("the file is in iCloud and has not been downloaded".to_owned());
     }

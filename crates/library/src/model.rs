@@ -10,6 +10,30 @@ pub enum MediaKind {
     Music,
     Podcast,
     Audiobook,
+    /// An internet radio station: `path` is the stream's URL, and there is no
+    /// file to read, move, check or measure.
+    Radio,
+}
+
+/// The `kind` column's value for stations, for the SQL that skips them.
+pub(crate) const RADIO: i64 = MediaKind::Radio as i64;
+
+impl MediaKind {
+    /// The names smart playlist rules use, in any case.
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        [Self::Music, Self::Podcast, Self::Audiobook, Self::Radio]
+            .into_iter()
+            .find(|kind| kind.name().eq_ignore_ascii_case(name.trim()))
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Music => "music",
+            Self::Podcast => "podcast",
+            Self::Audiobook => "audiobook",
+            Self::Radio => "radio",
+        }
+    }
 }
 
 impl ToSql for MediaKind {
@@ -24,6 +48,7 @@ impl FromSql for MediaKind {
             0 => Ok(Self::Music),
             1 => Ok(Self::Podcast),
             2 => Ok(Self::Audiobook),
+            3 => Ok(Self::Radio),
             other => Err(FromSqlError::OutOfRange(other)),
         }
     }
@@ -54,6 +79,8 @@ pub enum SortKey {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TrackQuery {
+    /// `None` lists every kind of file. Stations are only listed when asked
+    /// for (`Some(Radio)`), or by a playlist that holds them.
     pub kind: Option<MediaKind>,
     pub search: Option<String>,
     pub sort: SortKey,

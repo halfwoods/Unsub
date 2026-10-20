@@ -22,4 +22,5 @@ mod playlog;
 mod query;
 mod scan;
 mod smart;
+mod stations;
 mod thumbnails;

@@ -10,7 +10,7 @@ use walkdir::{DirEntry, WalkDir};
 use crate::cloud::placeholder_meta;
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::{MediaKind, ScanProgress, ScanSummary, Track, TrackOverrides};
+use crate::model::{MediaKind, RADIO, ScanProgress, ScanSummary, Track, TrackOverrides};
 use crate::store::{WriteMode, write_tracks};
 use crate::tags::{self, TAG_PARSER_VERSION, TrackMeta};
 
@@ -192,9 +192,9 @@ impl Library {
         let mut reread = Vec::new();
         let mut evicted = Vec::new();
         {
-            let mut stored = self
-                .conn
-                .prepare("SELECT path, in_cloud, overrides FROM tracks WHERE id = ?1")?;
+            let mut stored = self.conn.prepare(&format!(
+                "SELECT path, in_cloud, overrides FROM tracks WHERE id = ?1 AND kind <> {RADIO}"
+            ))?;
             for id in ids {
                 let Some((path, in_cloud, overrides)) = stored
                     .query_row([id], |row| {
@@ -392,7 +392,8 @@ fn apply_overrides(meta: &mut TrackMeta, overrides: &TrackOverrides) {
     text(&mut meta.album, &overrides.album);
     text(&mut meta.album_artist, &overrides.album_artist);
     text(&mut meta.genre, &overrides.genre);
-    if let Some(kind) = overrides.kind {
+    // Radio is a kind of row, not of file: nothing read from a file can be one.
+    if let Some(kind) = overrides.kind.filter(|kind| *kind != MediaKind::Radio) {
         meta.kind = kind;
     }
     if overrides.year.is_some() {

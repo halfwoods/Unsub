@@ -1,8 +1,8 @@
 use rusqlite::{Transaction, named_params};
 
 use crate::error::Result;
-use crate::model::Track;
-use crate::normalize::{album_group, artist_group, fold, name_key, plain_key};
+use crate::model::{MediaKind, Track};
+use crate::normalize::{RADIO_GROUP, album_group, artist_group, fold, name_key, plain_key};
 use crate::tags::TAG_PARSER_VERSION;
 
 const COLUMNS: &[&str] = &[
@@ -152,8 +152,13 @@ pub(crate) fn write_tracks<'a>(
                 .map(String::as_str)
                 .join(" "),
             );
-            let artist_group = artist_group(&track.album_artist, &track.artist, track.compilation);
-            let album_group = album_group(&artist_group, &track.album);
+            let (artist_group, album_group) = if track.kind == MediaKind::Radio {
+                (RADIO_GROUP.to_owned(), RADIO_GROUP.to_owned())
+            } else {
+                let artist = artist_group(&track.album_artist, &track.artist, track.compilation);
+                let album = album_group(&artist, &track.album);
+                (artist, album)
+            };
             let id = match mode {
                 WriteMode::RefreshTags => None,
                 WriteMode::Replace => Some(track.id),

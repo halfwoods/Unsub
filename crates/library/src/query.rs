@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
 use crate::error::{Error, Result};
 use crate::library::Library;
 use crate::loudness::TrackLoudness;
-use crate::model::{LibraryStats, SortKey, Track, TrackQuery};
+use crate::model::{LibraryStats, MediaKind, SortKey, Track, TrackQuery};
 use crate::normalize::fold;
 use crate::playlist::{members_sql, playlist_row};
 use crate::scan::now_unix;
@@ -181,9 +181,18 @@ pub(crate) fn selection(
             selection.params.push(Box::new(id));
         }
     }
-    if let Some(kind) = query.kind {
-        selection.clauses.push("kind = ?".to_owned());
-        selection.params.push(Box::new(kind));
+    match query.kind {
+        Some(kind) => {
+            selection.clauses.push("kind = ?".to_owned());
+            selection.params.push(Box::new(kind));
+        }
+        // A playlist lists its stations beside its songs; nothing else, and no
+        // grouping into albums or artists, takes them in unasked.
+        None if query.playlist.is_none() || !keep_duplicates => {
+            selection.clauses.push("kind <> ?".to_owned());
+            selection.params.push(Box::new(MediaKind::Radio));
+        }
+        None => {}
     }
     if let Some(search) = &query.search {
         for word in fold(search).split_whitespace() {

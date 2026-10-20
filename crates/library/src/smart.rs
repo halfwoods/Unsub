@@ -3,6 +3,7 @@ use rusqlite::types::ToSql;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::model::{MediaKind, RADIO};
 use crate::normalize::fold;
 use crate::playlist::{members_sql, playlist_row};
 
@@ -56,6 +57,9 @@ pub enum SmartField {
     Composer,
     /// The codec, e.g. "ALAC".
     Kind,
+    /// Music, podcast, audiobook or radio. Stations only take part in a smart
+    /// playlist whose rules name radio here.
+    MediaKind,
     Year,
     Rating,
     Plays,
@@ -168,6 +172,7 @@ enum FieldKind {
     Date(&'static str),
     Flag(&'static str),
     Playlist,
+    MediaKind,
 }
 
 impl SmartField {
@@ -180,6 +185,7 @@ impl SmartField {
             Self::Genre => FieldKind::Text("genre"),
             Self::Composer => FieldKind::Text("composer"),
             Self::Kind => FieldKind::Text("codec"),
+            Self::MediaKind => FieldKind::MediaKind,
             Self::Year => FieldKind::Number("year"),
             Self::Rating => FieldKind::Number("rating"),
             Self::Plays => FieldKind::Number("play_count"),
@@ -237,6 +243,9 @@ pub(crate) fn smart_ids_sql(
     ordered: bool,
 ) -> Result<String> {
     let mut filter = rules_sql(conn, rules, c)?;
+    if !names_radio(rules) {
+        filter = format!("({filter}) AND kind <> {RADIO}");
+    }
     if rules.only_checked {
         filter = format!("({filter}) AND enabled = 1");
     }
@@ -298,6 +307,19 @@ fn selection_order(selected_by: LimitOrder, seed: i64) -> String {
     format!("{primary}, id ASC")
 }
 
+/// Whether any rule, however nested, is about the radio kind.
+fn names_radio(rules: &SmartRules) -> bool {
+    rules.rules.iter().any(|rule| match rule {
+        SmartRule::Condition {
+            field: SmartField::MediaKind,
+            value: SmartValue::Text(name),
+            ..
+        } => MediaKind::from_name(name) == Some(MediaKind::Radio),
+        SmartRule::Condition { .. } => false,
+        SmartRule::Group(group) => names_radio(group),
+    })
+}
+
 /// An empty rule list matches everything, whichever way it combines.
 fn rules_sql(conn: &Connection, rules: &SmartRules, c: &mut Compile) -> Result<String> {
     if rules.rules.is_empty() {
@@ -340,6 +362,16 @@ fn condition(
             SmartOp::IsFalse => Ok(format!("{column} = 0")),
             _ => Err(mismatch()),
         },
+        FieldKind::MediaKind => {
+            let (SmartOp::Is | SmartOp::IsNot, SmartValue::Text(name)) = (op, value) else {
+                return Err(mismatch());
+            };
+            c.bind(MediaKind::from_name(name).ok_or_else(mismatch)?);
+            Ok(format!(
+                "kind {} ?",
+                if op == SmartOp::Is { "=" } else { "<>" }
+            ))
+        }
         FieldKind::Playlist => {
             let (SmartOp::Is | SmartOp::IsNot, SmartValue::Playlist(id)) = (op, value) else {
                 return Err(mismatch());

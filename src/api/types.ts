@@ -1,6 +1,6 @@
 // Mirrors the serde shapes in crates/library and crates/playback (camelCase on the wire).
 
-export type MediaKind = "music" | "podcast" | "audiobook";
+export type MediaKind = "music" | "podcast" | "audiobook" | "radio";
 
 export type SortKey =
   | "name"

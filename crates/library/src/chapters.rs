@@ -16,6 +16,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::model::MediaKind;
 use crate::tags;
 
 /// A file can declare as many chapters as it likes; none has a use for this many.
@@ -55,21 +56,21 @@ impl Library {
     /// The chapters in a track's file, read on demand: QuickTime chapter tracks
     /// and Nero `chpl` in MP4/M4B, `CHAP`/`CTOC` in ID3v2 (MP3, AIFF), and
     /// `CHAPTERnnn` comments in Ogg Vorbis, Opus and FLAC. A file without any, in
-    /// another format, or still only a placeholder in the cloud (reading it
-    /// would download it) has none. Damaged chapter data yields whatever
+    /// another format, a station, or still only a placeholder in the cloud
+    /// (reading it would download it) has none. Damaged chapter data yields whatever
     /// chapters survive rather than an error.
     pub fn chapters(&self, id: i64) -> Result<Vec<Chapter>> {
-        let row: Option<(String, bool, u64)> = self
+        let row: Option<(String, bool, u64, MediaKind)> = self
             .conn
             .query_row(
-                "SELECT path, in_cloud, duration_ms FROM tracks WHERE id = ?1",
+                "SELECT path, in_cloud, duration_ms, kind FROM tracks WHERE id = ?1",
                 [id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
-        let (path, in_cloud, duration_ms) = row.ok_or(Error::TrackNotFound(id))?;
+        let (path, in_cloud, duration_ms, kind) = row.ok_or(Error::TrackNotFound(id))?;
         let path = Path::new(&path);
-        if in_cloud || (self.is_dataless)(path) {
+        if in_cloud || kind == MediaKind::Radio || (self.is_dataless)(path) {
             return Ok(Vec::new());
         }
         read_chapters(path, duration_ms)

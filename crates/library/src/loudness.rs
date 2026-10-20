@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::model::RADIO;
 
 /// ReplayGain 2.0 aims at -18 LUFS: a track measuring -18 LUFS has a gain of 0 dB.
 const REPLAYGAIN_REFERENCE_LUFS: f64 = -18.0;
@@ -276,13 +277,14 @@ impl Library {
     }
 
     /// Tracks the analyzer should measure: files that are here, not
-    /// placeholders, and have no loudness yet, whatever their kind.
+    /// placeholders, and have no loudness yet, whatever their kind (but not
+    /// stations, which have no file).
     pub fn tracks_needing_loudness(&self, limit: usize) -> Result<Vec<(i64, PathBuf)>> {
-        let mut stmt = self.conn.prepare_cached(
+        let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path FROM tracks
-             WHERE loudness_lufs IS NULL AND missing = 0 AND in_cloud = 0
-             ORDER BY id LIMIT ?1",
-        )?;
+             WHERE loudness_lufs IS NULL AND missing = 0 AND in_cloud = 0 AND kind <> {RADIO}
+             ORDER BY id LIMIT ?1"
+        ))?;
         let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             Ok((row.get(0)?, PathBuf::from(row.get::<_, String>(1)?)))
         })?;

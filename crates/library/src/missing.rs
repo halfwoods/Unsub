@@ -8,6 +8,7 @@ use walkdir::WalkDir;
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::model::RADIO;
 use crate::normalize::{artist_key, title_key};
 use crate::scan::{FileFacts, is_audio, is_hidden};
 use crate::tags;
@@ -29,9 +30,10 @@ impl Library {
     /// the flag on any that have come back. Placeholders still in the cloud are
     /// not checked. Returns all the tracks now flagged.
     pub fn check_missing(&mut self) -> Result<Vec<i64>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, path, missing FROM tracks WHERE in_cloud = 0 ORDER BY id")?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, path, missing FROM tracks WHERE in_cloud = 0 AND kind <> {RADIO}
+                 ORDER BY id"
+        ))?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
