@@ -1,6 +1,6 @@
 use std::fs;
 
-use unsub_ipod::{IpodMediaKind, SyncPlaylist, read_database};
+use unsub_ipod::{IpodMediaKind, Prepared, SyncPlaylist, read_database};
 
 use super::*;
 
@@ -237,7 +237,7 @@ fn the_prepared_file_is_what_gets_copied_and_the_source_survives() {
         &plan,
         std::slice::from_ref(&flac_like),
         &[],
-        &mut |_| Ok(transcoded.clone()),
+        &mut |_| Ok(transcoded.clone().into()),
         &mut no_cover,
         &mut |_| {},
     )
@@ -252,6 +252,108 @@ fn the_prepared_file_is_what_gets_copied_and_the_source_survives() {
     assert_eq!(on_ipod.path.extension().unwrap(), "m4a");
     assert_eq!(on_ipod.file_size, fs::metadata(&transcoded).unwrap().len());
     assert!(transcoded.exists() && flac_like.source_path.exists());
+}
+
+#[test]
+fn a_song_that_prepare_skips_is_left_off_and_the_rest_carry_on() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let tracks = [
+        library_track(library.path(), 1, "One"),
+        library_track(library.path(), 2, "Two"),
+        library_track(library.path(), 3, "Three"),
+    ];
+    let playlists = [SyncPlaylist {
+        name: "Mine".to_owned(),
+        tracks: vec![3, 2, 1],
+    }];
+    let plan = plan(&fake, &tracks, &playlists);
+
+    let written = apply_sync(
+        &opened(&fake),
+        &plan,
+        &tracks,
+        &playlists,
+        &mut |track| {
+            Ok(if track.library_id == 2 {
+                Prepared::Skip
+            } else {
+                track.source_path.clone().into()
+            })
+        },
+        &mut no_cover,
+        &mut |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(written.tracks.len(), 7);
+    let titles: Vec<&str> = written.tracks.iter().map(|t| t.title.as_str()).collect();
+    assert!(titles.contains(&"One") && titles.contains(&"Three") && !titles.contains(&"Two"));
+    assert_eq!(
+        music_files(&fake).len(),
+        2,
+        "nothing is left for the song that was skipped"
+    );
+    let mine = written.playlists.iter().find(|p| p.name == "Mine").unwrap();
+    assert_eq!(
+        mine.track_ids.len(),
+        2,
+        "the playlist lists only what is on the iPod"
+    );
+
+    // Nothing was recorded for it, so the next sync offers it again.
+    let again = super::plan(&fake, &tracks, &playlists);
+    assert_eq!(again.add, [2]);
+}
+
+#[test]
+fn prepare_can_describe_the_track_from_the_file_it_found() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    // What the library knew of a song only in the cloud: a name's worth of tags, no length.
+    let mut placeholder = library_track(library.path(), 7, "07 Hunter");
+    placeholder.artist = "Bjork".to_owned();
+    placeholder.genre = String::new();
+    placeholder.duration_ms = 0;
+    placeholder.bitrate_kbps = None;
+    placeholder.sample_rate = None;
+    let real = SyncTrack {
+        title: "Hunter".to_owned(),
+        ..library_track(library.path(), 7, "Hunter")
+    };
+    let plan = plan(&fake, std::slice::from_ref(&placeholder), &[]);
+
+    apply_sync(
+        &opened(&fake),
+        &plan,
+        std::slice::from_ref(&placeholder),
+        &[],
+        &mut |track| {
+            Ok(Prepared::File {
+                path: track.source_path.clone(),
+                track: Some(Box::new(real.clone())),
+            })
+        },
+        &mut no_cover,
+        &mut |_| {},
+    )
+    .unwrap();
+
+    let read = read_database(&opened(&fake)).unwrap();
+    let on_ipod = read.tracks.iter().find(|t| t.title == "Hunter").unwrap();
+    assert_eq!(
+        (on_ipod.artist.as_str(), on_ipod.genre.as_str()),
+        ("Björk", "Electronic")
+    );
+    assert_eq!(on_ipod.duration_ms, 245_000);
+    assert_eq!(on_ipod.bitrate_kbps, Some(256));
+    assert_eq!(on_ipod.sample_rate, Some(44_100));
+    // The library now holds what the file said, so the next sync finds nothing to change.
+    let again = super::plan(&fake, std::slice::from_ref(&real), &[]);
+    assert_eq!(
+        (again.add.len(), again.update.len(), again.remove.len()),
+        (0, 0, 0)
+    );
 }
 
 #[test]

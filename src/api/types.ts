@@ -326,6 +326,8 @@ export interface SyncSettings {
   convertKbps: number | null;
   /** The first sync to each iPod asks first. */
   confirmed: boolean;
+  /** Songs that were only in iCloud and came down for the sync go back to iCloud once they are on the iPod. */
+  removeDownloaded: boolean;
 }
 
 export interface SyncPreview {
@@ -337,14 +339,17 @@ export interface SyncPreview {
   freeBytes: number;
   fits: boolean;
   converted: number;
+  /** Songs the sync will download from iCloud, which only an iPod does. */
+  download: number;
+  /** Songs left out because they are only in iCloud. */
   inCloud: number;
   missing: number;
 }
 
 export interface DeviceSyncStatus {
   deviceId: string;
-  // iPods report preparing and writingDatabase; players report skipped and playlists.
-  stage: "preparing" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists";
+  // iPods report preparing, downloading and writingDatabase; players report skipped and playlists.
+  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists";
   done: number;
   total: number;
   current: string;

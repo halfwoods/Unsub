@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::{self, File};
@@ -13,7 +14,8 @@ use super::mapping::{MappedImage, MappedPlaylist, MappedTrack, Mapping};
 use super::on_the_go;
 use super::plan::{Space, artwork_bytes, freed_bytes, reserve_bytes, space};
 use super::{
-    SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, checksum_key, shuffle_format,
+    Prepared, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, checksum_key,
+    require_blank_or_database, require_guid_matches, shuffle_format,
 };
 use crate::bytes::u64_at;
 use crate::database::{Database, Usage};
@@ -30,20 +32,32 @@ const FIRST_TRACK_ID: u32 = 52;
 const DEFAULT_TRACK_HEADER_LEN: usize = 0x184;
 /// Where the mhbd header repeats a field in every mhit (libgpod's `id_0x24`).
 const DATABASE_TAG_AT: usize = 0x24;
+/// A long sync commits what it has copied after this many songs or bytes, whichever comes first,
+/// so that a crash or a pulled cable loses at most one batch of copying.
+const CHECKPOINT_SONGS: usize = 500;
+const CHECKPOINT_BYTES: u64 = 4 << 30;
 
 /// Applies `plan`: copies the new music, rewrites the database and removes what the plan drops.
 ///
 /// `prepare` turns a source file into one the iPod can play and returns the path to copy; it is
-/// never deleted by this function. `cover` returns the JPEG or PNG for a library track; it is
-/// called only for tracks being added or whose [`SyncTrack::artwork_key`] changed, one at a time
-/// (once per album and key), so covers never have to be held in memory together. Returns the
-/// database as written.
+/// never deleted by this function. It can also describe the track anew now that the file is in
+/// hand, or leave the song out and go on ([`Prepared`]); an error from it stops the sync. `cover`
+/// returns the JPEG or PNG for a library track; it is called only for tracks being added or whose
+/// [`SyncTrack::artwork_key`] changed, one at a time (once per album and key), so covers never
+/// have to be held in memory together. Returns the database as written.
 ///
-/// Order, chosen so that a failure leaves the iPod usable: all music is copied first and cover
+/// Order, chosen so that a failure leaves the iPod usable: music is copied first and cover
 /// thumbnails appended (a failure here removes what was copied and nothing else has changed), then
 /// the bookkeeping file, the ArtworkDB and the iTunesDB are each written beside the old one and
 /// flushed, the old ones are kept as `*.unsub-backup`, and the new ones are renamed into
 /// place, the iTunesDB last. Only then are the files of removed tracks deleted.
+///
+/// A long sync does this in batches of [`CHECKPOINT_SONGS`] songs or [`CHECKPOINT_BYTES`] bytes,
+/// each committed in full, so a failure removes only the batch in progress: the iPod keeps the
+/// batches before it with a valid database, and the error is [`Error::Partial`]. A `prepare`
+/// that answers [`Prepared::Stop`] ends the sync the same way, at the songs copied so far, and
+/// is not an error. The tracks the plan removes go only with the last batch, never at a
+/// checkpoint or on a stop, unless there is no room without removing them first.
 ///
 /// If the plan has `removals_first`, there is not room to copy before deleting. Then the removal
 /// is committed on its own first (the same way, as a database without those tracks), their files
@@ -57,7 +71,7 @@ pub fn apply_sync(
     plan: &SyncPlan,
     tracks: &[SyncTrack],
     playlists: &[SyncPlaylist],
-    prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
+    prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
     cover: &mut dyn FnMut(i64) -> Option<Vec<u8>>,
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<Database> {
@@ -70,26 +84,44 @@ pub fn apply_sync(
 }
 
 /// The database file as it was when the sync began, to notice anyone else changing it meanwhile.
+/// An iPod that was never synced has none: no stamp, and a database that appears meanwhile counts
+/// as someone else's change.
 struct Snapshot {
     bytes: Vec<u8>,
-    len: u64,
-    modified: Option<SystemTime>,
+    stamp: Option<Stamp>,
 }
 
 impl Snapshot {
     fn read(path: &Path) -> Result<Self> {
-        let bytes = fs::read(path).map_err(|source| Error::io(path, source))?;
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    bytes: Vec::new(),
+                    stamp: None,
+                });
+            }
+            Err(source) => return Err(Error::io(path, source)),
+        };
         let meta = fs::metadata(path).map_err(|source| Error::io(path, source))?;
         Ok(Self {
             bytes,
-            len: meta.len(),
-            modified: meta.modified().ok(),
+            stamp: Some((meta.len(), meta.modified().ok())),
+        })
+    }
+
+    /// Just the stamp, for a database this run wrote itself and has no need to read back.
+    fn stamped(path: &Path) -> Result<Self> {
+        let stamp =
+            stamp(path).ok_or_else(|| Error::io(path, io::Error::from(io::ErrorKind::NotFound)))?;
+        Ok(Self {
+            bytes: Vec::new(),
+            stamp: Some(stamp),
         })
     }
 
     fn unchanged(&self, path: &Path) -> bool {
-        fs::metadata(path)
-            .is_ok_and(|meta| meta.len() == self.len && meta.modified().ok() == self.modified)
+        stamp(path) == self.stamp
     }
 }
 
@@ -97,6 +129,27 @@ struct Added {
     library_id: i64,
     dbid: u64,
     track: RawTrack,
+}
+
+/// What one batch of copying got through.
+struct Copied {
+    added: Vec<Added>,
+    /// The index in `plan.add` to carry on from.
+    next: usize,
+    /// `prepare` said to end the sync.
+    stopped: bool,
+}
+
+/// How a batch ended once it was committed.
+enum Committed {
+    /// The sync is done, or was stopped: the database as written.
+    Last(Database),
+    /// A batch filled up and more songs follow.
+    Checkpoint {
+        next: usize,
+        added: usize,
+        mapping: Mapping,
+    },
 }
 
 struct Job<'a> {
@@ -108,7 +161,9 @@ struct Job<'a> {
     raw: RawDb,
     mapping: Mapping,
     plan: &'a SyncPlan,
-    sources: HashMap<i64, &'a SyncTrack>,
+    /// The tracks being synced by library id; a track's entry is replaced by what its `prepare`
+    /// says the file really is.
+    sources: HashMap<i64, Cow<'a, SyncTrack>>,
     playlists: &'a [SyncPlaylist],
     /// What this iPod can do with album art; `None` if nothing is written for it.
     artwork: Option<Artwork>,
@@ -116,8 +171,16 @@ struct Job<'a> {
     shadow: Option<Shadow>,
     /// Whether the tracks being removed must go before anything is copied, to make room.
     removals_first: bool,
+    /// The iPod had no database when the run began: its music folders may need making, and an
+    /// empty database goes in before any music does.
+    blank: bool,
+    /// The images the iTunesDB used before the run, which the copy of it kept beside the new one
+    /// still points at, so none is dropped from the ArtworkDB until the run is over.
+    pre_run_images: HashSet<u32>,
     /// The previous databases are kept once per run, at its first commit.
     backups_kept: bool,
+    /// The previous ArtworkDB is kept once per run, at the first commit that changes it.
+    artwork_backed_up: bool,
     /// Music files created by this run, removed again if the run fails before the commit.
     copied: Vec<PathBuf>,
     /// Thumbnails appended to `.ithmb` files and the ArtworkDB that shows them.
@@ -163,7 +226,13 @@ impl<'a> Job<'a> {
         probe_writable(mount)?;
         let database = database_path(mount, ipod.database);
         let snapshot = Snapshot::read(&database)?;
-        let raw = RawDb::parse(&snapshot.bytes)?;
+        let raw = if snapshot.stamp.is_some() {
+            require_guid_matches(ipod, checksum, &snapshot.bytes)?;
+            RawDb::parse(&snapshot.bytes)?
+        } else {
+            require_blank_or_database(ipod)?;
+            blank_database(ipod)
+        };
         let mapping = Mapping::load(mount)?;
         let shadow = shuffle_format(ipod)?.map(|format| {
             let path = itunes_dir(mount).join(shuffle::FILE_NAME);
@@ -177,7 +246,9 @@ impl<'a> Job<'a> {
         });
         let mut sources = HashMap::new();
         for track in tracks {
-            sources.entry(track.library_id).or_insert(track);
+            sources
+                .entry(track.library_id)
+                .or_insert(Cow::Borrowed(track));
         }
         let mut job = Self {
             ipod,
@@ -193,7 +264,10 @@ impl<'a> Job<'a> {
             artwork: Artwork::for_device(mount, ipod.model.as_ref()),
             shadow,
             removals_first: false,
+            blank: false,
+            pre_run_images: HashSet::new(),
             backups_kept: false,
+            artwork_backed_up: false,
             copied: Vec::new(),
             written_artwork: None,
             artwork_links: HashMap::new(),
@@ -201,6 +275,7 @@ impl<'a> Job<'a> {
             committed: false,
             artwork_committed: false,
         };
+        job.blank = job.snapshot.stamp.is_none();
         job.validate_plan()?;
         job.removals_first = job.check_space()?;
         Ok(job)
@@ -289,7 +364,7 @@ impl<'a> Job<'a> {
 
     /// Tracks that will get a cover written: new ones with a cover, and existing ones whose cover
     /// key differs from the one recorded when it was last written.
-    fn tracks_needing_art(&self) -> Vec<&'a SyncTrack> {
+    fn tracks_needing_art(&self) -> Vec<&SyncTrack> {
         if self.artwork.is_none() {
             return Vec::new();
         }
@@ -301,7 +376,7 @@ impl<'a> Job<'a> {
             .add
             .iter()
             .chain(changed)
-            .map(|library_id| self.sources[library_id])
+            .map(|library_id| &*self.sources[library_id])
             .filter(|track| track.artwork_key.is_some())
             .collect()
     }
@@ -322,17 +397,23 @@ impl<'a> Job<'a> {
             fs4::available_space(self.mount).map_err(|source| Error::io(self.mount, source))?;
         let needed = bytes.saturating_add(reserve_bytes(self.mount, self.ipod));
         if needed > available {
-            return Err(Error::InsufficientSpace { needed, available });
+            return Err(Error::OutOfSpace { needed, available });
         }
         Ok(())
     }
 
     fn run(
         &mut self,
-        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
+        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
         cover: &mut dyn FnMut(i64) -> Option<Vec<u8>>,
         progress: &mut dyn FnMut(SyncProgress),
     ) -> Result<Database> {
+        self.pre_run_images = referenced_images(&self.raw);
+        if self.blank {
+            self.commit_blank(progress)?;
+        }
+        // Music an earlier sync was copying when it died, which no database lists.
+        files::sweep_pending(self.mount, &self.listed_music());
         if !self.removals_first {
             return self.finish(prepare, cover, progress);
         }
@@ -343,6 +424,40 @@ impl<'a> Job<'a> {
                 removed,
                 source: Box::new(source),
             })
+    }
+
+    /// Every music file the database lists.
+    fn listed_music(&self) -> HashSet<PathBuf> {
+        (self.raw.tracks.iter())
+            .filter_map(|track| files::music_path(self.mount, track))
+            .collect()
+    }
+
+    /// Commits the empty database an iPod without one starts from, before any music is copied.
+    /// Whatever then interrupts the sync leaves a database and some music it does not list, which
+    /// a sync tolerates, rather than music and no database, which looks like a lost one.
+    fn commit_blank(&mut self, progress: &mut dyn FnMut(SyncProgress)) -> Result<()> {
+        let mapping = Mapping::new(
+            self.mapping_tracks_present(),
+            self.mapping.playlists.clone(),
+            self.mapping.artwork.clone(),
+        );
+        progress(SyncProgress {
+            stage: SyncStage::WritingDatabase,
+            done: 0,
+            total: 1,
+            current: String::new(),
+        });
+        let bytes = itunesdb::emit(&self.raw, self.checksum.as_ref())?;
+        self.self_check(&bytes)?;
+        self.commit(&bytes, &mapping)?;
+        progress(SyncProgress {
+            stage: SyncStage::WritingDatabase,
+            done: 1,
+            total: 1,
+            current: String::new(),
+        });
+        self.checkpoint(mapping)
     }
 
     /// Commits a database without the removed tracks and deletes their files, to make room. Until
@@ -391,21 +506,61 @@ impl<'a> Job<'a> {
 
     fn finish(
         &mut self,
-        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
+        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
         cover: &mut dyn FnMut(i64) -> Option<Vec<u8>>,
         progress: &mut dyn FnMut(SyncProgress),
     ) -> Result<Database> {
-        // Which images the iPod's current database uses, before this run's edits.
-        let referenced: HashSet<u32> = self
-            .raw
-            .tracks
-            .iter()
-            .map(RawTrack::artwork_link)
-            .filter(|&link| link != 0)
+        let (mut from, mut checkpointed) = (0, 0);
+        loop {
+            let partial = |source: Error, added: usize| match added {
+                0 => source,
+                added => Error::Partial {
+                    added,
+                    source: Box::new(source),
+                },
+            };
+            match self
+                .commit_batch(from, prepare, cover, progress)
+                .map_err(|source| partial(source, checkpointed))?
+            {
+                Committed::Last(written) => return Ok(written),
+                Committed::Checkpoint {
+                    next,
+                    added,
+                    mapping,
+                } => {
+                    from = next;
+                    checkpointed += added;
+                    self.checkpoint(mapping)
+                        .map_err(|source| partial(source, checkpointed))?;
+                }
+            }
+        }
+    }
+
+    /// Copies the music of `plan.add` from index `from` until a batch is full, the plan is done or
+    /// the caller said stop, and commits it with its covers, the edits the plan makes to the
+    /// database, and the bookkeeping.
+    fn commit_batch(
+        &mut self,
+        from: usize,
+        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
+        cover: &mut dyn FnMut(i64) -> Option<Vec<u8>>,
+        progress: &mut dyn FnMut(SyncProgress),
+    ) -> Result<Committed> {
+        // Which images the iPod's database uses before this batch's edits, and which the one the
+        // run began with did, since the copy of it that is kept points at those still.
+        let referenced: HashSet<u32> = referenced_images(&self.raw)
+            .union(&self.pre_run_images)
+            .copied()
             .collect();
-        let added = self.copy_new_music(prepare, progress)?;
-        self.write_artwork(&added, &referenced, cover)?;
-        let (removed_files, mapping) = self.edit_database(added);
+        let copied = self.copy_new_music(prepare, progress, from)?;
+        let added = copied.added.len();
+        // Removing songs is the last thing a sync does: a stop, or a failure after a checkpoint,
+        // leaves every one of them where it was.
+        let finished = !copied.stopped && copied.next >= self.plan.add.len();
+        self.write_artwork(&copied.added, &referenced, cover)?;
+        let (removed_files, mapping) = self.edit_database(copied.added, finished);
 
         progress(SyncProgress {
             stage: SyncStage::WritingDatabase,
@@ -416,6 +571,7 @@ impl<'a> Job<'a> {
         let bytes = itunesdb::emit(&self.raw, self.checksum.as_ref())?;
         let written = self.self_check(&bytes)?;
         self.commit(&bytes, &mapping)?;
+        files::clear_pending(self.mount);
         progress(SyncProgress {
             stage: SyncStage::WritingDatabase,
             done: 1,
@@ -424,7 +580,30 @@ impl<'a> Job<'a> {
         });
 
         self.delete_removed_files(&removed_files, progress);
-        Ok(written)
+        if copied.stopped || finished {
+            return Ok(Committed::Last(written));
+        }
+        Ok(Committed::Checkpoint {
+            next: copied.next,
+            added,
+            mapping,
+        })
+    }
+
+    /// After a batch is committed with more to come, the iPod is as that commit left it: what the
+    /// run keeps to undo its copying, and to notice anyone else's changes, starts again from there.
+    fn checkpoint(&mut self, mapping: Mapping) -> Result<()> {
+        self.snapshot = Snapshot::stamped(&self.database)?;
+        if let Some(shadow) = &mut self.shadow {
+            shadow.stamp = stamp(&shadow.path);
+        }
+        self.mapping = mapping;
+        self.copied.clear();
+        self.written_artwork = None;
+        self.artwork_links.clear();
+        self.committed = false;
+        self.artwork_committed = false;
+        Ok(())
     }
 
     /// Fetches, renders and appends the thumbnails for covers that need them, one cover at a time.
@@ -466,16 +645,14 @@ impl<'a> Job<'a> {
             return Ok(());
         }
         self.artwork_stamp = stamp(&artwork::database_path(self.mount));
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(0));
+        let now = unix_now();
         let mut writer = Writer::open(device, self.mount, &known, now)?;
 
         // Where tracks share an image, tracks of one album with one key share a cover, which is
         // then fetched once.
         let mut done: HashMap<(&str, u64), Option<Link>> = HashMap::new();
         for (library_id, dbid) in wanting {
-            let source = self.sources[&library_id];
+            let source = &self.sources[&library_id];
             let Some(key) = source.artwork_key else {
                 continue;
             };
@@ -507,10 +684,16 @@ impl<'a> Job<'a> {
 
     fn copy_new_music(
         &mut self,
-        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
+        prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
         progress: &mut dyn FnMut(SyncProgress),
-    ) -> Result<Vec<Added>> {
-        let folders = files::music_folders(self.mount)?;
+        from: usize,
+    ) -> Result<Copied> {
+        // A blank iPod may not have its music folders yet; one with a database must.
+        let folders = if self.blank {
+            files::music_folders_or_new(self.ipod)?
+        } else {
+            files::music_folders(self.mount)?
+        };
         let mut rng = Rng::new();
         let mut next_id = self
             .raw
@@ -529,17 +712,35 @@ impl<'a> Job<'a> {
         let total = self.plan.add.len() as u64;
 
         let mut added = Vec::new();
-        for (done, library_id) in self.plan.add.iter().enumerate() {
-            let track = self.sources[library_id];
+        let mut bytes = 0u64;
+        for (done, library_id) in self.plan.add.iter().enumerate().skip(from) {
+            let current = self.sources[library_id].title.clone();
             let step = |stage| SyncProgress {
                 stage,
                 done: done as u64,
                 total,
-                current: track.title.clone(),
+                current: current.clone(),
             };
             progress(step(SyncStage::Preparing));
-            let prepared =
-                prepare(track).map_err(|source| Error::io(&track.source_path, source))?;
+            let prepared = prepare(&self.sources[library_id])
+                .map_err(|source| Error::io(&self.sources[library_id].source_path, source))?;
+            let prepared = match prepared {
+                Prepared::Skip => continue,
+                Prepared::Stop => {
+                    return Ok(Copied {
+                        added,
+                        next: self.plan.add.len(),
+                        stopped: true,
+                    });
+                }
+                Prepared::File { path, track } => {
+                    if let Some(track) = track {
+                        self.sources.insert(*library_id, Cow::Owned(*track));
+                    }
+                    path
+                }
+            };
+            let track = &self.sources[library_id];
             let extension = lower_extension(&prepared).ok_or_else(|| {
                 Error::io(
                     &prepared,
@@ -567,6 +768,7 @@ impl<'a> Job<'a> {
             let placed = files::place(&folders, &extension, &mut rng)
                 .map_err(|source| Error::io(files::music_root(self.mount), source))?;
             let destination = placed.path.clone();
+            files::note_pending(self.mount, &destination);
             self.copied.push(destination.clone());
             files::copy_into(&prepared, placed)
                 .map_err(|source| Error::io(&destination, source))?;
@@ -597,8 +799,20 @@ impl<'a> Job<'a> {
                 dbid,
                 track: RawTrack::create(header_len, &origin, &metadata(track), &Local),
             });
+            bytes += size;
+            if added.len() >= CHECKPOINT_SONGS || bytes >= CHECKPOINT_BYTES {
+                return Ok(Copied {
+                    added,
+                    next: done + 1,
+                    stopped: false,
+                });
+            }
         }
-        Ok(added)
+        Ok(Copied {
+            added,
+            next: self.plan.add.len(),
+            stopped: false,
+        })
     }
 
     /// Drops the removed tracks from the in-memory database and the playlists that held them.
@@ -628,8 +842,12 @@ impl<'a> Job<'a> {
 
     /// Applies the plan to the in-memory database. Returns the files to delete once the commit has
     /// succeeded and the bookkeeping file to commit with it.
-    fn edit_database(&mut self, added: Vec<Added>) -> (Vec<PathBuf>, Mapping) {
-        let removed_files = self.remove_tracks();
+    fn edit_database(&mut self, added: Vec<Added>, remove: bool) -> (Vec<PathBuf>, Mapping) {
+        let removed_files = if remove {
+            self.remove_tracks()
+        } else {
+            Vec::new()
+        };
 
         let dbid_of = self.mapping.dbid_by_library_id();
         let position_of: HashMap<u64, usize> = self
@@ -645,7 +863,7 @@ impl<'a> Job<'a> {
                 .and_then(|dbid| position_of.get(dbid))
             {
                 let track = &mut self.raw.tracks[position];
-                track.apply(&metadata(self.sources[library_id]), &Local);
+                track.apply(&metadata(&self.sources[library_id]), &Local);
                 if let Some(link) = self.artwork_links.get(&track.dbid()) {
                     track.link_artwork(link.image_id, link.source_len);
                 }
@@ -747,9 +965,7 @@ impl<'a> Job<'a> {
 
         let mut taken: HashSet<u64> = self.raw.playlists.iter().map(RawPlaylist::id).collect();
         let mut rng = Rng::new();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(0));
+        let now = unix_now();
         let mut mapped = Vec::new();
         let mut names = HashSet::new();
         for wanted in self
@@ -890,7 +1106,10 @@ impl<'a> Job<'a> {
             return conflict("iTunesSD");
         }
         if !self.backups_kept {
-            commit::keep_backups(&self.database)?;
+            // The first sync to an iPod without a database has nothing to keep.
+            if self.snapshot.stamp.is_some() {
+                commit::keep_backups(&self.database)?;
+            }
             if let Some(shadow) = &self.shadow
                 && shadow.path.exists()
             {
@@ -898,8 +1117,11 @@ impl<'a> Job<'a> {
             }
             self.backups_kept = true;
         }
-        if artwork_changes && artwork_path.exists() {
-            commit::keep_backups(artwork_path)?;
+        if artwork_changes && !self.artwork_backed_up {
+            if artwork_path.exists() {
+                commit::keep_backups(artwork_path)?;
+            }
+            self.artwork_backed_up = true;
         }
         Ok(())
     }
@@ -935,6 +1157,7 @@ impl<'a> Job<'a> {
                 let _ = fs::remove_file(file);
             }
         }
+        files::clear_pending(self.mount);
         if !self.artwork_committed
             && let Some(written) = &self.written_artwork
         {
@@ -991,11 +1214,44 @@ fn ipod_path(mount: &Path, file: &Path) -> String {
     })
 }
 
+/// The images in the ArtworkDB that the tracks of this database point at.
+fn referenced_images(raw: &RawDb) -> HashSet<u32> {
+    (raw.tracks.iter())
+        .map(RawTrack::artwork_link)
+        .filter(|&link| link != 0)
+        .collect()
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(0))
+}
+
+/// The database a first sync starts from on an iPod that has none: nothing but the master
+/// playlist, named as the iPod is shown.
+fn blank_database(ipod: &Ipod) -> RawDb {
+    let mut rng = Rng::new();
+    let mut nonzero = || loop {
+        let id = rng.next();
+        if id != 0 {
+            break id;
+        }
+    };
+    let (db_id, persistent_id, master_id) = (nonzero(), nonzero(), nonzero());
+    let master = RawPlaylist::create(master_id, &ipod.name, Vec::new(), unix_now(), &Local);
+    let utc_offset = Local::now().offset().local_minus_utc();
+    RawDb::blank(db_id, persistent_id, utc_offset, master.into_master())
+}
+
 /// Fails early, before any music is copied, if the iPod is mounted read-only (HFS+ iPods usually
 /// are when connected to Windows or Linux).
 pub(super) fn probe_writable(mount: &Path) -> Result<()> {
-    let probe = itunes_dir(mount).join(".unsub-write-probe");
-    File::create(&probe)
+    let dir = itunes_dir(mount);
+    let probe = dir.join(".unsub-write-probe");
+    // An iPod that was never synced may not have the folder the database goes in yet.
+    fs::create_dir_all(&dir)
+        .and_then(|()| File::create(&probe))
         .and_then(|_| fs::remove_file(&probe))
         .map_err(|source| {
             Error::SyncRefused(format!(

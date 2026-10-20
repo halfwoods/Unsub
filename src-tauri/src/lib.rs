@@ -65,6 +65,7 @@ pub fn run() {
             app.manage(loudness::LoudnessState::default());
             app.manage(visualizer::VisualizerState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
+            sync::tidy(app.handle());
             let episodes_dir = app.path().audio_dir()?.join("Unsub").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
             let purchases_dir = app.path().audio_dir()?.join("Unsub").join("Purchases");

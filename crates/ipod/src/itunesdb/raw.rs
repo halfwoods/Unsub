@@ -8,10 +8,23 @@ use std::collections::HashSet;
 
 use super::chunks::{ListHead, MHLA, MHLI, MHLP, MHLT};
 use super::mhod::{self, Mhod};
-use super::{MHSD_TYPE_AT, database_chunk, mhit, playlists, sections};
+use super::{MHBD_SECTION_COUNT_AT, MHSD_TYPE_AT, database_chunk, mhit, playlists, sections};
 use crate::bytes::{put, u8_at, u16_at, u32_at, u64_at};
 use crate::error::{Error, Result};
 
+/// The header sizes libgpod's writer uses for dbversion 0x30 (iTunes 9.2), which the tracks a sync
+/// creates follow too.
+const MHBD_HEADER_LEN: usize = 244;
+const MHSD_HEADER_LEN: usize = 0x60;
+const LIST_HEADER_LEN: usize = 0x5c;
+const DB_VERSION: u32 = 0x30;
+/// Offsets in the mhbd header of fields a new database fills in (`MhbdHeader` in libgpod).
+const LANGUAGE_AT: usize = 0x46;
+const PERSISTENT_ID_AT: usize = 0x48;
+const UTC_OFFSET_AT: usize = 0x6c;
+/// The two letters of the language code, in file order. libgpod's `itdb_new` stores the number
+/// 0x656e little-endian, which puts them the other way round.
+const LANGUAGE_EN: [u8; 2] = *b"en";
 const MIN_TRACK_HEADER_LEN: usize = 0x9c;
 const MIN_PLAYLIST_HEADER_LEN: usize = 48;
 const SECTION_TRACKS: u32 = 1;
@@ -110,6 +123,12 @@ impl RawPlaylist {
         u16_at(&self.header, at::PLAYLIST_PODCAST_FLAG) == Some(PODCASTS_FLAG)
     }
 
+    /// This playlist marked as the master playlist, the one that lists every track.
+    pub(crate) fn into_master(mut self) -> Self {
+        put(&mut self.header, at::PLAYLIST_TYPE, &[MASTER_TYPE]);
+        self
+    }
+
     pub(crate) fn is_smart(&self) -> bool {
         self.mhods
             .iter()
@@ -155,7 +174,69 @@ pub(crate) struct RawDb {
     pub(crate) playlists: Vec<RawPlaylist>,
 }
 
+/// A chunk header of `len` bytes that is all zeros after its tag and length.
+fn header(tag: &[u8; 4], len: usize) -> Vec<u8> {
+    let mut header = vec![0; len];
+    put(&mut header, 0, tag);
+    put(&mut header, 4, &mhod::u32_from(len).to_le_bytes());
+    header
+}
+
 impl RawDb {
+    /// A database with no tracks and only the master playlist, for an iPod that has none yet. It
+    /// is filled in the way libgpod's `itdb_new` and `mk_mhbd` do: the sections of the database
+    /// libgpod wrote for `tests/fixtures` (tracks, podcast playlists, playlists) plus the album
+    /// list, a random database id and persistent id, the language `en`, and the zone's offset
+    /// from UTC in seconds. libgpod leaves the unknown id at 0x24 at zero in a
+    /// new database, and so does this.
+    pub(crate) fn blank(
+        db_id: u64,
+        persistent_id: u64,
+        utc_offset_secs: i32,
+        master: RawPlaylist,
+    ) -> Self {
+        let section = |kind: u32, list: &[u8; 4]| {
+            let mut mhsd = header(b"mhsd", MHSD_HEADER_LEN);
+            put(&mut mhsd, MHSD_TYPE_AT, &kind.to_le_bytes());
+            Heads {
+                mhsd,
+                list: header(list, LIST_HEADER_LEN),
+            }
+        };
+        let layout = vec![
+            Slot::Tracks(section(SECTION_TRACKS, b"mhlt")),
+            Slot::Playlists {
+                kind: SECTION_PODCAST_PLAYLISTS,
+                heads: section(SECTION_PODCAST_PLAYLISTS, b"mhlp"),
+            },
+            Slot::Playlists {
+                kind: SECTION_PLAYLISTS,
+                heads: section(SECTION_PLAYLISTS, b"mhlp"),
+            },
+            Slot::Albums(section(SECTION_ALBUMS, b"mhla")),
+        ];
+        let mut mhbd = header(b"mhbd", MHBD_HEADER_LEN);
+        put(&mut mhbd, 12, &1u32.to_le_bytes());
+        put(&mut mhbd, 16, &DB_VERSION.to_le_bytes());
+        put(
+            &mut mhbd,
+            MHBD_SECTION_COUNT_AT,
+            &mhod::u32_from(layout.len()).to_le_bytes(),
+        );
+        put(&mut mhbd, 24, &db_id.to_le_bytes());
+        // 1 for a Mac, as libgpod's `itdb_new` says; the Windows value 2 is not needed.
+        put(&mut mhbd, 32, &1u16.to_le_bytes());
+        put(&mut mhbd, LANGUAGE_AT, &LANGUAGE_EN);
+        put(&mut mhbd, PERSISTENT_ID_AT, &persistent_id.to_le_bytes());
+        put(&mut mhbd, UTC_OFFSET_AT, &utc_offset_secs.to_le_bytes());
+        Self {
+            header: mhbd,
+            layout,
+            tracks: Vec::new(),
+            playlists: vec![master],
+        }
+    }
+
     pub(crate) fn parse(data: &[u8]) -> Result<Self> {
         let database = database_chunk(data)?;
         let mut db = Self {
@@ -248,5 +329,98 @@ impl RawDb {
             ));
         }
         Ok(db)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+    use crate::itunesdb::{emit, master_playlist_name};
+
+    fn blank() -> Vec<u8> {
+        let master = RawPlaylist::create(7, "Riley’s iPod", Vec::new(), 1_300_000_000, &Utc);
+        emit(
+            &RawDb::blank(9, 0x1122_3344_5566_7788, -18_000, master.into_master()),
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_blank_database_is_one_the_reader_and_the_rewriter_accept() {
+        let bytes = blank();
+
+        let db = RawDb::parse(&bytes).unwrap();
+
+        assert!(db.tracks.is_empty());
+        assert_eq!(db.playlists.len(), 1);
+        assert!(db.playlists[0].is_master() && !db.playlists[0].is_podcasts());
+        assert_eq!(db.playlists[0].id(), 7);
+        let kinds: Vec<_> = (db.layout.iter())
+            .map(|slot| match slot {
+                Slot::Tracks(_) => "tracks",
+                Slot::Playlists { kind: 2, .. } => "playlists",
+                Slot::Playlists { kind: 3, .. } => "podcasts",
+                Slot::Albums(_) => "albums",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["tracks", "podcasts", "playlists", "albums"]);
+        assert_eq!(
+            master_playlist_name(&bytes).unwrap().as_deref(),
+            Some("Riley’s iPod")
+        );
+        assert_eq!(
+            emit(&db, None).unwrap(),
+            bytes,
+            "writing it again changes nothing"
+        );
+    }
+
+    #[test]
+    fn a_blank_database_counts_its_sections_and_carries_the_ids_it_was_given() {
+        let bytes = blank();
+
+        assert_eq!(u32_at(&bytes, MHBD_SECTION_COUNT_AT), Some(4));
+        assert_eq!(u32_at(&bytes, 8), Some(bytes.len() as u32));
+        assert_eq!(u64_at(&bytes, 24), Some(9));
+        assert_eq!(u32_at(&bytes, 4), Some(244), "the header libgpod writes");
+    }
+
+    #[test]
+    fn a_blank_database_says_english() {
+        let bytes = blank();
+
+        assert_eq!(&bytes[LANGUAGE_AT..LANGUAGE_AT + 2], b"en");
+    }
+
+    #[test]
+    fn a_blank_database_has_the_persistent_id_it_was_given() {
+        let bytes = blank();
+
+        assert_eq!(
+            u64_at(&bytes, PERSISTENT_ID_AT),
+            Some(0x1122_3344_5566_7788)
+        );
+        assert_ne!(u64_at(&bytes, 24), u64_at(&bytes, PERSISTENT_ID_AT));
+    }
+
+    #[test]
+    fn a_blank_database_records_the_offset_from_utc_in_seconds() {
+        let bytes = blank();
+
+        assert_eq!(
+            i32::from_le_bytes(bytes[UTC_OFFSET_AT..UTC_OFFSET_AT + 4].try_into().unwrap()),
+            -18_000
+        );
+    }
+
+    #[test]
+    fn the_unknown_id_at_0x24_stays_zero_as_in_libgpods_new_database() {
+        let bytes = blank();
+
+        assert_eq!(u64_at(&bytes, 0x24), Some(0));
     }
 }

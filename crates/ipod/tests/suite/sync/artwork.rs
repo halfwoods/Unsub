@@ -486,6 +486,29 @@ fn an_image_no_track_uses_any_more_is_dropped_one_sync_later() {
 }
 
 #[test]
+fn an_image_the_kept_database_still_points_at_survives_a_run_of_several_batches() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let mut one = covered(library.path(), 1, "One", png(300, 300, [255, 0, 0]));
+    sync(&fake, std::slice::from_ref(&one), &[]);
+    let before = link_of(&fake, "One");
+    // A new cover for it, and 501 songs to add, so the run commits twice.
+    register_cover(&mut one, png(300, 300, [0, 0, 255]));
+    let mut tracks = vec![one];
+    tracks.extend((2..=502).map(|id| library_track(library.path(), id, &format!("Song {id}"))));
+
+    sync(&fake, &tracks, &[]);
+
+    let after = link_of(&fake, "One");
+    assert_ne!(after, before);
+    let images: Vec<u32> = artwork_db(&fake).images.iter().map(|i| i.id).collect();
+    assert!(
+        images.contains(&before) && images.contains(&after),
+        "the old image goes one sync later, not partway through: {images:?}"
+    );
+}
+
+#[test]
 fn a_track_that_had_no_cover_gains_one_on_a_later_sync() {
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();

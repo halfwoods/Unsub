@@ -385,6 +385,8 @@ impl Located {
             Self::Ready(path) => Ok(path),
             Self::ICloud(path) => {
                 unsub_library::ensure_local(&path, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
+                // Played, so wanted on this Mac: a sync that gave up on this download is not to give it back.
+                crate::sync::forget_leftover(app, &path);
                 mark_local(app, track_id);
                 Ok(path)
             }

@@ -31,7 +31,7 @@ pub use cleanup::{
     Capitalization, CleanUpChange, CleanUpField, CleanUpRules, RemoveCharacters, ReplaceText,
     TextSide,
 };
-pub use cloud::{ensure_local, is_dataless};
+pub use cloud::{ensure_local, evict, is_dataless};
 pub use edit::{EditReport, TrackEdits};
 pub use error::{Error, Result};
 pub use library::Library;
@@ -51,3 +51,4 @@ pub use smart::{
     SmartValue,
 };
 pub use stations::{NewStation, Station};
+pub use thumbnail::shrink_to_jpeg;

@@ -3,9 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::mapping::Mapping;
-use super::{SyncPlan, SyncPlaylist, SyncTrack, checksum_key};
+use super::{
+    SyncPlan, SyncPlaylist, SyncTrack, checksum_key, require_blank_or_database,
+    require_guid_matches,
+};
 use crate::database::{Database, IpodTrack};
-use crate::device::{Ipod, database_path};
+use crate::device::{Ipod, database_exists, database_path};
 use crate::error::{Error, Result};
 use crate::itunesdb::artwork::Artwork;
 
@@ -24,7 +27,7 @@ pub(super) enum Space {
     Fits,
     /// There is room only once the tracks being removed are gone, so they go first.
     AfterRemovals,
-    /// Not enough even then; carries the free space counting what removals would free.
+    /// Not enough even then; carries the space that is free now, without what removals would free.
     Short { available: u64 },
 }
 
@@ -35,9 +38,7 @@ pub(super) fn space(needed: u64, reserve: u64, available: u64, freed: u64) -> Sp
     } else if freed > 0 && needed <= available.saturating_add(freed) {
         Space::AfterRemovals
     } else {
-        Space::Short {
-            available: available.saturating_add(freed),
-        }
+        Space::Short { available }
     }
 }
 
@@ -78,7 +79,13 @@ pub fn plan_sync(
     // callers pass the same arguments to `plan_sync` and `apply_sync`.
     _playlists: &[SyncPlaylist],
 ) -> Result<SyncPlan> {
-    checksum_key(ipod)?;
+    let key = checksum_key(ipod)?;
+    require_blank_or_database(ipod)?;
+    if ipod.guid_from_usb && database_exists(ipod) {
+        let path = database_path(&ipod.mount_path, ipod.database);
+        let database = fs::read(&path).map_err(|source| Error::io(path, source))?;
+        require_guid_matches(ipod, key, &database)?;
+    }
     let mapping = Mapping::load(&ipod.mount_path)?;
     let artwork = Artwork::for_device(&ipod.mount_path, ipod.model.as_ref());
     let dbid_of = mapping.dbid_by_library_id();

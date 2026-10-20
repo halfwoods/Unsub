@@ -129,6 +129,18 @@ function SummaryTab({ device, settings, update }: { device: Device; settings: Sy
             Songs the iPod can't play as they are, like FLAC or high-resolution files, become Apple Lossless on the iPod; your
             library keeps the originals. Songs that iTunes put on this iPod stay as they are.
           </p>
+          <label className="prefs-check">
+            <input
+              type="checkbox"
+              checked={settings.removeDownloaded}
+              onChange={(e) => update({ removeDownloaded: e.target.checked })}
+            />
+            Remove downloaded songs from this Mac after syncing
+          </label>
+          <p className="prefs-note">
+            Songs that are only in iCloud Drive come down one at a time while the iPod syncs. This puts each back in iCloud once
+            it is on the iPod, so your library never has to fit on this Mac. Songs already on this Mac are never removed.
+          </p>
         </div>
       </section>
     </>
@@ -227,6 +239,7 @@ function describePreview(preview: SyncPreview, noun: string) {
   const changes = [
     preview.add > 0 && `adds ${pluralize(preview.add, "song", "songs")} (${formatBytes(preview.bytesNeeded)})`,
     preview.converted > 0 && `${preview.converted.toLocaleString()} converted for the ${noun}`,
+    preview.download > 0 && `${preview.download.toLocaleString()} will be downloaded from iCloud`,
     preview.update > 0 && `updates ${preview.update.toLocaleString()}`,
     preview.remove > 0 && `removes ${preview.remove.toLocaleString()}`,
   ].filter(Boolean);
@@ -319,7 +332,10 @@ function SyncPage({
           setPreviewError(null);
         },
         (e: unknown) => {
-          if (current) setPreviewError(String(e));
+          // A refused sync has no preview to go by, so Sync must not stay lit from the last one.
+          if (!current) return;
+          setPreview(null);
+          setPreviewError(String(e));
         },
       );
     }, 250);

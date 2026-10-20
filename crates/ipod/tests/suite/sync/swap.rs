@@ -51,7 +51,7 @@ fn a_swap_that_only_fits_once_the_old_track_is_gone_removes_it_first() {
         &plan,
         &wanted,
         &[],
-        &mut |_| Ok(tiny.clone()),
+        &mut |_| Ok(tiny.clone().into()),
         &mut no_cover,
         &mut |progress| order.push(progress.stage),
     )
@@ -140,7 +140,7 @@ fn a_failure_after_the_removal_leaves_the_ipod_with_fewer_tracks_never_more() {
             &again,
             &wanted,
             &[],
-            &mut |_| Ok(tiny.clone()),
+            &mut |_| Ok(tiny.clone().into()),
             &mut no_cover,
             &mut |_| {},
         )
@@ -164,15 +164,18 @@ fn a_swap_too_big_even_after_removals_is_refused_with_nothing_changed() {
         &plan,
         &wanted,
         &[],
-        &mut |_| Ok(swap.tiny.clone()),
+        &mut |_| Ok(swap.tiny.clone().into()),
         &mut no_cover,
         &mut |_| {},
     );
 
     assert!(!plan.fits && !plan.removals_first);
+    let Err(Error::InsufficientSpace { available, .. }) = result else {
+        panic!("expected InsufficientSpace, got {result:?}");
+    };
     assert!(
-        matches!(result, Err(Error::InsufficientSpace { .. })),
-        "{result:?}"
+        available < HUGE,
+        "the room reported is what is free, not what removing the old track would free"
     );
     assert_eq!(db_bytes(&swap.fake), before);
     assert_eq!(music_files(&swap.fake), files);

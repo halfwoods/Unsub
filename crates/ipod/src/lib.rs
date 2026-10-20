@@ -15,6 +15,7 @@ mod play_counts;
 mod sync;
 mod sysinfo;
 mod time;
+mod usb;
 mod verify;
 
 pub use database::{Database, IpodMediaKind, IpodPlaylist, IpodTrack, Usage, read_database};
@@ -24,8 +25,8 @@ pub use eject::eject;
 pub use error::{Error, Result};
 pub use models::{IpodFamily, IpodModel, SyncSupport};
 pub use sync::{
-    OnTheGo, PlayDelta, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, apply_sync,
-    artwork_supported, clear_on_the_go, clear_play_counts, plan_sync, read_on_the_go,
+    OnTheGo, PlayDelta, Prepared, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack,
+    apply_sync, artwork_supported, clear_on_the_go, clear_play_counts, plan_sync, read_on_the_go,
     read_play_counts_for_sync_back, restore_backup,
 };
 pub use verify::{

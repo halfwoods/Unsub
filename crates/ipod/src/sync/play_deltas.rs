@@ -6,7 +6,7 @@ use std::io;
 use serde::Serialize;
 
 use super::mapping::Mapping;
-use crate::device::{Ipod, database_path, itunes_dir};
+use crate::device::{Ipod, database_exists, database_path, itunes_dir};
 use crate::error::{Error, Result};
 use crate::{itunesdb, play_counts};
 
@@ -26,6 +26,10 @@ pub struct PlayDelta {
 /// are left out, as are tracks the app did not put there. Nothing is modified: call
 /// [`clear_play_counts`] once the result is safely merged into the library.
 pub fn read_play_counts_for_sync_back(ipod: &Ipod) -> Result<Vec<(i64, PlayDelta)>> {
+    // Counts are positions in a database; an iPod without one has played nothing.
+    if !database_exists(ipod) {
+        return Ok(Vec::new());
+    }
     let mapping = Mapping::load(&ipod.mount_path)?;
     let library_id_of = mapping.library_id_by_dbid();
     let data = itunesdb::load(

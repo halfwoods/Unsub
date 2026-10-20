@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Serialize, Serializer};
 
-use crate::device::{Ipod, database_path};
+use crate::device::{Ipod, database_exists, database_path};
 use crate::error::Result;
 use crate::{itunesdb, play_counts};
 
@@ -105,6 +105,10 @@ fn as_decimal_string<S: Serializer>(
 /// last sync (`iPod_Control/iTunes/Play Counts`). A missing or unreadable Play Counts file is
 /// ignored, as in libgpod, because the library is still correct without it.
 pub fn read_database(ipod: &Ipod) -> Result<Database> {
+    // An iPod that was never synced has nothing to read yet.
+    if !database_exists(ipod) {
+        return Ok(Database::default());
+    }
     let path = database_path(&ipod.mount_path, ipod.database);
     let data = itunesdb::load(&path, ipod.database)?;
     let (mut tracks, playlists) = itunesdb::parse(&data, &ipod.mount_path)?;

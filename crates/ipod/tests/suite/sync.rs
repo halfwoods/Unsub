@@ -5,8 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use unsub_ipod::{
-    Database, Error, IpodMediaKind, SyncPlan, SyncPlaylist, SyncTrack, apply_sync, plan_sync,
-    read_database,
+    Database, Error, IpodMediaKind, Prepared, SyncPlan, SyncPlaylist, SyncTrack, apply_sync,
+    plan_sync, read_database,
 };
 
 use crate::common::db::{self, Database as DbSpec, Playlist, Track};
@@ -177,8 +177,8 @@ pub fn no_cover(_: i64) -> Option<Vec<u8>> {
     None
 }
 
-pub fn copy_as_is(track: &SyncTrack) -> io::Result<PathBuf> {
-    Ok(track.source_path.clone())
+pub fn copy_as_is(track: &SyncTrack) -> io::Result<Prepared> {
+    Ok(track.source_path.clone().into())
 }
 
 pub fn plan(fake: &FakeIpod, tracks: &[SyncTrack], playlists: &[SyncPlaylist]) -> SyncPlan {
@@ -209,6 +209,8 @@ pub fn sync(
 
 mod add;
 pub mod artwork;
+mod blank;
+mod checkpoints;
 mod faults;
 mod incremental;
 mod on_the_go;

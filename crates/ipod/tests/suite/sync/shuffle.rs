@@ -303,7 +303,7 @@ fn an_itunessd_changed_by_someone_else_mid_sync_is_not_overwritten() {
             if track.library_id == 2 {
                 fs::write(&path, b"iTunes wrote this meanwhile").unwrap();
             }
-            Ok(track.source_path.clone())
+            Ok(track.source_path.clone().into())
         },
         &mut no_cover,
         &mut |_| {},

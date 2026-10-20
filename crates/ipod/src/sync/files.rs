@@ -1,15 +1,18 @@
 //! Music files on the iPod: where they go, copying them, removing them, and recognising what they
 //! contain. iTunes keeps them in `iPod_Control/Music/F00` to `F49` under random four-letter names.
 
+use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{BuildHasher, Hasher};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
+use crate::device::{Ipod, itunes_dir};
 use crate::error::{Error, Result};
 use crate::itunesdb::raw::RawTrack;
 use crate::itunesdb::{self, Codec};
+use crate::models;
 
 const NAME_LETTERS: usize = 4;
 /// Give up on finding an unused name after this many tries per folder choice; with 26^4 names a
@@ -24,7 +27,17 @@ pub(super) fn music_root(mount: &Path) -> PathBuf {
 /// call because the number the firmware looks in is model-specific.
 pub(super) fn music_folders(mount: &Path) -> Result<Vec<PathBuf>> {
     let root = music_root(mount);
-    let entries = fs::read_dir(&root).map_err(|source| Error::io(&root, source))?;
+    let no_folders = || {
+        Error::SyncRefused(format!(
+            "{} has no F00-style folders to put music in",
+            root.display()
+        ))
+    };
+    let entries = fs::read_dir(&root).map_err(|source| match source.kind() {
+        // An iPod that was never set up by iTunes may lack the folder altogether.
+        io::ErrorKind::NotFound => no_folders(),
+        _ => Error::io(&root, source),
+    })?;
     let mut folders: Vec<PathBuf> = entries
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
@@ -38,12 +51,53 @@ pub(super) fn music_folders(mount: &Path) -> Result<Vec<PathBuf>> {
         .collect();
     folders.sort();
     if folders.is_empty() {
-        return Err(Error::SyncRefused(format!(
-            "{} has no F00-style folders to put music in",
-            root.display()
-        )));
+        return Err(no_folders());
     }
     Ok(folders)
+}
+
+/// Whether any file is in the music folders. A name starting with a dot, which is what Finder
+/// leaves on a FAT disk it has looked at, is not music.
+pub(super) fn has_music(mount: &Path) -> bool {
+    let Ok(folders) = music_folders(mount) else {
+        return false;
+    };
+    folders.iter().any(|folder| {
+        fs::read_dir(folder).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        })
+    })
+}
+
+/// How many `Fnn` folders an iPod without any gets, as libgpod's `itdb_create_directories` decides:
+/// its model's number, and without a known model 20 below 20 GB of capacity and 50 above.
+fn music_dir_count(ipod: &Ipod) -> usize {
+    let by_model = (ipod.model.as_ref())
+        .and_then(|model| models::music_dirs(&model.model_number))
+        .filter(|&count| count > 0);
+    by_model.unwrap_or(if ipod.capacity_bytes < 20 << 30 {
+        20
+    } else {
+        50
+    })
+}
+
+/// [`music_folders`] for an iPod that has no database yet, which may have none of them either: they
+/// are made first, the way libgpod initialises a blank iPod.
+pub(super) fn music_folders_or_new(ipod: &Ipod) -> Result<Vec<PathBuf>> {
+    match music_folders(&ipod.mount_path) {
+        Err(Error::SyncRefused(_)) => {
+            let root = music_root(&ipod.mount_path);
+            for number in 0..music_dir_count(ipod) {
+                let folder = root.join(format!("F{number:02}"));
+                fs::create_dir_all(&folder).map_err(|source| Error::io(&folder, source))?;
+            }
+            music_folders(&ipod.mount_path)
+        }
+        found => found,
+    }
 }
 
 /// xorshift64*, seeded from the OS-randomised hasher keys: names and ids need to be unpredictable
@@ -106,6 +160,57 @@ pub(super) fn copy_into(source: &Path, placed: Placed) -> io::Result<()> {
         let _ = fs::remove_file(&path);
     }
     copied
+}
+
+/// The list of music files a sync is in the middle of copying, one path per line relative to the
+/// mount. It exists only between the first copy of a batch and that batch's commit, so if one is
+/// found at the start of a sync, the one before it died with music on the iPod no database lists.
+const PENDING_FILE: &str = "Unsub.pending";
+
+fn pending_path(mount: &Path) -> PathBuf {
+    itunes_dir(mount).join(PENDING_FILE)
+}
+
+/// Writes down, before the copy goes into it, that `file` is about to hold music. A list that
+/// cannot be kept costs a crash its cleanup, not the sync.
+pub(super) fn note_pending(mount: &Path, file: &Path) {
+    let relative = file.strip_prefix(mount).unwrap_or(file);
+    let parts: Vec<_> = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    let noted = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(pending_path(mount))
+        .and_then(|mut list| {
+            writeln!(list, "{}", parts.join("/"))?;
+            list.sync_data()
+        });
+    let _ = noted;
+}
+
+/// Forgets the list, once what it names is in a committed database or has been taken back out.
+pub(super) fn clear_pending(mount: &Path) {
+    let _ = fs::remove_file(pending_path(mount));
+}
+
+/// Deletes the music files a sync that did not finish left behind: those its list names that
+/// `listed` (the files the iPod's database refers to) does not hold. Then the list goes.
+pub(super) fn sweep_pending(mount: &Path, listed: &HashSet<PathBuf>) {
+    let Ok(text) = fs::read_to_string(pending_path(mount)) else {
+        return;
+    };
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let file = line
+            .split('/')
+            .fold(mount.to_path_buf(), |path, part| path.join(part));
+        if !listed.contains(&file) {
+            // Only ever from under the music folders, whatever the list says.
+            remove_music_file(mount, &file);
+        }
+    }
+    clear_pending(mount);
 }
 
 /// Where the database says this track's file is.
@@ -214,6 +319,40 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::device::DatabaseFormat;
+    use crate::models::{IpodFamily, IpodModel, SyncSupport};
+
+    fn ipod_of(model_number: Option<&str>, capacity_gb: u64) -> Ipod {
+        Ipod {
+            id: String::new(),
+            name: String::new(),
+            mount_path: PathBuf::new(),
+            model: model_number.map(|number| IpodModel {
+                family: IpodFamily::Unknown,
+                generation: 0,
+                name: String::new(),
+                capacity_gb: None,
+                color: None,
+                model_number: number.to_owned(),
+            }),
+            capacity_bytes: capacity_gb << 30,
+            free_bytes: 0,
+            firewire_guid: None,
+            guid_from_usb: false,
+            serial_number: None,
+            database: DatabaseFormat::ITunesDb,
+            sync: SyncSupport::Supported,
+        }
+    }
+
+    #[test]
+    fn a_blank_ipod_gets_its_models_folders_else_twenty_or_fifty_by_capacity() {
+        assert_eq!(music_dir_count(&ipod_of(Some("C293"), 160)), 50);
+        assert_eq!(music_dir_count(&ipod_of(Some("9800"), 6)), 6);
+        assert_eq!(music_dir_count(&ipod_of(Some("ZZZZ"), 8)), 20);
+        assert_eq!(music_dir_count(&ipod_of(None, 19)), 20);
+        assert_eq!(music_dir_count(&ipod_of(None, 20)), 50);
+    }
 
     fn atom(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut atom = ((body.len() + 8) as u32).to_be_bytes().to_vec();

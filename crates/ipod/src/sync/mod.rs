@@ -7,7 +7,8 @@
 //! * only tracks and playlists this app added (recorded in `Unsub.json`) are ever removed
 //!   or edited, everything else is carried over byte for byte;
 //! * music is copied before the database that references it is committed, and removed files are
-//!   deleted only after it;
+//!   deleted only after it, in the last commit of the sync: a stop or a failure partway through a
+//!   long sync keeps what was committed and removes nothing;
 //! * the new database replaces the old one by atomic rename, with the old one kept beside it, so a
 //!   failure at any point leaves a database that still works;
 //! * album art is only ever appended to the thumbnail files and the ArtworkDB, so art this app did
@@ -28,11 +29,12 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::database::IpodMediaKind;
-use crate::device::{DatabaseFormat, Ipod, itunes_dir};
+use crate::device::{DatabaseFormat, Ipod, database_exists, database_path, itunes_dir};
 use crate::error::{Error, Result};
+use crate::itunesdb::raw::{RawDb, RawPlaylist};
 use crate::itunesdb::shuffle::{self, ShuffleFormat};
 use crate::models::{IpodFamily, SyncSupport};
-use crate::sysinfo;
+use crate::{itunesdb, sysinfo};
 
 pub use apply::apply_sync;
 pub use artwork_support::artwork_supported;
@@ -119,10 +121,38 @@ pub struct SyncPlan {
     pub removals_first: bool,
 }
 
+/// What the `prepare` step of [`apply_sync`] made of one track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prepared {
+    /// Copy this file to the iPod. `track` stands in for the [`SyncTrack`] the plan was made from
+    /// when the file turned out to differ from what the library knew: a song that was only a
+    /// cloud placeholder has tags guessed from its name and no duration until it has been
+    /// downloaded and read.
+    File {
+        path: PathBuf,
+        track: Option<Box<SyncTrack>>,
+    },
+    /// Leave this song off the iPod and carry on with the rest. Nothing is recorded for it, so
+    /// the next sync tries it again; telling the user why is up to the caller.
+    Skip,
+    /// End the sync here, for a caller that was told to stop. What has been copied so far is
+    /// committed like a finished sync's, so the iPod keeps those songs and the next sync carries
+    /// on with the rest.
+    Stop,
+}
+
+impl From<PathBuf> for Prepared {
+    fn from(path: PathBuf) -> Self {
+        Self::File { path, track: None }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncStage {
     Preparing,
+    /// Fetching a song that is only in the cloud, which only the caller's `prepare` knows about.
+    Downloading,
     Copying,
     WritingDatabase,
     Cleaning,
@@ -156,7 +186,8 @@ pub(crate) fn checksum_key(ipod: &Ipod) -> Result<Option<[u8; 8]>> {
             match guid {
                 Some(guid) => Ok(Some(guid)),
                 None => refuse(
-                    "its FireWire GUID is missing or unreadable, and the database checksum depends on it",
+                    "its FireWire GUID is not in its files and could not be read from its USB connection, \
+                     and the database checksum depends on it",
                 ),
             }
         }
@@ -167,6 +198,67 @@ pub(crate) fn checksum_key(ipod: &Ipod) -> Result<Option<[u8; 8]>> {
             refuse("its model is unknown or uses a checksum (HASHAB) that cannot be written")
         }
     }
+}
+
+/// Refuses an iPod that has no database but has music, an iTunesSD that lists songs or the copies
+/// this app keeps of a database: those are an iPod whose database was lost, and writing a fresh
+/// one to it would hide every song on it. Only an iPod that is really blank may be given a first
+/// database.
+pub(crate) fn require_blank_or_database(ipod: &Ipod) -> Result<()> {
+    if database_exists(ipod) {
+        return Ok(());
+    }
+    let mount = ipod.mount_path.as_path();
+    let database = database_path(mount, ipod.database);
+    let copies = [commit::backup_of(&database), commit::original_of(&database)];
+    if files::has_music(mount)
+        || shuffle_list_has_songs(ipod)
+        || copies.iter().any(|file| file.exists())
+    {
+        return Err(Error::SyncRefused(
+            "it has music but no song database. Restore the backup, or restore the iPod, before \
+             syncing"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether the iPod's iTunesSD lists anything. A shuffle that was only restored has one with no
+/// songs in it, which is a blank shuffle still.
+fn shuffle_list_has_songs(ipod: &Ipod) -> bool {
+    let Ok(existing) = std::fs::read(itunes_dir(&ipod.mount_path).join(shuffle::FILE_NAME)) else {
+        return false;
+    };
+    let empty = shuffle_format(ipod).ok().flatten().and_then(|format| {
+        let master = RawPlaylist::create(0, "", Vec::new(), 0, &chrono::Utc).into_master();
+        shuffle::emit(&RawDb::blank(0, 0, 0, master), format, 0).ok()
+    });
+    empty.is_none_or(|empty| existing.len() > empty.len())
+}
+
+/// A GUID read from the USB connection has nothing else to vouch for it, so the database already
+/// on the iPod does: if that carries a HASH58 checksum, it must be the one this GUID produces,
+/// or the database this sync writes would be one the iPod ignores.
+pub(crate) fn require_guid_matches(
+    ipod: &Ipod,
+    key: Option<[u8; 8]>,
+    database: &[u8],
+) -> Result<()> {
+    const HASH58: u16 = 1;
+    let Some(key) = key.filter(|_| ipod.guid_from_usb) else {
+        return Ok(());
+    };
+    if itunesdb::checksum_scheme(database) == Some(HASH58)
+        && itunesdb::verify_checksum(database, &key) != Some(true)
+    {
+        return Err(Error::SyncRefused(
+            "the FireWire GUID read from its USB connection is not the one its database was \
+             written for"
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Which iTunesSD this iPod needs beside its iTunesDB, if any. A shuffle plays from the iTunesSD

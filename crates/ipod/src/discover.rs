@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
-use crate::device::locate_database;
+use crate::device::recognise;
 
-/// Mount points that contain `iPod_Control/iTunes/iTunesDB` or `iTunesCDB`.
+/// Mount points of iPods: those with `iPod_Control/iTunes/iTunesDB` or `iTunesCDB`, and those an
+/// iPod has not written a database to yet (see [`recognise`]).
 ///
 /// Scans macOS `/Volumes/*`, Windows drive letters `A:` to `Z:`, and on Linux `/media/$USER/*`,
 /// `/run/media/$USER/*`, `/media/*` and `/mnt/*`.
@@ -13,7 +14,7 @@ pub fn discover() -> Vec<PathBuf> {
 fn ipod_mounts(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     let mut mounts: Vec<PathBuf> = candidates
         .into_iter()
-        .filter(|mount| locate_database(mount).is_some())
+        .filter(|mount| recognise(mount).is_some())
         .collect();
     mounts.sort();
     mounts.dedup();
@@ -90,6 +91,41 @@ mod tests {
         ]);
 
         assert_eq!(found, vec![classic, nano]);
+    }
+
+    #[test]
+    fn finds_an_ipod_that_has_no_database_yet_but_never_a_plain_disk() {
+        let root = tempfile::tempdir().unwrap();
+        let path = |name: &str| root.path().join(name);
+        let with_sysinfo = path("RESTORED");
+        fs::create_dir_all(with_sysinfo.join("iPod_Control/Device")).unwrap();
+        fs::write(
+            with_sysinfo.join("iPod_Control/Device/SysInfo"),
+            b"ModelNumStr: xC293",
+        )
+        .unwrap();
+        let with_itunes_folder = path("NEW");
+        fs::create_dir_all(with_itunes_folder.join("iPod_Control/iTunes")).unwrap();
+        // A disk that merely has the folder, or whose "SysInfo" is a folder, is not an iPod.
+        let stick = path("STICK");
+        fs::create_dir_all(stick.join("iPod_Control")).unwrap();
+        let music_only = path("MUSIC");
+        fs::create_dir_all(music_only.join("iPod_Control/Music/F00")).unwrap();
+        let odd = path("ODD");
+        fs::create_dir_all(odd.join("iPod_Control/Device/SysInfo")).unwrap();
+        let not_ipod_control = path("OTHER");
+        fs::create_dir_all(not_ipod_control.join("Music/iTunes")).unwrap();
+
+        let found = ipod_mounts([
+            with_sysinfo.clone(),
+            with_itunes_folder.clone(),
+            stick,
+            music_only,
+            odd,
+            not_ipod_control,
+        ]);
+
+        assert_eq!(found, vec![with_itunes_folder, with_sysinfo]);
     }
 
     #[cfg(not(windows))]

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::models::{self, IpodModel, SyncSupport};
-use crate::{itunesdb, sysinfo};
+use crate::{itunesdb, sysinfo, usb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +26,9 @@ pub struct Ipod {
     pub capacity_bytes: u64,
     pub free_bytes: u64,
     pub firewire_guid: Option<String>,
+    /// The GUID is the USB serial number, because the iPod's own files do not give it. Nothing
+    /// then vouches for it, so a sync checks it against the database already on the iPod.
+    pub guid_from_usb: bool,
     pub serial_number: Option<String>,
     pub database: DatabaseFormat,
     pub sync: SyncSupport,
@@ -63,11 +66,44 @@ pub(crate) fn locate_database(mount: &Path) -> Option<DatabaseFormat> {
     }
 }
 
+/// Whether the iPod has a database file yet. One that was never synced, or was just restored, has
+/// none, and its first sync writes one.
+pub(crate) fn database_exists(ipod: &Ipod) -> bool {
+    database_path(&ipod.mount_path, ipod.database).is_file()
+}
+
+/// The database format of the iPod at `mount`, or `None` if it is not an iPod. An iPod without a
+/// database yet gets the iTunesDB its first sync writes.
+///
+/// `iPod_Control` alone proves nothing, since any disk can hold a folder of that name. What an
+/// iPod without a database has is the `Device/SysInfo` its firmware writes, or the `iTunes`
+/// folder the database goes in. The names are the ones the iPod and iTunes write. A
+/// case-insensitive volume (FAT32, or HFS+ unless formatted case-sensitive) matches any case; on
+/// a case-sensitive one the rest of this crate would not find these files under another case
+/// either, so looking for them there would only detect an iPod it could not then use.
+pub(crate) fn recognise(mount: &Path) -> Option<DatabaseFormat> {
+    let control = mount.join("iPod_Control");
+    let device_info = |name| control.join("Device").join(name).is_file();
+    let blank =
+        control.join("iTunes").is_dir() || device_info("SysInfo") || device_info("SysInfoExtended");
+    locate_database(mount).or_else(|| blank.then_some(DatabaseFormat::ITunesDb))
+}
+
 pub fn open(mount: &Path) -> Result<Ipod> {
-    let database = locate_database(mount).ok_or_else(|| Error::NotAnIpod(mount.to_path_buf()))?;
+    let database = recognise(mount).ok_or_else(|| Error::NotAnIpod(mount.to_path_buf()))?;
     let info = sysinfo::read(&mount.join("iPod_Control").join("Device"));
     let model = models::identify(info.serial_number.as_deref(), info.model_num_str.as_deref());
     let sync = models::sync_support(model.as_ref(), info.db_version);
+    // An iPod that iTunes never wrote SysInfoExtended to may not say its GUID anywhere on its disk,
+    // but its USB serial number is the same number.
+    let usb_guid = match info.firewire_guid {
+        Some(_) => None,
+        None => (sync == SyncSupport::NeedsHash58)
+            .then(|| usb::serial_number(mount))
+            .flatten(),
+    };
+    let guid_from_usb = usb_guid.is_some();
+    let firewire_guid = info.firewire_guid.or(usb_guid);
     let stats = fs4::statvfs(mount).map_err(|source| Error::io(mount, source))?;
     let volume_name = volume_name(mount);
     // A database we cannot read must not stop the device from showing up, so the name falls back.
@@ -77,8 +113,7 @@ pub fn open(mount: &Path) -> Result<Ipod> {
         .flatten()
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| volume_name.clone());
-    let id = info
-        .firewire_guid
+    let id = firewire_guid
         .clone()
         .unwrap_or_else(|| stable_id(mount, &volume_name));
 
@@ -89,7 +124,8 @@ pub fn open(mount: &Path) -> Result<Ipod> {
         model,
         capacity_bytes: stats.total_space(),
         free_bytes: stats.available_space(),
-        firewire_guid: info.firewire_guid,
+        firewire_guid,
+        guid_from_usb,
         serial_number: info.serial_number,
         database,
         sync,

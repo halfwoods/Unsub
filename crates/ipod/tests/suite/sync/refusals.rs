@@ -156,3 +156,93 @@ fn a_database_the_writer_cannot_reproduce_is_refused_untouched() {
     assert_eq!(db_bytes(&fake), truncated);
     assert!(music_files(&fake).is_empty());
 }
+
+/// A classic that a sync has written a HASH58 database to with the GUID in its SysInfo, and the
+/// same iPod as it is opened when that GUID is not in its files and came from the USB connection.
+fn synced_classic_read_over_usb(guid: &str) -> (FakeIpod, unsub_ipod::Ipod) {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    sync(&fake, &[library_track(library.path(), 1, "One")], &[]);
+    let mut ipod = opened(&fake);
+    ipod.firewire_guid = Some(guid.to_owned());
+    ipod.guid_from_usb = true;
+    (fake, ipod)
+}
+
+fn plan_and_apply_one_track(
+    ipod: &unsub_ipod::Ipod,
+) -> (
+    Result<unsub_ipod::SyncPlan, Error>,
+    Result<unsub_ipod::Database, Error>,
+) {
+    let current = read_database(ipod).unwrap();
+    let library = tempfile::tempdir().unwrap();
+    let tracks = [library_track(library.path(), 2, "Two")];
+    let planned = plan_sync(ipod, &current, &tracks, &[]);
+    let forged = SyncPlan {
+        add: vec![2],
+        update: vec![],
+        remove: vec![],
+        bytes_needed: 4000,
+        fits: true,
+        removals_first: false,
+    };
+    let applied = apply_sync(
+        ipod,
+        &forged,
+        &tracks,
+        &[],
+        &mut copy_as_is,
+        &mut no_cover,
+        &mut |_| {},
+    );
+    (planned, applied)
+}
+
+#[test]
+fn a_guid_from_usb_that_does_not_match_the_databases_checksum_is_refused_untouched() {
+    let (fake, ipod) = synced_classic_read_over_usb("000A27009999AAAA");
+    let before = (
+        db_bytes(&fake),
+        music_files(&fake),
+        itunes_dir_listing(&fake),
+    );
+
+    let (planned, applied) = plan_and_apply_one_track(&ipod);
+
+    for result in [planned.map(drop), applied.map(drop)] {
+        match result {
+            Err(Error::SyncRefused(reason)) => assert!(reason.contains("USB"), "{reason}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        (
+            db_bytes(&fake),
+            music_files(&fake),
+            itunes_dir_listing(&fake)
+        ),
+        before
+    );
+}
+
+#[test]
+fn a_guid_from_usb_that_matches_the_databases_checksum_syncs() {
+    let (_fake, ipod) = synced_classic_read_over_usb("000A27001A2B3C4D");
+
+    let (planned, applied) = plan_and_apply_one_track(&ipod);
+
+    planned.unwrap();
+    applied.unwrap();
+}
+
+#[test]
+fn a_guid_from_the_ipods_own_files_is_not_second_guessed() {
+    // The same wrong GUID, but SysInfo says it: whatever the database says, that is the iPod's word.
+    let (_fake, mut ipod) = synced_classic_read_over_usb("000A27009999AAAA");
+    ipod.guid_from_usb = false;
+
+    let (planned, _) = plan_and_apply_one_track(&ipod);
+
+    planned.unwrap();
+}

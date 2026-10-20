@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use image::{ImageFormat, Rgb, RgbImage};
 use tempfile::TempDir;
-use unsub_library::{Library, Track};
+use unsub_library::{Library, Track, shrink_to_jpeg};
 
 use crate::common::{library_of, scanned_library, track, track_titled};
 
@@ -72,6 +72,24 @@ fn thumbnails_fit_the_size_keep_the_aspect_ratio_and_are_never_enlarged() {
         (1, 1),
         "a zero size is read as the smallest"
     );
+}
+
+#[test]
+fn a_picture_can_be_shrunk_in_memory_without_any_cache() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("wide.png");
+    write_png(&path, 1200, 400, [200, 30, 30]);
+    let picture = fs::read(&path).unwrap();
+
+    let shrunk = shrink_to_jpeg(&picture, 640).unwrap();
+
+    assert!(shrunk.starts_with(&[0xFF, 0xD8]), "a JPEG");
+    assert_eq!(dimensions(&shrunk), (640, 213));
+    assert_eq!(
+        dimensions(&shrink_to_jpeg(&picture, 2000).unwrap()),
+        (1200, 400)
+    );
+    assert_eq!(shrink_to_jpeg(b"not a picture", 640), None);
 }
 
 #[test]

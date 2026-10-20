@@ -59,6 +59,11 @@ pub(super) fn backup_of(path: &Path) -> PathBuf {
     beside(path, BACKUP_SUFFIX)
 }
 
+/// Where the first sync left the copy of `path` as it was before this app ever wrote it.
+pub(super) fn original_of(path: &Path) -> PathBuf {
+    beside(path, ORIGINAL_SUFFIX)
+}
+
 /// Stages every file or none: if one cannot be written, the others are discarded.
 pub(super) fn stage_all(files: &[(&Path, Vec<u8>)]) -> Result<Vec<Staged>> {
     let mut staged = Vec::new();
@@ -92,7 +97,7 @@ pub(super) fn commit_all(staged: Vec<Staged>) -> Result<()> {
 /// the first sync, so a bad sync can never overwrite the only good copy.
 pub(super) fn keep_backups(database: &Path) -> Result<()> {
     copy_and_flush(database, &backup_of(database))?;
-    let original = beside(database, ORIGINAL_SUFFIX);
+    let original = original_of(database);
     if !original.exists() {
         copy_and_flush(database, &original)?;
     }

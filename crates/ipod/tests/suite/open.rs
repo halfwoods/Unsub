@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::PathBuf;
 
 use unsub_ipod::{DatabaseFormat, Error, IpodFamily, SyncSupport, open};
@@ -172,10 +173,25 @@ fn an_unreadable_database_falls_back_to_the_volume_name() {
 }
 
 #[test]
-fn a_directory_without_a_database_is_not_an_ipod() {
-    let fake = FakeIpod::new("STICK");
+fn a_disk_with_only_an_empty_ipod_control_folder_is_not_an_ipod() {
+    let stick = tempfile::tempdir().unwrap();
+    fs::create_dir_all(stick.path().join("iPod_Control")).unwrap();
 
-    assert!(matches!(open(&fake.mount), Err(Error::NotAnIpod(_))));
+    assert!(matches!(open(stick.path()), Err(Error::NotAnIpod(_))));
+}
+
+#[test]
+fn an_ipod_with_no_database_yet_opens_as_one_that_will_get_an_itunesdb() {
+    let fake = FakeIpod::new("RESTORED");
+    fake.write_sysinfo("xC293", "0x000A27001A2B3C4D");
+
+    let ipod = opened(&fake);
+
+    assert_eq!(ipod.database, DatabaseFormat::ITunesDb);
+    assert_eq!(ipod.name, "RESTORED");
+    assert_eq!(ipod.model.unwrap().name, "iPod classic (7th generation)");
+    assert_eq!(ipod.firewire_guid.as_deref(), Some("000A27001A2B3C4D"));
+    assert_eq!(ipod.sync, SyncSupport::NeedsHash58);
 }
 
 #[test]

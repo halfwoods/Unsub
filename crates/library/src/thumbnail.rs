@@ -87,7 +87,8 @@ fn own_thumbnail(
         }
     }
 
-    let thumbnail = own_art(track_path, album, dataless).and_then(|art| resize(&art.bytes, size));
+    let thumbnail =
+        own_art(track_path, album, dataless).and_then(|art| shrink_to_jpeg(&art.bytes, size));
     if let Some(dir) = cache {
         let (name, bytes) = match &thumbnail {
             Some(bytes) => (format!("{key}-{size}.jpg"), bytes.as_slice()),
@@ -105,7 +106,9 @@ fn jpeg(bytes: Vec<u8>) -> Artwork {
     }
 }
 
-fn resize(bytes: &[u8], size: u32) -> Option<Vec<u8>> {
+/// A JPEG of the picture that fits within `size` x `size` (never enlarged), made in memory with
+/// nothing cached. `None` if it cannot be decoded.
+pub fn shrink_to_jpeg(bytes: &[u8], size: u32) -> Option<Vec<u8>> {
     let image = image::load_from_memory(bytes).ok()?;
     let image = if image.width().max(image.height()) > size {
         image.resize(size, size, FilterType::Triangle)

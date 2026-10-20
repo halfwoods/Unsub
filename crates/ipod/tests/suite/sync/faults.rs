@@ -50,10 +50,10 @@ fn three_tracks(library: &Path) -> Vec<SyncTrack> {
     ]
 }
 
-fn apply_with(
+pub(super) fn apply_with(
     fake: &FakeIpod,
     tracks: &[SyncTrack],
-    prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
+    prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<Prepared>,
 ) -> Result<Database, Error> {
     let plan = plan(fake, tracks, &[]);
     apply_sync(
@@ -80,7 +80,7 @@ fn a_failure_while_preparing_the_second_track_changes_nothing() {
         if calls == 2 {
             Err(io::Error::other("transcoder crashed"))
         } else {
-            Ok(track.source_path.clone())
+            Ok(track.source_path.clone().into())
         }
     });
 
@@ -100,7 +100,7 @@ fn a_source_file_that_vanishes_mid_sync_changes_nothing() {
         if track.library_id == 3 {
             fs::remove_file(&track.source_path).unwrap();
         }
-        Ok(track.source_path.clone())
+        Ok(track.source_path.clone().into())
     });
 
     assert!(result.is_err());
@@ -181,7 +181,7 @@ fn a_database_changed_by_someone_else_mid_sync_is_not_overwritten() {
             bytes.push(0);
             fs::write(&database, bytes).unwrap();
         }
-        Ok(track.source_path.clone())
+        Ok(track.source_path.clone().into())
     });
 
     assert!(matches!(result, Err(Error::Conflict(_))), "{result:?}");
@@ -275,7 +275,8 @@ fn a_prepared_file_the_ipod_cannot_play_is_refused_before_anything_is_copied() {
             flac.clone()
         } else {
             track.source_path.clone()
-        })
+        }
+        .into())
     });
 
     let Err(Error::Io { source, .. }) = result else {

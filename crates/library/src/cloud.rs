@@ -59,6 +59,8 @@ trait Storage {
     fn is_dataless(&self, path: &Path) -> bool;
     /// Asks the system to fetch the file in the background.
     fn start_download(&self, path: &Path) -> io::Result<()>;
+    /// Asks the system to drop the local copy of a file that is also in the cloud.
+    fn evict(&self, path: &Path) -> io::Result<()>;
     /// Bytes already stored locally, for progress.
     fn bytes_on_disk(&self, path: &Path) -> u64;
 }
@@ -94,6 +96,51 @@ impl Storage for System {
     }
 
     #[cfg(target_os = "macos")]
+    fn evict(&self, path: &Path) -> io::Result<()> {
+        use std::process::{Command, Stdio};
+        // iCloud Drive's "Remove Download". It refuses a file it has not finished uploading, and one
+        // outside iCloud Drive, so asking about the wrong file can lose nothing.
+        let status = Command::new("brctl")
+            .arg("evict")
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("brctl could not evict the file"))
+        }
+    }
+
+    #[cfg(windows)]
+    fn evict(&self, path: &Path) -> io::Result<()> {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        // Unpinned tells a Cloud Files provider (iCloud for Windows, OneDrive) that the file may
+        // be dehydrated, which "Free up space" does; the provider keeps what has not been uploaded.
+        let status = Command::new("attrib")
+            .args(["+U", "-P"])
+            .arg(path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("attrib could not unpin the file"))
+        }
+    }
+
+    /// Only macOS and Windows have cloud placeholders, so there is nothing to give back.
+    #[cfg(not(any(target_os = "macos", windows)))]
+    fn evict(&self, _path: &Path) -> io::Result<()> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
     fn bytes_on_disk(&self, path: &Path) -> u64 {
         use std::os::macos::fs::MetadataExt;
         fs::metadata(path).map_or(0, |metadata| metadata.st_blocks() * 512)
@@ -116,6 +163,23 @@ pub fn ensure_local(
     cancel: &AtomicBool,
 ) -> Result<()> {
     wait_for_local(path, progress, cancel, &System, POLL_INTERVAL)
+}
+
+/// Gives a file's local copy back to the cloud, freeing its space and leaving the placeholder, for
+/// a file this machine fetched only to use it once. Does nothing for a file that is already a
+/// placeholder. The system declines a file that is not in the cloud or has changes it has not
+/// uploaded, and then the error says so and the file stays as it is. Eviction goes on in the
+/// background, so the file may take a moment to become a placeholder.
+pub fn evict(path: &Path) -> Result<()> {
+    evict_with(path, &System)
+}
+
+fn evict_with(path: &Path, storage: &dyn Storage) -> Result<()> {
+    if storage.is_dataless(path) {
+        return Ok(());
+    }
+    storage.evict(path)?;
+    Ok(())
 }
 
 fn wait_for_local(
@@ -436,6 +500,9 @@ mod tests {
         start_fails: bool,
         started: Cell<u32>,
         on_disk: RefCell<Vec<u64>>,
+        evicted: Cell<u32>,
+        /// The system declines to evict, as it does for a file it has not finished uploading.
+        evict_fails: bool,
     }
 
     impl FakeCloud {
@@ -446,6 +513,8 @@ mod tests {
                 start_fails,
                 started: Cell::new(0),
                 on_disk: RefCell::new(vec![10, 20, 40]),
+                evicted: Cell::new(0),
+                evict_fails: false,
             }
         }
     }
@@ -461,6 +530,15 @@ mod tests {
             self.started.set(self.started.get() + 1);
             if self.start_fails {
                 Err(io::Error::other("no brctl"))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn evict(&self, _path: &Path) -> io::Result<()> {
+            self.evicted.set(self.evicted.get() + 1);
+            if self.evict_fails {
+                Err(io::Error::other("not uploaded yet"))
             } else {
                 Ok(())
             }
@@ -562,6 +640,40 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_is_here_can_be_given_back_to_the_cloud() {
+        let (_dir, path) = file_of(100);
+        let cloud = FakeCloud::new(0, false);
+
+        evict_with(&path, &cloud).unwrap();
+
+        assert_eq!(cloud.evicted.get(), 1);
+    }
+
+    #[test]
+    fn a_placeholder_is_not_asked_to_evict_again() {
+        let (_dir, path) = file_of(100);
+        let cloud = FakeCloud::new(1_000, false);
+
+        evict_with(&path, &cloud).unwrap();
+
+        assert_eq!(cloud.evicted.get(), 0);
+    }
+
+    #[test]
+    fn an_eviction_the_system_declines_is_an_error_and_the_file_stays() {
+        let (_dir, path) = file_of(100);
+        let cloud = FakeCloud {
+            evict_fails: true,
+            ..FakeCloud::new(0, false)
+        };
+
+        let result = evict_with(&path, &cloud);
+
+        assert!(matches!(result, Err(Error::Io(_))), "{result:?}");
+        assert_eq!(fs::read(&path).unwrap(), vec![7u8; 100]);
+    }
+
+    #[test]
     fn cancelling_stops_the_wait() {
         let (_dir, path) = file_of(100);
         let cancel = AtomicBool::new(true);
@@ -629,6 +741,9 @@ mod tests {
                 true
             }
             fn start_download(&self, _: &Path) -> io::Result<()> {
+                Ok(())
+            }
+            fn evict(&self, _: &Path) -> io::Result<()> {
                 Ok(())
             }
             fn bytes_on_disk(&self, _: &Path) -> u64 {

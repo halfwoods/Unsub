@@ -247,7 +247,7 @@ export function Lcd() {
             ? "Writing playlists"
             : stage === "skipped"
               ? `Skipped: ${current}`
-              : `Copying ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
+              : `${stage === "downloading" ? "Downloading from iCloud" : "Copying"} ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
     return (
       <ProgressLcd
         title={`Syncing “${syncingName}”`}
