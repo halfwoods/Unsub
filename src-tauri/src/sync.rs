@@ -170,7 +170,8 @@ fn for_ipod(chosen: &Chosen, convert_kbps: Option<u32>) -> IpodSelection {
         selection.conversions.insert(track.id, (conversion, is_lossless(track)));
         selection.tracks.push(sync_track(track, conversion));
     }
-    selection.playlists = chosen.playlists.iter().map(|(name, tracks)| SyncPlaylist { name: name.clone(), tracks: tracks.clone() }).collect();
+    selection.playlists =
+        chosen.playlists.iter().map(|(name, tracks)| SyncPlaylist { name: name.clone(), tracks: tracks.clone() }).collect();
     selection
 }
 
@@ -209,12 +210,7 @@ fn sync_item(track: &Track) -> SyncItem {
 }
 
 fn query(kind: Option<MediaKind>, playlist: Option<i64>) -> TrackQuery {
-    TrackQuery {
-        kind,
-        playlist,
-        sort: if playlist.is_some() { SortKey::PlaylistOrder } else { SortKey::Artist },
-        ..TrackQuery::default()
-    }
+    TrackQuery { kind, playlist, sort: if playlist.is_some() { SortKey::PlaylistOrder } else { SortKey::Artist }, ..TrackQuery::default() }
 }
 
 fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
@@ -314,12 +310,8 @@ fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::
     if settings.music {
         let ids: HashSet<i64> = chosen.tracks.iter().map(|t| t.id).collect();
         for playlist in synced_playlists {
-            let tracks: Vec<i64> = library
-                .tracks(&query(None, Some(playlist.id)))?
-                .into_iter()
-                .map(|t| t.id)
-                .filter(|id| ids.contains(id))
-                .collect();
+            let tracks: Vec<i64> =
+                library.tracks(&query(None, Some(playlist.id)))?.into_iter().map(|t| t.id).filter(|id| ids.contains(id)).collect();
             chosen.playlists.push((playlist.name.clone(), tracks));
         }
     }
@@ -493,7 +485,8 @@ fn sync_to_player(
             return Ok(item.source.clone());
         };
         let output = work_dir.join(format!("{}.{extension}", item.library_id));
-        let options = TranscodeOptions { target, max_sample_rate: profile.max_sample_rate, max_bit_depth: profile.max_bit_depth, keep_tags: true };
+        let options =
+            TranscodeOptions { target, max_sample_rate: profile.max_sample_rate, max_bit_depth: profile.max_bit_depth, keep_tags: true };
         antistreaming_playback::transcode_file(&item.source, &output, &options, &mut |_, _| {}, cancel)
             .map_err(|error| io::Error::other(error.to_string()))?;
         previous = Some(output.clone());
@@ -763,7 +756,8 @@ mod tests {
         assert!(matches!(player_target(&flac, &mp3_only), Some((Target::Mp3 { kbps: 320 }, "mp3"))));
         assert!(player_target(&mp3, &mp3_only).is_none());
 
-        let lossless_first = Profile { formats: vec!["flac".into(), "mp3".into()], max_sample_rate: Some(48_000), ..Profile::mass_storage() };
+        let lossless_first =
+            Profile { formats: vec!["flac".into(), "mp3".into()], max_sample_rate: Some(48_000), ..Profile::mass_storage() };
         let hires = Track { sample_rate: Some(96_000), ..flac.clone() };
         assert!(player_target(&flac, &lossless_first).is_none());
         assert!(matches!(player_target(&hires, &lossless_first), Some((Target::Flac, "flac"))));
@@ -793,8 +787,18 @@ mod tests {
         let size = |name: &str| std::fs::metadata(file(name)).unwrap().len();
         let chosen = Chosen {
             tracks: vec![
-                Track { path: file("sine.flac").to_string_lossy().into(), file_size: size("sine.flac"), title: "Sine".into(), ..track(1, "FLAC", MediaKind::Music) },
-                Track { path: file("sine.mp3").to_string_lossy().into(), file_size: size("sine.mp3"), title: "Beep".into(), ..track(2, "MP3", MediaKind::Music) },
+                Track {
+                    path: file("sine.flac").to_string_lossy().into(),
+                    file_size: size("sine.flac"),
+                    title: "Sine".into(),
+                    ..track(1, "FLAC", MediaKind::Music)
+                },
+                Track {
+                    path: file("sine.mp3").to_string_lossy().into(),
+                    file_size: size("sine.mp3"),
+                    title: "Beep".into(),
+                    ..track(2, "MP3", MediaKind::Music)
+                },
             ],
             playlists: vec![("Tones".into(), vec![2, 1])],
             in_cloud: 0,

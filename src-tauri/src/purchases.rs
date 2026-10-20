@@ -43,10 +43,7 @@ impl PurchasesState {
     }
 
     fn watching(&self) -> bool {
-        std::fs::read(&self.settings_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Settings>(&b).ok())
-            .is_some_and(|s| s.watching)
+        std::fs::read(&self.settings_path).ok().and_then(|b| serde_json::from_slice::<Settings>(&b).ok()).is_some_and(|s| s.watching)
     }
 
     /// Starts or stops the Downloads watcher; each change triggers a scan for new purchases.

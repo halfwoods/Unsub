@@ -192,11 +192,7 @@ fn build_report(snapshot: &Snapshot, library: &LibraryState) -> CommandResult<Ow
         }
         let album_artist = if item.album_artist.is_empty() { item.artist.clone() } else { item.album_artist.clone() };
         let key = (album_artist.to_lowercase(), item.album.to_lowercase());
-        let group = albums.entry(key).or_insert_with(|| AlbumGroup {
-            album_artist,
-            album: item.album.clone(),
-            tracks: Vec::new(),
-        });
+        let group = albums.entry(key).or_insert_with(|| AlbumGroup { album_artist, album: item.album.clone(), tracks: Vec::new() });
         group.tracks.push(ReportTrack {
             persistent_id: item.persistent_id.clone(),
             title: item.title.clone(),
@@ -232,9 +228,7 @@ pub fn collection_report(state: State<'_, CollectionState>, library: State<'_, L
 }
 
 fn finish_load(app: &AppHandle, source: &str, result: Result<Vec<MusicLibraryItem>, String>) {
-    let outcome = result.and_then(|items| {
-        app.state::<CollectionState>().replace(source, items).map_err(|e| format!("{e:?}"))
-    });
+    let outcome = result.and_then(|items| app.state::<CollectionState>().replace(source, items).map_err(|e| format!("{e:?}")));
     match outcome {
         Ok(()) => {
             let _ = app.emit(CHANGED_EVENT, Option::<String>::None);
@@ -266,17 +260,13 @@ pub fn collection_load_music_app() -> CommandResult<()> {
 #[tauri::command]
 pub fn collection_load_xml(app: AppHandle) {
     let handle = app.clone();
-    app.dialog()
-        .file()
-        .set_title("Choose an Exported Library")
-        .add_filter("Library XML", &["xml"])
-        .pick_file(move |file| {
-            let Some(path) = file.and_then(|f| f.into_path().ok()) else { return };
-            std::thread::spawn(move || {
-                let result = antistreaming_applemusic::read_xml(&path).map_err(|e| e.to_string());
-                finish_load(&handle, "Library XML", result);
-            });
+    app.dialog().file().set_title("Choose an Exported Library").add_filter("Library XML", &["xml"]).pick_file(move |file| {
+        let Some(path) = file.and_then(|f| f.into_path().ok()) else { return };
+        std::thread::spawn(move || {
+            let result = antistreaming_applemusic::read_xml(&path).map_err(|e| e.to_string());
+            finish_load(&handle, "Library XML", result);
         });
+    });
 }
 
 /// Imports a folder the user points at, e.g. the drive or backup where missing files went.
@@ -359,10 +349,7 @@ pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<Do
     .map_err(|e| CommandError::from(e.to_string()))?;
     if !output.status.success() {
         // Most often the Automation permission was declined in System Settings.
-        return Err(CommandError::from(format!(
-            "Music didn't accept the request: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
+        return Err(CommandError::from(format!("Music didn't accept the request: {}", String::from_utf8_lossy(&output.stderr).trim())));
     }
     let accepted = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
     Ok(DownloadRequest { requested, accepted })
@@ -376,7 +363,11 @@ pub fn collection_download_from_icloud() -> CommandResult<()> {
 
 /// Adds every owned file the Music app has that AntiStreaming doesn't, in one import.
 #[tauri::command]
-pub fn collection_import_owned(app: AppHandle, state: State<'_, CollectionState>, library: State<'_, LibraryState>) -> CommandResult<usize> {
+pub fn collection_import_owned(
+    app: AppHandle,
+    state: State<'_, CollectionState>,
+    library: State<'_, LibraryState>,
+) -> CommandResult<usize> {
     let paths: Vec<PathBuf> = {
         let snapshot = state.snapshot();
         let Some(snapshot) = snapshot.as_ref() else { return Ok(0) };
@@ -388,12 +379,7 @@ pub fn collection_import_owned(app: AppHandle, state: State<'_, CollectionState>
             .filter(|track| track.status == OwnStatus::Import)
             .map(|track| track.persistent_id.as_str())
             .collect();
-        snapshot
-            .items
-            .iter()
-            .filter(|item| wanted.contains(item.persistent_id.as_str()))
-            .filter_map(|item| item.location.clone())
-            .collect()
+        snapshot.items.iter().filter(|item| wanted.contains(item.persistent_id.as_str())).filter_map(|item| item.location.clone()).collect()
     };
     let count = paths.len();
     if count > 0 {

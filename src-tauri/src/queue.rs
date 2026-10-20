@@ -25,13 +25,7 @@ impl PlayQueue {
         if start >= track_ids.len() {
             return None;
         }
-        let mut queue = Self {
-            order: track_ids.clone(),
-            source: track_ids,
-            position: start,
-            shuffle: false,
-            repeat,
-        };
+        let mut queue = Self { order: track_ids.clone(), source: track_ids, position: start, shuffle: false, repeat };
         queue.set_shuffle(shuffle);
         Some(queue)
     }

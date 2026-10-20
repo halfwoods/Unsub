@@ -129,7 +129,9 @@ struct PlaylistSummary {
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum DeviceView {
-    Kind { kind: MediaKind },
+    Kind {
+        kind: MediaKind,
+    },
     Playlist {
         #[serde(rename = "playlistId")]
         playlist_id: String,
@@ -208,60 +210,56 @@ fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Err
         .collect();
     let mut library = Library::open_in_memory()?;
     library.import_tracks(&tracks)?;
-    Ok(Connected {
-        ipod,
-        playlists: database.playlists,
-        usage: database.usage,
-        counts,
-        tracks: Mutex::new(library),
-    })
+    Ok(Connected { ipod, playlists: database.playlists, usage: database.usage, counts, tracks: Mutex::new(library) })
 }
 
 /// Watches for iPods arriving and leaving for the life of the app.
 pub fn watch(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        let players = antistreaming_devicesync::discover();
-        let player_mounts: Vec<PathBuf> = players
-            .iter()
-            .filter_map(|p| match &p.root {
-                antistreaming_devicesync::DeviceRoot::Path(path) => Some(path.clone()),
-                antistreaming_devicesync::DeviceRoot::Mtp { .. } => None,
-            })
-            .collect();
-        // A Rockbox-flashed iPod still has iPod_Control; it syncs as the player it now is.
-        let mounts: Vec<PathBuf> = antistreaming_ipod::discover().into_iter().filter(|m| !player_mounts.contains(m)).collect();
-        let state = app.state::<DevicesState>();
-        let mut changed = {
-            let mut known = state.players();
-            let before: Vec<&str> = known.iter().map(|p| p.id.as_str()).collect();
-            let arrived_or_left = before != players.iter().map(|p| p.id.as_str()).collect::<Vec<_>>();
-            *known = players;
-            arrived_or_left
-        };
-        let known: Vec<PathBuf> = state.connected().keys().cloned().collect();
+    std::thread::spawn(move || {
+        loop {
+            let players = antistreaming_devicesync::discover();
+            let player_mounts: Vec<PathBuf> = players
+                .iter()
+                .filter_map(|p| match &p.root {
+                    antistreaming_devicesync::DeviceRoot::Path(path) => Some(path.clone()),
+                    antistreaming_devicesync::DeviceRoot::Mtp { .. } => None,
+                })
+                .collect();
+            // A Rockbox-flashed iPod still has iPod_Control; it syncs as the player it now is.
+            let mounts: Vec<PathBuf> = antistreaming_ipod::discover().into_iter().filter(|m| !player_mounts.contains(m)).collect();
+            let state = app.state::<DevicesState>();
+            let mut changed = {
+                let mut known = state.players();
+                let before: Vec<&str> = known.iter().map(|p| p.id.as_str()).collect();
+                let arrived_or_left = before != players.iter().map(|p| p.id.as_str()).collect::<Vec<_>>();
+                *known = players;
+                arrived_or_left
+            };
+            let known: Vec<PathBuf> = state.connected().keys().cloned().collect();
 
-        for gone in known.iter().filter(|mount| !mounts.contains(mount)) {
-            // Bind first so the map lock is released before playback's lock is taken (lock order).
-            let removed = state.connected().remove(gone);
-            if let Some(device) = removed {
-                app.state::<PlaybackState>().stop_if_playing(&PlaySource::Device { device_id: device.ipod.id.clone() });
-                changed = true;
-            }
-        }
-        // Reading a big iTunesDB over USB takes a moment, so it happens outside the map lock.
-        for mount in mounts.iter().filter(|mount| !known.contains(mount)) {
-            match connect(mount) {
-                Ok(device) => {
-                    state.connected().insert(mount.clone(), Arc::new(device));
+            for gone in known.iter().filter(|mount| !mounts.contains(mount)) {
+                // Bind first so the map lock is released before playback's lock is taken (lock order).
+                let removed = state.connected().remove(gone);
+                if let Some(device) = removed {
+                    app.state::<PlaybackState>().stop_if_playing(&PlaySource::Device { device_id: device.ipod.id.clone() });
                     changed = true;
                 }
-                Err(error) => eprintln!("[devices] could not read iPod at {}: {error}", mount.display()),
             }
+            // Reading a big iTunesDB over USB takes a moment, so it happens outside the map lock.
+            for mount in mounts.iter().filter(|mount| !known.contains(mount)) {
+                match connect(mount) {
+                    Ok(device) => {
+                        state.connected().insert(mount.clone(), Arc::new(device));
+                        changed = true;
+                    }
+                    Err(error) => eprintln!("[devices] could not read iPod at {}: {error}", mount.display()),
+                }
+            }
+            if changed {
+                let _ = app.emit(CHANGED_EVENT, ());
+            }
+            std::thread::sleep(POLL_INTERVAL);
         }
-        if changed {
-            let _ = app.emit(CHANGED_EVENT, ());
-        }
-        std::thread::sleep(POLL_INTERVAL);
     });
 }
 
@@ -290,7 +288,13 @@ pub fn player_eject(app: AppHandle, state: State<'_, DevicesState>, device_id: S
 /// Makes a drive a sync target by writing devicesync's marker file to it, which holds its name
 /// and what it plays.
 #[tauri::command]
-pub fn player_set_up(app: AppHandle, state: State<'_, DevicesState>, path: PathBuf, name: String, preset: PlayerPreset) -> CommandResult<()> {
+pub fn player_set_up(
+    app: AppHandle,
+    state: State<'_, DevicesState>,
+    path: PathBuf,
+    name: String,
+    preset: PlayerPreset,
+) -> CommandResult<()> {
     let profile = match preset {
         PlayerPreset::MassStorage => antistreaming_devicesync::Profile::mass_storage(),
         PlayerPreset::Android => antistreaming_devicesync::Profile::android(),

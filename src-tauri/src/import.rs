@@ -110,7 +110,10 @@ fn report(app: &AppHandle, result: Result<ImportSummary, String>) {
                 s.playlists_created,
                 s.playlists_updated,
                 if s.entries_skipped > 0 {
-                    format!("\n{} playlist entries were left out because those songs aren't in AntiStreaming yet; add them and import again.", s.entries_skipped)
+                    format!(
+                        "\n{} playlist entries were left out because those songs aren't in AntiStreaming yet; add them and import again.",
+                        s.entries_skipped
+                    )
                 } else {
                     String::new()
                 }

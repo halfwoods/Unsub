@@ -237,24 +237,20 @@ fn now_unix() -> i64 {
 /// does the work that can wait on SQLite or the webview, in the order events happened.
 pub fn spawn_event_worker(app: AppHandle) -> std::io::Result<Sender<PlayerEvent>> {
     let (events, received) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("antistreaming-player-events".into())
-        .spawn(move || {
-            for event in received {
-                handle_event(&app, event);
-            }
-        })?;
+    std::thread::Builder::new().name("antistreaming-player-events".into()).spawn(move || {
+        for event in received {
+            handle_event(&app, event);
+        }
+    })?;
     Ok(events)
 }
 
 /// Forwards every event to the UI and keeps the queue in step.
 fn handle_event(app: &AppHandle, event: PlayerEvent) {
     let _ = app.emit(PLAYER_EVENT, &event);
-    let (Some(playback), Some(library), Some(devices)) = (
-        app.try_state::<PlaybackState>(),
-        app.try_state::<LibraryState>(),
-        app.try_state::<DevicesState>(),
-    ) else {
+    let (Some(playback), Some(library), Some(devices)) =
+        (app.try_state::<PlaybackState>(), app.try_state::<LibraryState>(), app.try_state::<DevicesState>())
+    else {
         return;
     };
     let tracks = Tracks { library: &library, devices: &devices };

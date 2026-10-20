@@ -159,7 +159,13 @@ fn requeue(playback: &PlaybackState, tracks: &Tracks, slot: &mut Option<Playing>
 }
 
 /// Engine thread (via the event worker): step the party forward and keep it topped up.
-pub(crate) fn on_track_started(app: &AppHandle, playback: &PlaybackState, tracks: &Tracks, playing: &mut Playing, track_id: i64) -> CommandResult<()> {
+pub(crate) fn on_track_started(
+    app: &AppHandle,
+    playback: &PlaybackState,
+    tracks: &Tracks,
+    playing: &mut Playing,
+    track_id: i64,
+) -> CommandResult<()> {
     let mut party = playback.party();
     party.advance_to(track_id);
     party.refill(&tracks.library.queries())?;

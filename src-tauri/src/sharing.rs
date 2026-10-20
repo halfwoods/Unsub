@@ -31,7 +31,8 @@ fn encode(prefix: &str, key: &str) -> String {
 
 fn decode(prefix: &str, id: &str) -> Option<String> {
     let hex = id.strip_prefix(prefix)?;
-    let bytes: Option<Vec<u8>> = (0..hex.len()).step_by(2).map(|i| hex.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok())).collect();
+    let bytes: Option<Vec<u8>> =
+        (0..hex.len()).step_by(2).map(|i| hex.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok())).collect();
     String::from_utf8(bytes?).ok()
 }
 
@@ -161,7 +162,14 @@ impl MusicSource for LibrarySource {
         })
     }
 
-    fn album_list(&self, kind: AlbumListKind, size: usize, offset: usize, genre: Option<&str>, years: Option<(i32, i32)>) -> SourceResult<Vec<Album>> {
+    fn album_list(
+        &self,
+        kind: AlbumListKind,
+        size: usize,
+        offset: usize,
+        genre: Option<&str>,
+        years: Option<(i32, i32)>,
+    ) -> SourceResult<Vec<Album>> {
         let library = self.library();
         let sort = match kind {
             AlbumListKind::AlphabeticalByName => SortKey::Album,
@@ -176,7 +184,9 @@ impl MusicSource for LibrarySource {
                 let sort = if kind == AlbumListKind::Frequent { SortKey::Plays } else { SortKey::LastPlayed };
                 let tracks = library.tracks(&TrackQuery { sort, descending: true, ..music() }).map_err(source_err)?;
                 let mut keys: Vec<String> = Vec::new();
-                for track in tracks.iter().filter(|t| if kind == AlbumListKind::Frequent { t.play_count > 0 } else { t.last_played.is_some() }) {
+                for track in
+                    tracks.iter().filter(|t| if kind == AlbumListKind::Frequent { t.play_count > 0 } else { t.last_played.is_some() })
+                {
                     if let Some(key) = album_key_for(&albums, track).filter(|k| !keys.contains(k)) {
                         keys.push(key);
                     }
@@ -277,7 +287,9 @@ impl MusicSource for LibrarySource {
         let library = self.library();
         let track = match (track_id(id), decode("al", id)) {
             (Some(track), _) => Some(track),
-            (None, Some(key)) => library.albums(&music()).map_err(source_err)?.into_iter().find(|a| a.key == key).map(|a| a.artwork_track_id),
+            (None, Some(key)) => {
+                library.albums(&music()).map_err(source_err)?.into_iter().find(|a| a.key == key).map(|a| a.artwork_track_id)
+            }
             _ => None,
         };
         let Some(track) = track else { return Ok(None) };
@@ -297,7 +309,12 @@ impl MusicSource for LibrarySource {
 
     /// Converts as the phone streams, so a lossless library plays over cellular. Rates are kept to
     /// what each encoder accepts.
-    fn transcoded(&self, song_id: &str, format: StreamFormat, max_kbps: Option<u32>) -> Option<SourceResult<(Box<dyn std::io::Read + Send>, &'static str)>> {
+    fn transcoded(
+        &self,
+        song_id: &str,
+        format: StreamFormat,
+        max_kbps: Option<u32>,
+    ) -> Option<SourceResult<(Box<dyn std::io::Read + Send>, &'static str)>> {
         let track = match self.library().track(track_id(song_id)?) {
             Ok(track) => track?,
             Err(error) => return Some(Err(source_err(error))),
@@ -387,19 +404,17 @@ impl SharingState {
             *lock(&self.last_error) = None;
             return;
         }
-        let started = Library::open(&self.db_path)
-            .map_err(|e| e.to_string())
-            .and_then(|mut library| {
-                library.set_artwork_cache(self.artwork_cache.clone());
-                let config = ServerConfig {
-                    bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, settings.port)),
-                    username: settings.username.clone(),
-                    password: settings.password.clone(),
-                    api_key: None,
-                    default_max_kbps: settings.max_kbps,
-                };
-                Server::start(config, Arc::new(LibrarySource { library: Mutex::new(library) })).map_err(|e| e.to_string())
-            });
+        let started = Library::open(&self.db_path).map_err(|e| e.to_string()).and_then(|mut library| {
+            library.set_artwork_cache(self.artwork_cache.clone());
+            let config = ServerConfig {
+                bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, settings.port)),
+                username: settings.username.clone(),
+                password: settings.password.clone(),
+                api_key: None,
+                default_max_kbps: settings.max_kbps,
+            };
+            Server::start(config, Arc::new(LibrarySource { library: Mutex::new(library) })).map_err(|e| e.to_string())
+        });
         match started {
             Ok(server) => {
                 *lock(&self.server) = Some(server);

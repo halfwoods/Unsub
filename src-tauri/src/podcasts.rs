@@ -83,11 +83,8 @@ impl PodcastsState {
     pub fn resume_position(&self, track_id: i64) -> Option<u64> {
         let episode_id = self.episode_for_track(track_id)?;
         let store = lock(&self.store);
-        let episode = store
-            .feeds()
-            .ok()?
-            .into_iter()
-            .find_map(|feed| store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id))?;
+        let episode =
+            store.feeds().ok()?.into_iter().find_map(|feed| store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id))?;
         (!episode.played && episode.position_ms > 0).then_some(episode.position_ms)
     }
 
@@ -96,9 +93,7 @@ impl PodcastsState {
         let gone: Vec<(i64, i64)> = lock(&self.tracks)
             .iter()
             .map(|(episode, track)| (*episode, *track))
-            .filter(|&(_, track)| {
-                library.queries().track(track).ok().flatten().is_none_or(|t| !std::path::Path::new(&t.path).exists())
-            })
+            .filter(|&(_, track)| library.queries().track(track).ok().flatten().is_none_or(|t| !std::path::Path::new(&t.path).exists()))
             .collect();
         if gone.is_empty() {
             return;
@@ -214,9 +209,13 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
         let feeds: HashMap<i64, Feed> = store.feeds().unwrap_or_default().into_iter().map(|f| (f.id, f)).collect();
         let cancel = AtomicBool::new(false);
         for episode_id in episode_ids {
-            let result = store.download(episode_id, &mut |done, total| {
-                let _ = app.emit(PROGRESS_EVENT, Progress { episode_id, done, total });
-            }, &cancel);
+            let result = store.download(
+                episode_id,
+                &mut |done, total| {
+                    let _ = app.emit(PROGRESS_EVENT, Progress { episode_id, done, total });
+                },
+                &cancel,
+            );
             let file = match result {
                 Ok(file) => file,
                 Err(error) => {
@@ -224,9 +223,9 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
                     continue;
                 }
             };
-            let Some(episode) = feeds.values().find_map(|feed| {
-                store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id).map(|e| (feed, e))
-            }) else {
+            let Some(episode) =
+                feeds.values().find_map(|feed| store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id).map(|e| (feed, e)))
+            else {
                 continue;
             };
             let (feed, episode) = episode;

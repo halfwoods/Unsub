@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
 use crate::library::{self, LibraryState};
-use crate::playback::{PlaySource, PlaybackState, PLAYER_EVENT};
+use crate::playback::{PLAYER_EVENT, PlaySource, PlaybackState};
 
 pub const CHANGED_EVENT: &str = "cd://changed";
 /// Import progress while a CD rips; `null` once it stops.
@@ -259,42 +259,40 @@ fn changed(app: &AppHandle) {
 
 /// Watches the drive for the life of the app; a new disc is looked up on MusicBrainz once.
 pub fn watch(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        let discs = antistreaming_cdrip::discs();
-        let devices = app.state::<DevicesState>();
-        let cds = &devices.cds;
-        let gone: Vec<String> = cds
-            .inserted()
-            .iter()
-            .filter(|cd| !discs.iter().any(|d| d.id == cd.disc.id))
-            .map(|cd| cd.disc.id.clone())
-            .collect();
-        for disc_id in &gone {
-            // Bound first so the CD lock is released before playback's (lock order).
-            app.state::<PlaybackState>().stop_if_playing(&PlaySource::Cd { disc_id: disc_id.clone() });
-            if let Some(rip) = cds.rip().as_ref().filter(|rip| &rip.status.disc_id == disc_id) {
-                rip.cancel.store(true, Ordering::Relaxed);
+    std::thread::spawn(move || {
+        loop {
+            let discs = antistreaming_cdrip::discs();
+            let devices = app.state::<DevicesState>();
+            let cds = &devices.cds;
+            let gone: Vec<String> =
+                cds.inserted().iter().filter(|cd| !discs.iter().any(|d| d.id == cd.disc.id)).map(|cd| cd.disc.id.clone()).collect();
+            for disc_id in &gone {
+                // Bound first so the CD lock is released before playback's (lock order).
+                app.state::<PlaybackState>().stop_if_playing(&PlaySource::Cd { disc_id: disc_id.clone() });
+                if let Some(rip) = cds.rip().as_ref().filter(|rip| &rip.status.disc_id == disc_id) {
+                    rip.cancel.store(true, Ordering::Relaxed);
+                }
             }
+            let new: Vec<Disc> = {
+                let mut inserted = cds.inserted();
+                inserted.retain(|cd| !gone.contains(&cd.disc.id));
+                discs.into_iter().filter(|d| !inserted.iter().any(|cd| cd.disc.id == d.id)).collect()
+            };
+            for disc in &new {
+                cds.inserted().push(Inserted {
+                    checked: disc.tracks.iter().map(|t| t.number).collect(),
+                    disc: disc.clone(),
+                    lookup: None,
+                    chosen: 0,
+                    imported: Vec::new(),
+                });
+                look_up(app.clone(), disc.clone());
+            }
+            if !gone.is_empty() || !new.is_empty() {
+                changed(&app);
+            }
+            std::thread::sleep(POLL_INTERVAL);
         }
-        let new: Vec<Disc> = {
-            let mut inserted = cds.inserted();
-            inserted.retain(|cd| !gone.contains(&cd.disc.id));
-            discs.into_iter().filter(|d| !inserted.iter().any(|cd| cd.disc.id == d.id)).collect()
-        };
-        for disc in &new {
-            cds.inserted().push(Inserted {
-                checked: disc.tracks.iter().map(|t| t.number).collect(),
-                disc: disc.clone(),
-                lookup: None,
-                chosen: 0,
-                imported: Vec::new(),
-            });
-            look_up(app.clone(), disc.clone());
-        }
-        if !gone.is_empty() || !new.is_empty() {
-            changed(&app);
-        }
-        std::thread::sleep(POLL_INTERVAL);
     });
 }
 
@@ -321,7 +319,13 @@ pub fn cd_tracks(state: State<'_, DevicesState>, disc_id: String) -> CommandResu
 }
 
 #[tauri::command]
-pub fn cd_set_checked(app: AppHandle, state: State<'_, DevicesState>, disc_id: String, numbers: Vec<u8>, checked: bool) -> CommandResult<()> {
+pub fn cd_set_checked(
+    app: AppHandle,
+    state: State<'_, DevicesState>,
+    disc_id: String,
+    numbers: Vec<u8>,
+    checked: bool,
+) -> CommandResult<()> {
     state.cds.with_cd(&disc_id, |cd| {
         for number in numbers {
             if checked {
@@ -365,9 +369,8 @@ impl From<ImportFormat> for Format {
 /// as in iTunes, so a stopped import keeps what it finished.
 #[tauri::command]
 pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String, format: ImportFormat, verify: bool) -> CommandResult<()> {
-    let (disc, release, mut numbers) = state.cds.with_cd(&disc_id, |cd| {
-        (cd.disc.clone(), cd.release().cloned(), cd.checked.iter().copied().collect::<Vec<u8>>())
-    })?;
+    let (disc, release, mut numbers) =
+        state.cds.with_cd(&disc_id, |cd| (cd.disc.clone(), cd.release().cloned(), cd.checked.iter().copied().collect::<Vec<u8>>()))?;
     let titles: Vec<(u8, String)> = disc
         .tracks
         .iter()
@@ -449,9 +452,7 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
                 let _ = app.emit(PLAYER_EVENT, PlayerEvent::Notice { message: format!("Import stopped: {error}") });
             }
         }
-        if eject_after
-            && let Err(error) = antistreaming_cdrip::eject(&disc)
-        {
+        if eject_after && let Err(error) = antistreaming_cdrip::eject(&disc) {
             let _ = app.emit(PLAYER_EVENT, PlayerEvent::Notice { message: error.to_string() });
         }
         changed(&app);

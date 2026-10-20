@@ -88,12 +88,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         }
         controls.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
-    let window = Submenu::with_items(
-        app,
-        "Window",
-        true,
-        &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?],
-    )?;
+    let window =
+        Submenu::with_items(app, "Window", true, &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?])?;
     Menu::with_items(app, &[&app_menu, &file, &edit, &controls, &window])
 }
 
@@ -116,7 +112,8 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
                 import::run(&handle, Some(path));
             }
         });
-    } else if id == PREFERENCES.0 || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id) {
+    } else if id == PREFERENCES.0 || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id)
+    {
         let _ = app.emit(MENU_ACTION_EVENT, id);
     }
 }

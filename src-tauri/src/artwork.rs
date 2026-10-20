@@ -16,10 +16,7 @@ pub fn response(app: &AppHandle, path: &str, query: Option<&str>) -> Response<Ve
         _ => None,
     };
     let response = match artwork {
-        Some(art) => Response::builder()
-            .header("Content-Type", art.mime)
-            .header("Cache-Control", "max-age=3600")
-            .body(art.bytes),
+        Some(art) => Response::builder().header("Content-Type", art.mime).header("Cache-Control", "max-age=3600").body(art.bytes),
         None => Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new()),
     };
     response.unwrap_or_else(|_| Response::new(Vec::new()))
