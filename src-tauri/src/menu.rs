@@ -14,6 +14,14 @@ const IMPORT_XML: &str = "import-library-xml";
 const CHECK_FOR_UPDATES: &str = "check-for-updates";
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
+const SHOW_VISUALIZER: (&str, &str, Option<&str>) = ("show-visualizer", "Show Visualizer", Some("CmdOrCtrl+T"));
+const VISUALIZER_STYLES: [(&str, &str, Option<&str>); 5] = [
+    ("visualizer-classic", "Classic", None),
+    ("visualizer-lights", "Lights", None),
+    ("visualizer-spectrum", "Spectrum", None),
+    ("visualizer-scope", "Scope", None),
+    ("visualizer-album", "Album", None),
+];
 const FILE_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("new-playlist", "New Playlist", Some("CmdOrCtrl+N")),
     ("new-playlist-from-selection", "New Playlist from Selection", Some("Shift+CmdOrCtrl+N")),
@@ -92,6 +100,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
+    let visualizer_styles = Submenu::new(app, "Visualizer", true)?;
+    for (id, label, accelerator) in VISUALIZER_STYLES {
+        visualizer_styles.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
+    }
+    let view = Submenu::with_items(
+        app,
+        "View",
+        true,
+        &[&MenuItem::with_id(app, SHOW_VISUALIZER.0, SHOW_VISUALIZER.1, true, SHOW_VISUALIZER.2)?, &visualizer_styles],
+    )?;
     let controls = Submenu::new(app, "Controls", true)?;
     for (index, (id, label, accelerator)) in CONTROL_ACTIONS.into_iter().enumerate() {
         if index == 5 {
@@ -110,7 +128,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &file, &edit, &controls, &window])
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &window])
 }
 
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
@@ -129,7 +147,8 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == EQUALIZER.0
         || id == IMPORT_MUSIC
         || id == IMPORT_XML
-        || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id)
+        || id == SHOW_VISUALIZER.0
+        || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {
         let _ = app.emit(MENU_ACTION_EVENT, id);
     }

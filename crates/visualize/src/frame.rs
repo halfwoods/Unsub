@@ -6,7 +6,9 @@ pub const BANDS: usize = 64;
 pub const SCOPE_POINTS: usize = 256;
 
 /// What the visualizer draws for one moment of the music. Serialized with camelCase names, which
-/// the renderer reads as they are.
+/// the renderer reads as they are, and with every level rounded to four decimals: the picture
+/// cannot show finer, and a frame's 640 numbers then stay under the 8 KB that Tauri sends to the
+/// webview directly, instead of by the slower route for larger payloads.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Frame {
@@ -28,12 +30,15 @@ pub struct Frame {
     pub waveform_r: [f32; SCOPE_POINTS],
     /// Root-mean-square level of both channels, 0 to 1 on the linear amplitude scale (a full-scale
     /// sine is 0.707).
+    #[serde(serialize_with = "rounded")]
     pub rms: f32,
     /// True on the one frame a beat lands on.
     pub beat: bool,
     /// How far the beat stood out from the music around it, 0 to 1; 0 when `beat` is false.
+    #[serde(serialize_with = "rounded")]
     pub beat_strength: f32,
     /// How suddenly the spectrum changed, 0 to 1 (spectral flux).
+    #[serde(serialize_with = "rounded")]
     pub onset: f32,
     /// The tempo in beats per minute once the rhythm has held steady for a few seconds.
     pub tempo_bpm: Option<f32>,
@@ -56,10 +61,19 @@ impl Frame {
     }
 }
 
+/// Four decimals, as an `f32` so that it prints as short as it is.
+fn round(value: f32) -> f32 {
+    (value * 10_000.0).round() / 10_000.0
+}
+
+fn rounded<S: Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_f32(round(*value))
+}
+
 /// serde implements `Serialize` for arrays only up to 32 elements.
 fn sequence<S: Serializer, const N: usize>(
     values: &[f32; N],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    serializer.collect_seq(values)
+    serializer.collect_seq(values.iter().copied().map(round))
 }

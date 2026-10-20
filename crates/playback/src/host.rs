@@ -273,7 +273,11 @@ where
 {
     Ok(device.build_output_stream(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| callback.render(data),
+        move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+            let timestamp = info.timestamp();
+            callback.set_latency(timestamp.playback.duration_since(timestamp.callback));
+            callback.render(data);
+        },
         on_error,
         None,
     )?)

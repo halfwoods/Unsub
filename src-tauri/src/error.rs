@@ -29,3 +29,9 @@ impl From<String> for CommandError {
         Self(message)
     }
 }
+
+impl From<antistreaming_visualize::Error> for CommandError {
+    fn from(error: antistreaming_visualize::Error) -> Self {
+        Self(error.to_string())
+    }
+}

@@ -1,6 +1,8 @@
 //! Local-file audio engine: decodes with symphonia (and FFmpeg for Opus, WavPack, APE and DSD)
 //! and plays through cpal, or through exclusive-mode WASAPI/hog-mode CoreAudio when bit-perfect.
 
+#[cfg(test)]
+mod alloc_probe;
 mod config;
 mod crossfade;
 mod decoder;
@@ -23,6 +25,7 @@ mod resample;
 #[cfg(test)]
 mod scenarios;
 mod symphonia_source;
+mod tap;
 mod timeline;
 mod transcode;
 #[cfg(windows)]
@@ -36,5 +39,6 @@ pub use live::LiveFormat;
 pub use loudness::{BlockHistogram, Loudness, album_loudness, analyze_loudness};
 pub use mix::ChannelLayout;
 pub use player::{PlaybackState, PlaybackStatus, Player, PlayerEvent};
+pub use tap::{Tap, TapBlock};
 pub use timeline::TrackOptions;
 pub use transcode::{Target, TranscodeOptions, ipod_compatible, transcode_file, transcode_stream};

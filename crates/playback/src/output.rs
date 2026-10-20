@@ -8,6 +8,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::equalizer::{Chain, EqControl};
 use crate::gain::{self, Ramp, Volume};
+use crate::tap::{TapHub, TapWriter};
 use crate::{Error, Result};
 
 /// Audio the engine can queue ahead of the device. Long enough to ride out a slow disk read,
@@ -28,6 +29,7 @@ pub struct Format {
 pub struct Controls {
     pub volume: Arc<Volume>,
     pub equalizer: Arc<EqControl>,
+    pub tap: Arc<TapHub>,
 }
 
 /// What the engine asks of an output stream for one source.
@@ -201,6 +203,10 @@ pub struct Callback {
     level: Ramp,
     channels: usize,
     flushed: u32,
+    /// Copies what is rendered for any [`crate::Tap`], without ever waiting on it.
+    tap: TapWriter,
+    /// How long after a block is rendered the speakers play it, as the host last reported.
+    latency: Duration,
 }
 
 impl Callback {
@@ -223,6 +229,8 @@ impl Callback {
                 .then(|| Chain::new(controls.equalizer, format.sample_rate, channels)),
             channels,
             flushed: 0,
+            tap: controls.tap.writer(format),
+            latency: Duration::ZERO,
         }
     }
 
@@ -241,6 +249,12 @@ impl Callback {
         }
     }
 
+    /// Sets when the next blocks reach the speakers, relative to when they are rendered: the
+    /// output latency, which hosts report with each callback or fix for the stream.
+    pub fn set_latency(&mut self, latency: Duration) {
+        self.latency = latency;
+    }
+
     pub fn render<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T]) {
         let request = self.shared.flush_request.load(Ordering::Acquire);
         let flushing = request != self.flushed;
@@ -253,6 +267,7 @@ impl Callback {
 
         let ready = self.consumer.slots() / self.channels * self.channels;
         let mut taken = 0;
+        let mut capture = self.tap.capture(data.len(), self.latency);
         match self.consumer.read_chunk(ready) {
             Ok(chunk) => {
                 let (head, tail) = chunk.as_slices();
@@ -275,6 +290,11 @@ impl Callback {
                                     Some(equalizer) => equalizer.process(channel, sample),
                                     None => sample,
                                 };
+                                if let Some(capture) = capture.as_mut() {
+                                    // The fade stays in so a paused player shows silence; the volume
+                                    // stays out so the picture does not shrink with the knob.
+                                    capture.push(sample * fade);
+                                }
                                 to_device(sample * scale)
                             }
                             None => T::EQUILIBRIUM,
@@ -284,6 +304,9 @@ impl Callback {
                 chunk.commit(taken);
             }
             Err(_) => data.fill(T::EQUILIBRIUM),
+        }
+        if let Some(capture) = capture {
+            capture.finish();
         }
         self.shared
             .consumed
@@ -327,7 +350,9 @@ mod tests {
     use cpal::I24;
 
     use super::*;
+    use crate::alloc_probe::allocations_during;
     use crate::equalizer::Equalizer;
+    use crate::tap::Tap;
 
     const RATE: u32 = 48_000;
 
@@ -336,6 +361,7 @@ mod tests {
         shared: Arc<Shared>,
         callback: Callback,
         equalizer: Arc<EqControl>,
+        hub: Arc<TapHub>,
     }
 
     fn rig(channels: u16, volume: f32) -> Rig {
@@ -350,9 +376,11 @@ mod tests {
             channels,
         };
         let equalizer = Arc::new(EqControl::default());
+        let hub = Arc::new(TapHub::default());
         let controls = Controls {
             volume: Arc::new(Volume::new(volume)),
             equalizer: Arc::clone(&equalizer),
+            tap: Arc::clone(&hub),
         };
         let callback = Callback::new(consumer, Arc::clone(&shared), controls, format, exact);
         Rig {
@@ -360,6 +388,7 @@ mod tests {
             shared,
             callback,
             equalizer,
+            hub,
         }
     }
 
@@ -636,5 +665,219 @@ mod tests {
         rig.producer.push_entire_slice(&[1.5, -1.5]).unwrap();
         let out = render_as::<f32>(&mut rig, 1_002);
         assert_eq!(&out[1_000..], [1.5, -1.5]);
+    }
+
+    fn tapped(tap: &mut Tap) -> Vec<f32> {
+        let mut samples = Vec::new();
+        while let Some(block) = tap.read() {
+            samples.extend_from_slice(block.samples);
+        }
+        samples
+    }
+
+    #[test]
+    fn the_tap_carries_exactly_what_the_device_is_given_at_full_volume() {
+        let mut rig = rig(2, 1.0);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        let ramp: Vec<f32> = (0..8_000)
+            .map(|n| (n as f32 / 4_000.0).sin() * 0.8)
+            .collect();
+        rig.producer.push_entire_slice(&ramp).unwrap();
+
+        let mut heard = Vec::new();
+        for _ in 0..4 {
+            heard.extend(render(&mut rig, 1_000));
+        }
+
+        assert_eq!(tapped(&mut tap), heard);
+    }
+
+    #[test]
+    fn the_tap_is_taken_before_the_volume() {
+        let mut rig = rig(1, 0.5);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        rig.producer.push_entire_slice(&[0.5; 2_000]).unwrap();
+
+        let heard = render(&mut rig, 2_000);
+        let tapped = tapped(&mut tap);
+
+        assert_eq!(
+            heard[1_999], 0.0625,
+            "cubic curve of 0.5 on a source of 0.5"
+        );
+        assert_eq!(tapped.len(), 2_000);
+        assert_eq!(
+            tapped[1_999], 0.5,
+            "the picture does not shrink with the knob"
+        );
+    }
+
+    #[test]
+    fn the_tap_is_taken_after_the_equalizer_and_matches_a_bit_perfect_stream() {
+        let quieter = Equalizer {
+            preamp_db: -6.0,
+            bands: [0.0; 10],
+        };
+        for (exact, expected) in [(false, 0.5 * 10f32.powf(-6.0 / 20.0)), (true, 0.5)] {
+            let mut rig = rig_with(1, 1.0, exact);
+            let mut tap = Tap::new(Arc::clone(&rig.hub));
+            rig.equalizer.set(Some(quieter));
+            rig.producer.push_entire_slice(&[0.5; 4_000]).unwrap();
+
+            let heard = render(&mut rig, 4_000);
+            let tapped = tapped(&mut tap);
+
+            assert!(
+                (tapped[3_999] - expected).abs() < 1e-5,
+                "exact {exact}: {}",
+                tapped[3_999]
+            );
+            assert_eq!(tapped, heard, "exact {exact}: volume is unity here");
+        }
+    }
+
+    #[test]
+    fn a_paused_stream_taps_its_fade_out_and_then_nothing() {
+        let mut rig = rig(2, 1.0);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        rig.producer.push_entire_slice(&[0.5; 20_000]).unwrap();
+        render(&mut rig, 2_000);
+        tapped(&mut tap);
+
+        rig.shared.paused.store(true, Ordering::Relaxed);
+        render(&mut rig, 600);
+        let fading = tapped(&mut tap);
+        assert!(!fading.is_empty() && fading.len() < 2 * 600);
+        assert!(fading[fading.len() - 1] < 0.01, "ends at silence");
+        render(&mut rig, 4_800);
+
+        assert!(tap.read().is_none());
+    }
+
+    #[test]
+    fn blocks_are_stamped_with_when_they_are_heard() {
+        let mut rig = rig(2, 1.0);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        rig.callback.set_latency(Duration::from_millis(40));
+        rig.producer.push_entire_slice(&[0.5; 40_000]).unwrap();
+
+        let mut stamps = Vec::new();
+        for _ in 0..10 {
+            let before = tap.now();
+            render(&mut rig, 500);
+            let after = tap.now();
+            let at = tap.read().expect("a block").at;
+            assert!(
+                at >= before + Duration::from_millis(40) && at <= after + Duration::from_millis(40),
+                "{before:?} {at:?} {after:?}"
+            );
+            stamps.push(at);
+        }
+
+        assert!(
+            stamps.windows(2).all(|pair| pair[0] <= pair[1]),
+            "monotonic"
+        );
+    }
+
+    #[test]
+    fn nothing_is_copied_while_nobody_reads() {
+        let mut rig = rig(2, 1.0);
+        rig.producer.push_entire_slice(&[0.5; 4_000]).unwrap();
+        render(&mut rig, 1_000);
+
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        assert!(tap.read().is_none());
+        assert_eq!(tap.dropped(), 0);
+
+        render(&mut rig, 500);
+        drop(tap);
+        render(&mut rig, 500);
+        let mut again = Tap::new(Arc::clone(&rig.hub));
+        assert!(again.read().is_none(), "a new tap starts from now");
+    }
+
+    #[test]
+    fn a_reader_that_falls_behind_loses_blocks_and_never_stalls_the_callback() {
+        let mut rig = rig(2, 1.0);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        let block = vec![0.25; 2 * 1_024];
+        // Three seconds against a tap that holds half of one.
+        for _ in 0..140 {
+            rig.producer.push_entire_slice(&block).unwrap();
+            render(&mut rig, 1_024);
+        }
+        assert_eq!(
+            consumed(&rig),
+            140 * 1_024,
+            "playback never waited on the tap"
+        );
+
+        let kept = tapped(&mut tap);
+        assert!(tap.dropped() > 0);
+        assert!(
+            !kept.is_empty() && kept.len() <= RATE as usize,
+            "{}",
+            kept.len()
+        );
+
+        rig.producer.push_entire_slice(&block).unwrap();
+        render(&mut rig, 1_024);
+        assert_eq!(
+            tapped(&mut tap).len(),
+            block.len(),
+            "flows again once drained"
+        );
+    }
+
+    #[test]
+    fn a_reopened_output_hands_the_tap_its_new_format() {
+        let hub = Arc::new(TapHub::default());
+        let mut tap = Tap::new(Arc::clone(&hub));
+        let mut formats = Vec::new();
+        for (sample_rate, channels) in [(44_100, 2), (96_000, 1)] {
+            let format = Format {
+                sample_rate,
+                channels,
+            };
+            let controls = Controls {
+                volume: Arc::new(Volume::new(1.0)),
+                equalizer: Arc::default(),
+                tap: Arc::clone(&hub),
+            };
+            let (mut callback, mut pipe) = Pipe::new(format, controls, false);
+            pipe.producer.push_entire_slice(&[0.5; 2_000]).unwrap();
+            callback.render(&mut vec![0.0_f32; 1_000 * usize::from(channels)]);
+            let block = tap.read().expect("a block");
+            formats.push((block.sample_rate, block.channels, block.samples.len()));
+        }
+
+        assert_eq!(formats, [(44_100, 2, 2_000), (96_000, 1, 1_000)]);
+    }
+
+    #[test]
+    fn copying_for_the_tap_allocates_nothing_in_the_callback() {
+        let mut rig = rig(2, 0.8);
+        let mut tap = Tap::new(Arc::clone(&rig.hub));
+        let block = vec![0.25; 2 * 700];
+        let mut data = vec![0.0_f32; 2 * 700];
+        let mut run = |rig: &mut Rig| {
+            rig.producer.push_entire_slice(&block).unwrap();
+            rig.callback.render(&mut data);
+        };
+        for _ in 0..10 {
+            run(&mut rig);
+            tapped(&mut tap);
+        }
+
+        // Enough to fill the tap and wrap its ring, so the dropping path is measured too.
+        let allocated = allocations_during(|| {
+            for _ in 0..200 {
+                run(&mut rig);
+            }
+        });
+
+        assert_eq!(allocated, 0);
+        assert!(tap.dropped() > 0, "the overrun path ran");
     }
 }

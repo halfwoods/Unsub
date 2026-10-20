@@ -19,6 +19,7 @@ mod sync;
 #[cfg(test)]
 mod test_support;
 mod updates;
+mod visualizer;
 
 use antistreaming_playback::Player;
 use tauri::Manager;
@@ -59,6 +60,7 @@ pub fn run() {
             app.manage(import::ImportState::default());
             app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
             app.manage(loudness::LoudnessState::default());
+            app.manage(visualizer::VisualizerState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
             let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
@@ -196,6 +198,9 @@ pub fn run() {
             radio::radio_play_directory,
             radio::radio_open_stream,
             radio::radio_import,
+            visualizer::visualizer_start,
+            visualizer::visualizer_stop,
+            visualizer::visualizer_mic_devices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AntiStreaming");

@@ -38,6 +38,8 @@ import { addDropped } from "./radio/importStations";
 import { OpenStream } from "./radio/OpenStream";
 import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
+import { VISUALIZER_STYLES } from "./visualizer/styles";
+import { VisualizerPane } from "./visualizer/VisualizerPane";
 import { UpdateSheet } from "./updates/UpdateSheet";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
@@ -55,11 +57,13 @@ async function importLibraryXml() {
 }
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, openImportSheet, showDuplicates, showNotice } =
+  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, setVisualizer, openLibrarySheet, openImportSheet, showDuplicates, showNotice } =
     useApp.getState();
   const { source, selection, tracks, chapters } = useApp.getState();
   // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
   const inLibrary = isLibrarySource(source) || isPlaylistSource(source);
+  const visualizerStyle = VISUALIZER_STYLES.find((style) => action === `visualizer-${style}`);
+  if (visualizerStyle) return setVisualizer({ style: visualizerStyle, open: true });
   switch (action) {
     case "get-info":
       if (inLibrary && selection.size > 0) openLibrarySheet({ type: "info", trackIds: [...selection] });
@@ -90,6 +94,8 @@ function runMenuAction(action: MenuAction) {
       return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
       return setPreferencesOpen(true);
+    case "show-visualizer":
+      return setVisualizer({ open: !useApp.getState().visualizer.open });
     case "new-playlist":
       return void createPlaylist("regular");
     case "new-playlist-from-selection":
@@ -193,6 +199,7 @@ export default function App() {
   const openingStream = useApp((s) => s.openingStream);
   const importSheet = useApp((s) => s.importSheet);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
+  const visualizerOpen = useApp((s) => s.visualizer.open);
   useBackendEvents();
   useGlobalKeys();
 
@@ -202,6 +209,7 @@ export default function App() {
       <div className="window-body">
         <Sidebar />
         <Content />
+        {visualizerOpen && <VisualizerPane />}
       </div>
       <BottomBar />
       {/* Keyed so each opening starts from that playlist's saved rules. */}

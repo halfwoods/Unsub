@@ -1,5 +1,7 @@
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { VisualizerFrame, VisualizerSource } from "../visualizer/feed";
+import type { VisualizerStyle } from "../visualizer/styles";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -53,6 +55,7 @@ import type {
   Track,
   TrackQuery,
   InstallEvent,
+  MicDevice,
   UpdateResult,
   UpdatesStatus,
 } from "./types";
@@ -252,6 +255,16 @@ export const onUpdateResult = (handler: (result: UpdateResult) => void): Promise
   listen<UpdateResult>("updates://result", (e) => handler(e.payload));
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
+export const visualizerStart = (onFrame: (frame: VisualizerFrame) => void, source: VisualizerSource) => {
+  const channel = new Channel<VisualizerFrame>();
+  channel.onmessage = onFrame;
+  return invoke<void>("visualizer_start", { onFrame: channel, source });
+};
+export const visualizerStop = () => invoke<void>("visualizer_stop");
+export const visualizerMicDevices = () => invoke<MicDevice[]>("visualizer_mic_devices");
+/** The analysis stopped by itself, with the reason to show: a microphone that was unplugged. */
+export const onVisualizerEnded = (handler: (reason: string) => void): Promise<UnlistenFn> =>
+  listen<string>("visualizer://ended", (e) => handler(e.payload));
 
 export const radioGenres = () => invoke<RadioGenre[]>("radio_genres");
 export const radioStations = (genre: string, offset: number, limit: number) =>
@@ -306,6 +319,8 @@ export type MenuAction =
   | "import-music-library"
   | "import-library-xml"
   | "equalizer"
-  | "preferences";
+  | "preferences"
+  | "show-visualizer"
+  | `visualizer-${VisualizerStyle}`;
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

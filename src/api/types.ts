@@ -656,3 +656,10 @@ export interface RadioTitle {
   artist: string | null;
   title: string | null;
 }
+
+/** A microphone the visualizer can listen to. `id` is what `visualizer_start` takes as the device. */
+export interface MicDevice {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}

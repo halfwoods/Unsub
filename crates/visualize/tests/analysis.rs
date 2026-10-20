@@ -400,6 +400,76 @@ fn a_frame_serializes_with_the_names_the_renderer_reads() {
 }
 
 #[test]
+fn a_frame_is_small_and_short_enough_for_the_webview_to_take_directly() {
+    // The worst case is a loud, busy signal: every waveform point and band is a long fraction.
+    let mut analyzer = Analyzer::new(RATE, 2);
+    analyzer.push(&stereo(&noise(2.0, RATE, 5)), secs(0.0));
+
+    let json = serde_json::to_string(&at(&analyzer, 1.0)).unwrap();
+
+    assert!(json.len() < 8192, "{} bytes", json.len());
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    for name in ["bands", "peaks", "waveformL", "waveformR"] {
+        for level in value[name].as_array().unwrap() {
+            let level = level.as_f64().unwrap();
+            assert!(
+                ((level * 1e4).round() - level * 1e4).abs() < 1e-6,
+                "{name}: {level}"
+            );
+        }
+    }
+}
+
+#[test]
+fn beat_between_finds_beats_the_frames_asked_for_did_not_have_yet() {
+    let times = beat_times(120.0, 0.25, 12.0);
+    let signal = with_bursts(12.0, RATE, &times, &kick(RATE));
+    // Asking for the frame at the end of each block, as a mic does, always gets the newest frame,
+    // and a frame only learns it is a beat from the one after it.
+    let run = play(&stereo(&signal), 2, RATE, 512, 0.0, 0.0);
+    let analyzer = &run.analyzer;
+    let seen = run.frames.values().filter(|frame| frame.beat).count();
+    assert!(
+        seen <= 2,
+        "{seen} beats were on frames as they were asked for"
+    );
+
+    // The analyzer keeps the last second of frames, so look at the clicks in it.
+    let mut strongest = 0.0_f32;
+    for &click in times.iter().filter(|&&t| t > 11.0) {
+        let click = f64::from(click);
+        let found = analyzer.beat_between(secs(click - 0.02), secs(click + 0.02));
+        let strength = found.unwrap_or_else(|| panic!("no beat near {click} s"));
+        assert!(strength > 0.0 && strength <= 1.0);
+        assert_eq!(
+            analyzer.beat_between(secs(click + 0.1), secs(click + 0.4)),
+            None,
+            "nothing between the clicks"
+        );
+        strongest = strongest.max(strength);
+    }
+    assert_eq!(
+        analyzer.beat_between(secs(11.0), secs(12.0)),
+        Some(strongest)
+    );
+    assert_eq!(analyzer.beat_between(secs(12.0), secs(11.0)), None);
+}
+
+#[test]
+fn beats_are_known_up_to_the_frame_before_the_newest() {
+    let mut analyzer = Analyzer::new(RATE, 1);
+    assert_eq!(analyzer.beats_known_until(), None);
+    analyzer.push(&sine(440.0, 0.5, 1.0, RATE), secs(0.0));
+
+    let newest = at(&analyzer, 1.0);
+    let known = analyzer.beats_known_until().expect("two frames by now");
+
+    let known_ms = known.as_millis() as u64;
+    assert!(known_ms < newest.t_ms, "{known_ms} against {}", newest.t_ms);
+    assert!(known_ms + 40 > newest.t_ms, "one frame behind, not more");
+}
+
+#[test]
 fn a_click_track_gives_beats_on_the_clicks_and_the_tempo() {
     for rate in [32_000, 44_100, 48_000, 96_000, 192_000] {
         for (name, burst) in [("kick", kick(rate)), ("click", click(rate))] {

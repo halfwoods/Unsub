@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MockFeed, BAND_COUNT, WAVEFORM_LENGTH } from "../feed.ts";
+import { MockFeed, TauriFeed, BAND_COUNT, WAVEFORM_LENGTH } from "../feed.ts";
 
 test("frames have the shape the analyzer promises", () => {
   const frame = new MockFeed().frameAt(3210);
@@ -89,4 +89,101 @@ test("it can be started and stopped like the real feed", async () => {
   assert.ok(!feed.running);
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.equal(count, atStop);
+});
+
+/** A backend that records what it is asked and lets the test decide when each request finishes. */
+function fakeBackend() {
+  const calls = [];
+  const gates = [];
+  const gate = () => new Promise((resolve) => gates.push(resolve));
+  return {
+    calls,
+    emit: (frame) => calls.findLast((call) => call.name === "start").onFrame(frame),
+    release: () => gates.splice(0).forEach((resolve) => resolve()),
+    start(onFrame, source) {
+      calls.push({ name: "start", onFrame, source });
+      return gate();
+    },
+    stop() {
+      calls.push({ name: "stop" });
+      return gate();
+    },
+  };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const MIC = { type: "microphone", device: "usb-1" };
+
+test("the backend starts with the first listener and stops with the last", async () => {
+  const backend = fakeBackend();
+  const feed = new TauriFeed(backend, MIC, assert.fail);
+  assert.deepEqual(backend.calls, [], "nothing runs until somebody listens");
+
+  const first = feed.onFrame(() => {});
+  const second = feed.onFrame(() => {});
+  await settle();
+  assert.deepEqual(backend.calls.map((call) => call.name), ["start"]);
+  assert.deepEqual(backend.calls[0].source, MIC);
+
+  first();
+  await settle();
+  assert.equal(backend.calls.length, 1, "one listener is still left");
+  second();
+  second();
+  backend.release();
+  await settle();
+  assert.deepEqual(backend.calls.map((call) => call.name), ["start", "stop"]);
+});
+
+test("every listener gets every frame the backend sends", async () => {
+  const backend = fakeBackend();
+  const feed = new TauriFeed(backend, { type: "music" }, assert.fail);
+  const a = [];
+  const b = [];
+  feed.onFrame((frame) => a.push(frame.tMs));
+  const stopB = feed.onFrame((frame) => b.push(frame.tMs));
+  await settle();
+
+  backend.emit(new MockFeed().frameAt(10));
+  stopB();
+  backend.emit(new MockFeed().frameAt(20));
+
+  assert.deepEqual(a, [10, 20]);
+  assert.deepEqual(b, [10]);
+});
+
+test("a stop waits for the start before it, and a start for the stop before it", async () => {
+  const backend = fakeBackend();
+  const feed = new TauriFeed(backend, { type: "music" }, assert.fail);
+
+  // Hidden and shown again before the backend has answered even the first request.
+  feed.onFrame(() => {})();
+  feed.onFrame(() => {});
+  await settle();
+  assert.deepEqual(backend.calls.map((call) => call.name), ["start"]);
+
+  backend.release();
+  await settle();
+  assert.deepEqual(backend.calls.map((call) => call.name), ["start", "stop"]);
+  backend.release();
+  await settle();
+  assert.deepEqual(backend.calls.map((call) => call.name), ["start", "stop", "start"]);
+});
+
+test("a backend that cannot start is reported, and the feed carries on", async () => {
+  const errors = [];
+  let attempts = 0;
+  const backend = {
+    start: () => (++attempts === 1 ? Promise.reject("microphone access was denied") : Promise.resolve()),
+    stop: () => Promise.resolve(),
+  };
+  const feed = new TauriFeed(backend, MIC, (error) => errors.push(error));
+
+  feed.onFrame(() => {})();
+  feed.onFrame(() => {});
+  await settle();
+  await settle();
+
+  assert.deepEqual(errors, ["microphone access was denied"]);
+  assert.equal(attempts, 2, "the second listener still got its start");
 });

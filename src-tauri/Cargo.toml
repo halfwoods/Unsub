@@ -30,8 +30,15 @@ antistreaming-cdrip.workspace = true
 antistreaming-devicesync.workspace = true
 antistreaming-remote.workspace = true
 antistreaming-radio.workspace = true
+antistreaming-visualize.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+# macOS only: ask for microphone access up front, since a refusal is otherwise just silence.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"

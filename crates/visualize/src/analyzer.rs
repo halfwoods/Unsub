@@ -234,6 +234,30 @@ impl Analyzer {
         Some(frame)
     }
 
+    /// The strongest beat marked on a frame made after `after` and no later than `upto` (times on
+    /// the clock of `push`), or `None` if there is none.
+    ///
+    /// A frame is marked as a beat only once the frame after it is made, so a frame that `frame_at`
+    /// returned a moment ago may have gained a beat since, and at sample rates that make more than
+    /// 60 frames a second some frames are never asked for. Asking for the range since the last
+    /// time catches both; see [`Analyzer::beats_known_until`] for how far it can be trusted.
+    pub fn beat_between(&self, after: Duration, upto: Duration) -> Option<f32> {
+        let (after, upto) = (after.as_secs_f64(), upto.as_secs_f64());
+        self.frames
+            .iter()
+            .filter(|stored| stored.frame.beat && stored.time > after && stored.time <= upto)
+            .map(|stored| stored.frame.beat_strength)
+            .max_by(f32::total_cmp)
+    }
+
+    /// The time of the newest frame whose beat is settled: this and every earlier frame already
+    /// has the `beat` it will ever have. The newest frame is not settled, because whether it is a
+    /// beat is only learned from the frame after it. `None` until there are two frames.
+    pub fn beats_known_until(&self) -> Option<Duration> {
+        let settled = self.frames.recent(1)?;
+        Some(Duration::try_from_secs_f64(settled.time).unwrap_or_default())
+    }
+
     fn begin_segment(&mut self, at: f64) {
         self.signal.begin_segment(at);
         self.start_segment_state();

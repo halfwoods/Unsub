@@ -1,3 +1,5 @@
+import { VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles";
+
 /** Playback choices are per Mac (its audio device, its speakers), so they live in localStorage. */
 function load(key: string): boolean {
   try {
@@ -45,3 +47,21 @@ export const saveEqualizer = (prefs: EqualizerPrefs) => save("antistreaming.equa
 /** Crossfade Songs' length in seconds, or null when it's off. */
 export const loadCrossfade = () => loadJson<{ seconds: number | null }>("antistreaming.crossfade", { seconds: null }).seconds;
 export const saveCrossfade = (seconds: number | null) => save("antistreaming.crossfade", { seconds });
+
+export interface VisualizerPrefs {
+  style: VisualizerStyle;
+  /** Keeps the picture to three flashes a second; on unless a viewer who can take it turns it off. */
+  limitFlashing: boolean;
+  /** Listens through the microphone instead of the music. Off until chosen, as it prompts macOS. */
+  microphone: boolean;
+  /** The microphone to listen to; null for the system's default. */
+  microphoneDevice: string | null;
+}
+
+const VISUALIZER: VisualizerPrefs = { style: "classic", limitFlashing: true, microphone: false, microphoneDevice: null };
+export function loadVisualizerPrefs(): VisualizerPrefs {
+  const prefs = loadJson("antistreaming.visualizer", VISUALIZER);
+  // A style from some other version must not reach the renderer.
+  return VISUALIZER_STYLES.includes(prefs.style) ? prefs : { ...prefs, style: VISUALIZER.style };
+}
+export const saveVisualizerPrefs = (prefs: VisualizerPrefs) => save("antistreaming.visualizer", prefs);

@@ -8,6 +8,8 @@
   <string>AntiStreaming asks Music to download the songs you bought or uploaded to iCloud, so it can import them.</string>
   <key>NSLocalNetworkUsageDescription</key>
   <string>AntiStreaming finds the libraries other people share on your network, and shares yours with them and your phone.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>AntiStreaming's visualizer can react to sound around you, like a record player. Nothing is recorded or kept.</string>
   <key>NSBonjourServices</key>
   <array>
     <string>_antistreaming._tcp</string>

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: our own frame needs drag, minimize, zoom and close.",
+  "description": "Main window: our own frame needs drag, minimize, zoom and close, and the visualizer goes full screen.",
   "windows": [
     "main"
   ],
@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-close",
+    "core:window:allow-set-fullscreen",
     "opener:default",
     "dialog:default"
   ]

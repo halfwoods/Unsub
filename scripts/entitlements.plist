@@ -6,5 +6,10 @@
        purchased songs (see NSAppleEventsUsageDescription in src-tauri/Info.plist). -->
   <key>com.apple.security.automation.apple-events</key>
   <true/>
+  <!-- Hardened runtime blocks microphone access unless asked for; the visualizer's "React to sound"
+       listens through it when the user turns that on (see NSMicrophoneUsageDescription in
+       src-tauri/Info.plist). -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

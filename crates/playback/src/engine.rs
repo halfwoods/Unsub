@@ -655,6 +655,7 @@ impl Engine {
         let controls = Controls {
             volume: Arc::clone(&self.shared.volume),
             equalizer: Arc::clone(&self.shared.equalizer),
+            tap: Arc::clone(&self.shared.tap),
         };
         self.host.open(request, controls, Box::new(on_failure))
     }
@@ -1437,6 +1438,7 @@ mod tests {
                 status: Mutex::new(PlaybackStatus::stopped(0.0)),
                 volume,
                 equalizer: Arc::default(),
+                tap: Arc::default(),
                 crossfade_ms: AtomicU32::new(0),
                 live_buffer_ms: AtomicU32::new(0),
                 bit_perfect: AtomicBool::new(false),

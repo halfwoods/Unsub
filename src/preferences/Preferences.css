@@ -134,3 +134,11 @@
 .prefs-crossfade input {
   width: 220px;
 }
+
+.prefs-device {
+  margin: 4px 0 2px 22px;
+}
+
+.prefs-visualizer {
+  margin-top: 18px;
+}

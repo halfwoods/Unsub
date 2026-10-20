@@ -1937,3 +1937,190 @@ mod live {
         assert!(rig.until_live_ended().contains("ffmpeg"));
     }
 }
+
+mod tap {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::thread::{self, JoinHandle};
+
+    use super::*;
+    use crate::Tap;
+
+    /// Everything a tap handed over while a track played.
+    struct Tapped {
+        samples: Vec<f32>,
+        stamps: Vec<Duration>,
+        /// The (rate, channels) of each run of blocks.
+        formats: Vec<(u32, u16)>,
+        dropped: u64,
+        clock_at_end: Duration,
+    }
+
+    /// Reads `tap` as a visualizer would, from a thread of its own, until told to finish.
+    struct Reader {
+        finish: Arc<AtomicBool>,
+        blocks: Arc<AtomicUsize>,
+        thread: JoinHandle<Tapped>,
+    }
+
+    impl Reader {
+        fn start(mut tap: Tap) -> Reader {
+            let finish = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&finish);
+            let blocks = Arc::new(AtomicUsize::new(0));
+            let count = Arc::clone(&blocks);
+            let thread = thread::spawn(move || {
+                let mut tapped = Tapped {
+                    samples: Vec::new(),
+                    stamps: Vec::new(),
+                    formats: Vec::new(),
+                    dropped: 0,
+                    clock_at_end: Duration::ZERO,
+                };
+                loop {
+                    let finishing = flag.load(Ordering::Acquire);
+                    while let Some(block) = tap.read() {
+                        let format = (block.sample_rate, block.channels);
+                        if tapped.formats.last() != Some(&format) {
+                            tapped.formats.push(format);
+                        }
+                        tapped.stamps.push(block.at);
+                        count.fetch_add(1, Ordering::Release);
+                        tapped.samples.extend_from_slice(block.samples);
+                    }
+                    if finishing {
+                        tapped.dropped = tap.dropped();
+                        tapped.clock_at_end = tap.now();
+                        return tapped;
+                    }
+                    thread::sleep(Duration::from_micros(500));
+                }
+            });
+            Reader {
+                finish,
+                blocks,
+                thread,
+            }
+        }
+
+        /// Waits until the first block has been read.
+        fn started(&self) {
+            let deadline = Instant::now() + PATIENCE;
+            while self.blocks.load(Ordering::Acquire) == 0 {
+                assert!(Instant::now() < deadline, "the tap never delivered a block");
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        fn finish(self) -> Tapped {
+            self.finish.store(true, Ordering::Release);
+            self.thread.join().unwrap()
+        }
+    }
+
+    /// The device plays in real time, so a reader polling every half millisecond has the tap's
+    /// whole half second of slack against a busy machine, and nothing is dropped.
+    fn realtime() -> Config {
+        Config {
+            speed: 1,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn the_tap_has_what_the_device_was_given_and_when() {
+        let mut rig = rig(realtime());
+        let reader = Reader::start(rig.player.tap());
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.until_stopped();
+        let tapped = reader.finish();
+
+        assert_eq!(tapped.dropped, 0);
+        assert_eq!(tapped.formats, [(44_100, 2)]);
+        let heard = rig.heard();
+        assert!(
+            tapped.samples.len() > 4_256,
+            "{} samples tapped",
+            tapped.samples.len()
+        );
+        let at = find(&heard, &tapped.samples[4_000..4_256]).expect("the tap matches the device");
+        let start = at - 4_000;
+        assert!(
+            heard[start..start + tapped.samples.len()] == tapped.samples[..],
+            "at full volume the tap is the device's own samples"
+        );
+        assert!(tapped.stamps.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(tapped.stamps.iter().all(|&at| at <= tapped.clock_at_end));
+    }
+
+    #[test]
+    fn the_tap_ignores_the_volume_that_quietens_the_device() {
+        let mut rig = rig(realtime());
+        rig.player.set_volume(0.3);
+        let reader = Reader::start(rig.player.tap());
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.until_stopped();
+        let tapped = reader.finish();
+
+        let source = decode("sine.flac");
+        assert_eq!(tapped.dropped, 0);
+        assert_played(&tapped.samples, &source, 0, 2_000);
+        let peak = |samples: &[f32]| samples.iter().fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        assert!(
+            peak(&rig.heard()) < 0.05 * peak(&source),
+            "the device is quiet"
+        );
+    }
+
+    #[test]
+    fn a_bit_perfect_stream_is_tapped_unchanged_too() {
+        let mut rig = rig(realtime());
+        let reader = Reader::start(rig.player.tap());
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.until_stopped();
+        let tapped = reader.finish();
+
+        assert_eq!(tapped.dropped, 0);
+        assert_played(&tapped.samples, &decode("sine.flac"), 0, 2_000);
+        assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+    }
+
+    #[test]
+    fn a_new_output_format_reaches_the_tap_with_its_blocks() {
+        let mut rig = rig(realtime());
+        let reader = Reader::start(rig.player.tap());
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        // The reopen must find the first format already read, or there would be nothing to see change.
+        reader.started();
+        rig.player.play(2, fixture("sine-24bit-96k.flac"));
+        rig.until_playing(2);
+        rig.until_stopped();
+        let tapped = reader.finish();
+
+        let rates: Vec<u32> = tapped.formats.iter().map(|&(rate, _)| rate).collect();
+        assert_eq!(rates, [44_100, 96_000]);
+        assert_eq!(rig.opened().len(), 2);
+    }
+
+    #[test]
+    fn a_tap_nobody_reads_drops_blocks_and_playback_carries_on() {
+        let mut rig = rig(Config::default());
+        let tap = rig.player.tap();
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.until_stopped();
+
+        let source = decode("sine.flac");
+        let half_second = 44_100; // stereo samples at 44.1 kHz
+        assert!(
+            source.len() > half_second + 8_192,
+            "the track outlasts what the tap keeps"
+        );
+        assert!(tap.dropped() > 0);
+        assert_played(&rig.heard(), &source, 0, 2_000);
+    }
+}

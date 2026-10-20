@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { loadVisualizerPrefs, saveVisualizerPrefs, type VisualizerPrefs } from "../preferences/playbackPrefs";
 import { applyTextSizes, listRowHeight, loadTextSizes, saveTextSizes, type TextSizes } from "../preferences/textSizes";
 import * as api from "../api/commands";
 import type {
@@ -228,6 +229,8 @@ interface AppState {
   liveTitle: RadioTitle | null;
   liveLink: RadioLink | null;
   equalizerOpen: boolean;
+  /** `open` is whether the visualizer replaces the window's body; the rest persists. */
+  visualizer: VisualizerPrefs & { open: boolean };
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -279,6 +282,7 @@ interface AppState {
   setRenamingPlaylist: (id: number | null) => void;
   openSmartEditor: (editor: SmartEditor | null) => void;
   setPreferencesOpen: (open: boolean) => void;
+  setVisualizer: (changes: Partial<VisualizerPrefs & { open: boolean }>) => void;
   setTextSizes: (sizes: TextSizes) => void;
   playAlbum: (key: string) => Promise<void>;
   playTrackIds: (trackIds: number[]) => Promise<void>;
@@ -323,6 +327,7 @@ export const useApp = create<AppState>((set, get) => ({
   liveTitle: null,
   liveLink: null,
   equalizerOpen: false,
+  visualizer: { ...loadVisualizerPrefs(), open: false },
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
@@ -600,6 +605,12 @@ export const useApp = create<AppState>((set, get) => ({
   openSmartEditor: (smartEditor) => set({ smartEditor }),
 
   setPreferencesOpen: (preferencesOpen) => set({ preferencesOpen }),
+
+  setVisualizer: (changes) => {
+    const { open, ...prefs } = { ...get().visualizer, ...changes };
+    saveVisualizerPrefs(prefs);
+    set({ visualizer: { ...prefs, open } });
+  },
 
   setTextSizes: (textSizes) => {
     saveTextSizes(textSizes);

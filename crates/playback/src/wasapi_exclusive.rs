@@ -121,6 +121,9 @@ struct Session {
     sample: Sample,
     channels: usize,
     block_align: usize,
+    /// How long the device's whole buffer takes to play, which is how far ahead of the speakers
+    /// each fill is.
+    latency: Duration,
     scratch: Scratch,
     bytes: Vec<u8>,
 }
@@ -149,6 +152,7 @@ fn render_thread(
         }
     };
     let _ = ready.send(Ok(session.sample));
+    callback.set_latency(session.latency);
 
     // Wait for the engine to prime the ring, so the first buffers already hold audio.
     while !control.start.load(Ordering::Acquire) {
@@ -227,6 +231,7 @@ impl Session {
             sample,
             channels,
             block_align,
+            latency: Duration::from_secs_f64(capacity as f64 / f64::from(source.sample_rate)),
             scratch: Scratch {
                 ints16: vec![0; capacity * channels],
                 ints32: vec![0; capacity * channels],

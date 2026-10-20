@@ -14,6 +14,7 @@ use crate::equalizer::{EqControl, Equalizer};
 use crate::gain::Volume;
 use crate::host::{Host, SystemHost};
 use crate::live::LiveFormat;
+use crate::tap::{Tap, TapHub};
 use crate::timeline::TrackOptions;
 
 const MIN_CROSSFADE_MS: u128 = 1_000;
@@ -136,6 +137,8 @@ pub(crate) struct Shared {
     pub volume: Arc<Volume>,
     /// Applied by the audio callback; ignored while a stream is bit-perfect.
     pub equalizer: Arc<EqControl>,
+    /// Copies of the output for any [`Tap`].
+    pub tap: Arc<TapHub>,
     /// Crossfade length in milliseconds, zero for none.
     pub crossfade_ms: AtomicU32,
     /// How much of a live stream to decode before playing it, in milliseconds.
@@ -171,6 +174,7 @@ impl Player {
             status: Mutex::new(PlaybackStatus::stopped(volume.get())),
             volume,
             equalizer: Arc::new(EqControl::default()),
+            tap: Arc::default(),
             crossfade_ms: AtomicU32::new(0),
             live_buffer_ms: AtomicU32::new(DEFAULT_LIVE_BUFFER_MS),
             bit_perfect: AtomicBool::new(false),
@@ -331,6 +335,12 @@ impl Player {
     /// [`PlayerEvent::Notice`] says why.
     pub fn set_bit_perfect(&self, enabled: bool) {
         self.send(Command::SetBitPerfect(enabled));
+    }
+
+    /// A read-only view of what is being played, for the visualizer: the audio after the
+    /// equalizer and before the volume, with the time each block is heard. See [`Tap`].
+    pub fn tap(&self) -> Tap {
+        Tap::new(Arc::clone(&self.shared.tap))
     }
 
     /// The engine refreshes this every 10 ms, so the position is at most that stale.

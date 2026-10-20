@@ -9,8 +9,9 @@ import {
   playerSetSoundCheck,
   sharingStatus,
   sharingUpdate,
+  visualizerMicDevices,
 } from "../api/commands";
-import type { MediaSettings, SharingSettings, SharingStatus } from "../api/types";
+import type { MediaSettings, MicDevice, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
 import { AutoUpdateSetting } from "../updates/UpdateSheet";
 import { loadBitPerfect, loadCrossfade, loadSoundCheck, saveBitPerfect, saveCrossfade, saveSoundCheck } from "./playbackPrefs";
@@ -113,6 +114,52 @@ function GeneralTab() {
   );
 }
 
+/** The visualizer's two choices; the style is picked from the View menu. */
+function VisualizerSettings() {
+  const { limitFlashing, microphone, microphoneDevice } = useApp((s) => s.visualizer);
+  const setVisualizer = useApp((s) => s.setVisualizer);
+  const showNotice = useApp((s) => s.showNotice);
+  const [devices, setDevices] = useState<MicDevice[]>([]);
+  // Listing opens no microphone, but there is nothing to pick from until it is wanted.
+  useEffect(() => {
+    if (microphone) void visualizerMicDevices().then(setDevices, (e: unknown) => showNotice(String(e)));
+  }, [microphone, showNotice]);
+  return (
+    <div className="prefs-box prefs-visualizer">
+      <div className="prefs-box-title">Visualizer</div>
+      <label className="prefs-check">
+        <input type="checkbox" checked={limitFlashing} onChange={(e) => setVisualizer({ limitFlashing: e.target.checked })} />
+        Limit flashing
+      </label>
+      <p className="prefs-note">Keeps the picture to no more than three bright flashes a second, for people who are sensitive to flashing lights.</p>
+      <label className="prefs-check">
+        <input type="checkbox" checked={microphone} onChange={(e) => setVisualizer({ microphone: e.target.checked })} />
+        React to sound around you (microphone)
+      </label>
+      <div className="prefs-device">
+        <select
+          className="smart-popup"
+          aria-label="Microphone"
+          disabled={!microphone}
+          value={microphoneDevice ?? ""}
+          onChange={(e) => setVisualizer({ microphoneDevice: e.target.value || null })}
+        >
+          <option value="">System default</option>
+          {devices.map((device) => (
+            <option key={device.id} value={device.id}>
+              {device.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="prefs-note">
+        The visualizer follows the room instead of the music, so it can keep time with a record player or an instrument. macOS
+        asks for permission the first time. Nothing is recorded or kept.
+      </p>
+    </div>
+  );
+}
+
 function PlaybackTab() {
   const [bitPerfect, setBitPerfect] = useState(loadBitPerfect);
   const [soundCheck, setSoundCheck] = useState(loadSoundCheck);
@@ -182,6 +229,7 @@ function PlaybackTab() {
           <strong>{outputFormat}</strong>
         </div>
       )}
+      <VisualizerSettings />
     </div>
   );
 }

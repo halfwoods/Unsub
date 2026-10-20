@@ -24,6 +24,16 @@ export interface VisualizerFeed {
   onFrame(callback: (frame: VisualizerFrame) => void): () => void;
 }
 
+/** Where the app's analysis listens: what the player is playing, or the microphone. */
+export type VisualizerSource = { type: "music" } | { type: "microphone"; device: string | null };
+
+/** What `TauriFeed` asks of the app's backend. */
+export interface FeedBackend {
+  /** Starts, or restarts, the analysis; `onFrame` is called for each frame it makes. */
+  start(onFrame: (frame: VisualizerFrame) => void, source: VisualizerSource): Promise<void>;
+  stop(): Promise<void>;
+}
+
 export const BAND_COUNT = 64;
 export const WAVEFORM_LENGTH = 256;
 
@@ -144,5 +154,41 @@ export class MockFeed implements VisualizerFeed {
       // The real analyzer needs a few seconds of music before it commits to a tempo.
       tempoBpm: t < 2 ? null : this.bpm,
     };
+  }
+}
+
+/**
+ * The app's real feed: frames from the backend's analyzer over a channel. The backend works only
+ * while somebody is listening, so a hidden visualizer costs nothing and the microphone is never
+ * opened for a picture that is not showing.
+ */
+export class TauriFeed implements VisualizerFeed {
+  private readonly listeners = new Set<(frame: VisualizerFrame) => void>();
+  private readonly backend: FeedBackend;
+  private readonly source: VisualizerSource;
+  private readonly onError: (error: unknown) => void;
+  /** Starts and stops run one after another: the backend answers them in whatever order they land. */
+  private pending: Promise<void> = Promise.resolve();
+
+  constructor(backend: FeedBackend, source: VisualizerSource, onError: (error: unknown) => void) {
+    this.backend = backend;
+    this.source = source;
+    this.onError = onError;
+  }
+
+  onFrame(callback: (frame: VisualizerFrame) => void): () => void {
+    this.listeners.add(callback);
+    if (this.listeners.size === 1) this.run(() => this.backend.start((frame) => this.deliver(frame), this.source));
+    return () => {
+      if (this.listeners.delete(callback) && this.listeners.size === 0) this.run(() => this.backend.stop());
+    };
+  }
+
+  private deliver(frame: VisualizerFrame): void {
+    for (const listener of this.listeners) listener(frame);
+  }
+
+  private run(task: () => Promise<void>): void {
+    this.pending = this.pending.then(task).catch(this.onError);
   }
 }
