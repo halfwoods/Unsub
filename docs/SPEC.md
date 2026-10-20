@@ -96,3 +96,17 @@ Each milestone ends with something you can run.
     - **Rules:** Sound Check and crossfade don't apply to streams. Bit-perfect output still applies, for lossless streams such as FLAC-over-Icecast.
     - **Implementation note:** the bundled FFmpeg is built without its own networking. The app fetches streams itself and feeds the bytes through a custom reader, the same path a growing download uses. The directory client, ICY parsing and HLS live in a new `crates/radio`.
     - **Not planned:** recording streams.
+17. **Visualizer** — View › Show Visualizer (⌘T), filling the window or the screen as iTunes' did, and moving with the music.
+    - **Listening:**
+      - The engine taps what's actually going to the speakers, after Sound Check, crossfade and the equalizer, and lined up with the output's latency so beats land on time.
+      - Every frame it publishes a log-spaced spectrum (about 64 bands), a waveform snapshot, loudness, and beat and onset detection from spectral flux.
+      - The tap is read-only, so bit-perfect output stays bit-perfect.
+    - **Sound around you (optional):** "React to sound" listens through the microphone instead, so it can follow a record player, an instrument or a room. It's off until chosen, and macOS asks for microphone permission when it is. Nothing is recorded or kept.
+    - **Styles (our own designs, GPU-drawn with WebGL2 at the display's refresh rate):**
+      - **Classic:** flowing, mirrored colour trails with feedback, in the spirit of the early iTunes visualizer.
+      - **Lights:** a particle field that blooms on beats, in the spirit of iTunes 8's.
+      - **Spectrum:** analyzer bars with peak caps.
+      - **Scope:** an oscilloscope, including X/Y Lissajous for stereo.
+      - **Album:** the cover, pulsing and tinted by the music.
+    - **Overlay:** the now-playing title and artist fade in on each new song. Keys switch styles and toggle full screen. It pauses when hidden and idles when the music does.
+    - **Safety:** an option to limit flashing (no more than three bright flashes a second) for photosensitive viewers, on by default.
