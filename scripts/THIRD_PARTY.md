@@ -9,8 +9,8 @@ FFmpeg. It is not legal advice.
 | Component | Version | Licence | macOS | Windows |
 |---|---|---|---|---|
 | FFmpeg (libavcodec, libavformat, libavutil, libswresample) | 8.1.2 | LGPL-2.1-or-later | `scripts/build-ffmpeg-macos.sh` | vcpkg `ffmpeg`, pinned in `scripts/install-ffmpeg-windows.ps1` |
-| LAME (libmp3lame, MP3 encoder) | 3.100 | LGPL-2.0-or-later | Homebrew build | vcpkg `mp3lame` |
-| Opus (libopus, Opus encoder) | 1.6.1 | BSD-3-Clause | Homebrew build | vcpkg `opus` |
+| LAME (libmp3lame, MP3 encoder) | 3.100 | LGPL-2.0-or-later | same script, from the upstream tarball | vcpkg `mp3lame` |
+| Opus (libopus, Opus encoder) | 1.6.1 | BSD-3-Clause | same script, from the upstream tarball | vcpkg `opus` |
 | Rust crates | `Cargo.lock` | MIT, Apache-2.0, MPL-2.0, ISC, Zlib and similar | linked into the app | linked into the app |
 
 The 618 third-party crates in `Cargo.lock` were checked with `cargo metadata`: none is GPL-2.0-only,
@@ -24,6 +24,15 @@ for us (decoding Opus, WavPack, APE and DSD; the AAC, ALAC and FLAC encoders) is
 
 Windows also ships whatever DLLs vcpkg builds for those three ports; the CI log lists them
 (`staged ….dll`) and their licence texts are copied into the installer next to them.
+
+### Minimum macOS
+
+The app claims macOS 11 (`minimumSystemVersion` in `tauri.conf.json`, which becomes
+`LSMinimumSystemVersion`). Every embedded dylib therefore has to be built for 11 or older. Homebrew's
+bottles are built for the Mac that poured them (`vtool -show-build` reports `minos 26.0` for the
+installed lame and opus), so `build-ffmpeg-macos.sh` compiles LAME and Opus itself, with the same
+`MACOSX_DEPLOYMENT_TARGET` as FFmpeg, and `bundle-ffmpeg-macos.sh` refuses any library whose `minos`
+is newer than the app's `LSMinimumSystemVersion`, naming it. It also prints each library's `minos`.
 
 ## Why not Homebrew's `ffmpeg`
 
@@ -54,12 +63,12 @@ as for any distribution, plus these:
 1. **Licence texts ship with the app.** macOS: `Contents/Resources/licenses/{ffmpeg,lame,opus}`
    (copied by `bundle-ffmpeg-macos.sh`). Windows: `licenses/` in the install folder (mapped by
    `.github/tauri/windows-release.conf.json`).
-2. **Source for the exact binaries.** `release.yml` attaches the FFmpeg tarball (checked against
-   the pinned sha256) to every release; `scripts/build-ffmpeg-macos.sh` holds the configure flags,
+2. **Source for the exact binaries.** `release.yml` attaches the FFmpeg, LAME and Opus tarballs
+   (each checked against its pinned sha256) to every release; `scripts/build-ffmpeg-macos.sh` holds the configure flags,
    so the tarball plus that script is the complete corresponding source and build recipe. The
    Windows build is the unmodified vcpkg port at the commit pinned in the workflows. LAME and Opus
-   are unmodified upstream releases (`lame-3.100`, `opus-1.6.1`); link them from the release notes
-   or attach their tarballs the same way.
+   are unmodified upstream releases (one line of LAME's export list is removed, as Homebrew does)
+   and their tarballs are attached the same way.
 3. **Replaceable libraries.** The libraries stay separate files (dylibs, DLLs) so a user can rebuild
    and swap them. On macOS a swapped dylib breaks the notarized signature, so the user re-signs the
    app (`codesign --force --deep -s - AntiStreaming.app`); building from our source remains open to

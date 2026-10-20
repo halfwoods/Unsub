@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Embeds the FFmpeg dylibs an AntiStreaming.app links (Homebrew's, by default) into
-# Contents/Frameworks so the app runs on a Mac without Homebrew, then re-signs the bundle.
+# Embeds the FFmpeg dylibs an AntiStreaming.app links (those built by scripts/build-ffmpeg-macos.sh)
+# and their dependencies into Contents/Frameworks, so the app runs on a Mac without Homebrew, then
+# re-signs the bundle.
 #
 #   scripts/bundle-ffmpeg-macos.sh path/to/AntiStreaming.app
+#
+# Libraries built for a newer macOS than the app's LSMinimumSystemVersion are refused.
 #
 # Environment:
 #   APPLE_SIGNING_IDENTITY  Developer ID identity to sign with. Unset or "-" signs ad hoc.
@@ -59,6 +62,25 @@ rpaths() {
   otool -l "$1" | awk '/cmd LC_RPATH/ {found = 1} found && $1 == "path" {print $2; found = 0}'
 }
 
+# Oldest macOS a Mach-O file runs on: the highest minimum among its slices, read from the build
+# version load command (the same figure `vtool -show-build` prints as "minos").
+min_macos() {
+  otool -l "$1" | awk '
+    $1 == "cmd" { cmd = $2 }
+    cmd == "LC_BUILD_VERSION" && $1 == "minos" { print $2 }
+    cmd == "LC_VERSION_MIN_MACOSX" && $1 == "version" { print $2 }
+  ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
+}
+
+# Succeeds when dotted version $1 is newer than $2.
+version_gt() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, ".")
+    for (i = 1; i <= (n > m ? n : m); i++) if (x[i] + 0 != y[i] + 0) exit !(x[i] + 0 > y[i] + 0)
+    exit 1
+  }'
+}
+
 # Where a file's @loader_path points: for bundled copies, the directory they came from.
 origin_dir() {
   if [ -f "$WORK/origin/$(basename "$1")" ] && [ "$1" != "$MAIN" ]; then
@@ -101,6 +123,11 @@ real_path() {
 
 # --- Collect the dependency closure ------------------------------------------------------------
 
+# What the app promises Launch Services. An embedded library built for a newer macOS would
+# fail to load on exactly the systems between the two, so none may be newer.
+APP_MIN=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" 2>/dev/null || true)
+[ -n "$APP_MIN" ] || APP_MIN=$(min_macos "$MAIN")
+
 # Libraries whose licence would turn the app's FFmpeg into a GPL (or unredistributable) build.
 # Homebrew's ffmpeg links most of them; none is used for audio.
 GPL_LIBS='libx264|libx265|libxvidcore|libfdk-aac|librubberband|libvidstab|libpostproc|libdavs2|libxavs2'
@@ -138,6 +165,10 @@ while [ -s "$WORK/queue" ]; do
       [ "$(cat "$WORK/origin/$name")" = "$found" ] ||
         die "two different libraries are both named $name: $(cat "$WORK/origin/$name") and $found"
     else
+      lib_min=$(min_macos "$found")
+      if version_gt "$lib_min" "$APP_MIN"; then
+        die "$name (from $found) needs macOS $lib_min or newer, but the app claims $APP_MIN (LSMinimumSystemVersion). Build it with MACOSX_DEPLOYMENT_TARGET=$APP_MIN or older; scripts/build-ffmpeg-macos.sh does."
+      fi
       install -m 644 "$found" "$WORK/stage/$name"
       echo "$found" > "$WORK/origin/$name"
       echo "$WORK/stage/$name" >> "$WORK/queue"
@@ -173,13 +204,11 @@ if [ "$bundled" -gt 0 ]; then
           version=${keg#*/}
           origin="Homebrew ${keg%%/*} ${version%%/*}" ;;
         *)
-          # scripts/build-ffmpeg-macos.sh leaves "ffmpeg <version> ..." in its prefix.
-          stamp="$(dirname "$origin")/../.build-stamp"
-          if [ -f "$stamp" ]; then
-            origin="built from source: $(cut -d' ' -f1,2 "$stamp")"
-          else
-            origin="built from source ($(dirname "$origin"))"
-          fi ;;
+          # scripts/build-ffmpeg-macos.sh lists each library's component and version.
+          name=$(basename "$origin_file")
+          component=$(awk -F'\t' -v key="${name%%.*}" '$1 == key { print $2 }' \
+            "$(dirname "$origin")/../provenance.tsv" 2>/dev/null || true)
+          origin="built from source (${component:-$(dirname "$origin")})" ;;
       esac
       printf '%s\t%s\n' "$(basename "$origin_file")" "$origin"
     done
@@ -264,6 +293,13 @@ for file in "$MAIN" "$FRAMEWORKS"/*.dylib; do
       *) echo "build-machine path remains: $ref (in $file)" >&2; problems=1 ;;
     esac
   done
+  if [ "$file" != "$MAIN" ]; then
+    lib_min=$(min_macos "$file")
+    printf '    %-26s minos %s\n' "$(basename "$file")" "${lib_min:-?}"
+    if version_gt "$lib_min" "$APP_MIN"; then
+      echo "$(basename "$file") needs macOS $lib_min, newer than the app's $APP_MIN" >&2; problems=1
+    fi
+  fi
   if otool -l "$file" | grep -q "/opt/homebrew\|/usr/local/"; then
     echo "build-machine path remains in load commands of $file:" >&2
     otool -l "$file" | grep "/opt/homebrew\|/usr/local/" >&2

@@ -290,15 +290,14 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      # The LGPL asks for the source of the FFmpeg that was built; hosting the exact tarball with
-      # the release avoids depending on ffmpeg.org's archive staying put.
-      - name: Attach the FFmpeg source
+      # The LGPL asks for the source of the libraries that were built; hosting the exact tarballs
+      # with the release avoids depending on upstream archives staying put.
+      - name: Attach the library sources
         run: |
-          version=$(sed -n 's/^VERSION=//p' scripts/build-ffmpeg-macos.sh)
-          sha256=$(sed -n 's/^SHA256=//p' scripts/build-ffmpeg-macos.sh)
-          file="artifacts/ffmpeg-$version-source.tar.xz"
-          curl --fail --location --silent --show-error --output "$file" "https://ffmpeg.org/releases/ffmpeg-$version.tar.xz"
-          echo "$sha256  $file" | sha256sum --check -
+          scripts/build-ffmpeg-macos.sh --print-sources | while IFS=$'\t' read -r name sha256 url; do
+            curl --fail --location --silent --show-error --output "artifacts/$name" "$url"
+            echo "$sha256  artifacts/$name" | sha256sum --check -
+          done
       - name: Create the draft
         env:
           GH_TOKEN: ${{ github.token }}
