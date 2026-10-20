@@ -2,6 +2,31 @@ use std::path::PathBuf;
 
 use crate::gain::Gain;
 
+/// What the caller knows about a track beyond its file, given when it is played or queued.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TrackOptions {
+    /// Sound Check's adjustment for the track.
+    pub gain: Option<Gain>,
+    /// Names the album the track is from, in whatever form the caller likes. Consecutive
+    /// tracks with the same key are never crossfaded, so that an album plays as it was made.
+    pub album_key: Option<String>,
+}
+
+impl From<Option<Gain>> for TrackOptions {
+    fn from(gain: Option<Gain>) -> Self {
+        TrackOptions {
+            gain,
+            album_key: None,
+        }
+    }
+}
+
+impl From<Gain> for TrackOptions {
+    fn from(gain: Gain) -> Self {
+        Some(gain).into()
+    }
+}
+
 /// What the engine needs to remember about a track once its decoder has moved on.
 #[derive(Clone, Debug)]
 pub struct TrackInfo {
@@ -9,7 +34,7 @@ pub struct TrackInfo {
     pub path: PathBuf,
     pub duration_ms: u64,
     pub sample_rate: u32,
-    pub gain: Option<Gain>,
+    pub options: TrackOptions,
 }
 
 pub struct Transition {
@@ -29,7 +54,18 @@ pub struct Timeline {
     anchor_frame: u64,
     anchor_ms: u64,
     /// Decoding runs at most one track ahead.
-    upcoming: Option<(u64, TrackInfo)>,
+    upcoming: Option<Upcoming>,
+}
+
+/// The track decoded ahead of the one playing.
+struct Upcoming {
+    /// Stream frame of its first sample.
+    start_frame: u64,
+    /// Stream frame at which it becomes the current track: its start when it follows
+    /// gaplessly, the middle of the overlap when it is crossfaded in, where the listener
+    /// passes from one track to the other.
+    switch_frame: u64,
+    track: TrackInfo,
 }
 
 impl Timeline {
@@ -48,7 +84,7 @@ impl Timeline {
     }
 
     pub fn upcoming(&self) -> Option<&TrackInfo> {
-        self.upcoming.as_ref().map(|(_, track)| track)
+        self.upcoming.as_ref().map(|upcoming| &upcoming.track)
     }
 
     /// Position in the source track, in the track's own milliseconds.
@@ -64,11 +100,21 @@ impl Timeline {
 
     /// Records that `next` begins at stream frame `at_frame`.
     pub fn schedule(&mut self, at_frame: u64, next: TrackInfo) {
-        self.upcoming = Some((at_frame, next));
+        self.schedule_crossfade(at_frame, at_frame, next);
+    }
+
+    /// Records that `next` begins at stream frame `start_frame`, fading in over the end of the
+    /// current track, and takes over as the current track at `switch_frame`.
+    pub fn schedule_crossfade(&mut self, start_frame: u64, switch_frame: u64, next: TrackInfo) {
+        self.upcoming = Some(Upcoming {
+            start_frame,
+            switch_frame,
+            track: next,
+        });
     }
 
     pub fn take_upcoming(&mut self) -> Option<TrackInfo> {
-        self.upcoming.take().map(|(_, track)| track)
+        self.upcoming.take().map(|upcoming| upcoming.track)
     }
 
     /// Re-bases the current track after a seek or restart: it is at `position_ms` at `frame`.
@@ -77,15 +123,18 @@ impl Timeline {
         self.anchor_ms = position_ms;
     }
 
-    /// Switches to the upcoming track once playback has reached its first frame.
+    /// Switches to the upcoming track once playback has reached the frame where it takes over.
     pub fn advance(&mut self, consumed: u64) -> Option<Transition> {
-        let (at_frame, _) = self.upcoming.as_ref()?;
-        if consumed < *at_frame {
+        if consumed < self.upcoming.as_ref()?.switch_frame {
             return None;
         }
-        let (at_frame, started) = self.upcoming.take()?;
+        let Upcoming {
+            start_frame,
+            track: started,
+            ..
+        } = self.upcoming.take()?;
         let ended = std::mem::replace(&mut self.current, started.clone());
-        self.anchor_frame = at_frame;
+        self.anchor_frame = start_frame;
         self.anchor_ms = 0;
         Some(Transition {
             ended: ended.id,
@@ -104,7 +153,7 @@ mod tests {
             path: PathBuf::from(format!("{id}.flac")),
             duration_ms,
             sample_rate: 44_100,
-            gain: None,
+            options: TrackOptions::default(),
         }
     }
 
@@ -167,5 +216,17 @@ mod tests {
         assert_eq!(timeline.take_upcoming().map(|track| track.id), Some(2));
         assert!(timeline.upcoming().is_none());
         assert!(timeline.advance(1_000_000).is_none());
+    }
+
+    #[test]
+    fn a_crossfade_switches_tracks_midway_but_counts_the_new_one_from_its_first_frame() {
+        let mut timeline = Timeline::new(44_100, track(1, 10_000), 0, 0);
+        // The new track starts at frame 44100 and fades in over half a second.
+        timeline.schedule_crossfade(44_100, 44_100 + 11_025, track(2, 10_000));
+
+        assert!(timeline.advance(44_100 + 11_024).is_none());
+        let transition = timeline.advance(44_100 + 11_025).expect("midway through");
+        assert_eq!((transition.ended, transition.started.id), (1, 2));
+        assert_eq!(timeline.position_ms(44_100 + 11_025), 250);
     }
 }

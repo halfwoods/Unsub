@@ -45,14 +45,19 @@ pub struct Gain {
 }
 
 impl Gain {
-    /// What is really applied: `db`, held back so that the adjusted peak stays at or under
-    /// -1 dBTP. A track too close to full scale gets less boost than asked for, or a cut.
-    /// A gain that is not a number is ignored rather than passed on to the speakers.
+    /// What is really applied: a boost is held back so that the adjusted peak stays at or under
+    /// -1 dBTP, down to no boost at all for a track that already peaks above that; a boost never
+    /// becomes a cut. A cut is applied as asked. A gain that is not a number is ignored rather
+    /// than passed on to the speakers.
     pub fn applied_db(self) -> f32 {
         if !self.db.is_finite() || self.peak_dbtp.is_nan() {
             return 0.0;
         }
-        self.db.min(CEILING_DBTP - self.peak_dbtp)
+        if self.db > 0.0 {
+            self.db.min((CEILING_DBTP - self.peak_dbtp).max(0.0))
+        } else {
+            self.db
+        }
     }
 
     pub(crate) fn amplitude(self) -> f32 {
@@ -154,7 +159,12 @@ mod tests {
         assert_eq!(gain(12.0, -6.0), 5.0);
         assert_eq!(gain(3.0, -6.0), 3.0, "a boost with room is left alone");
         assert_eq!(gain(-8.0, -0.1), -8.0, "a cut never needs holding back");
-        assert!((gain(2.0, -0.5) + 0.5).abs() < 1e-6, "no room means a cut");
+        assert_eq!(gain(2.0, -0.5), 0.0, "no room means no boost, not a cut");
+        assert_eq!(
+            gain(2.0, 0.3),
+            0.0,
+            "even for a peak already over full scale"
+        );
         assert_eq!(gain(6.0, f32::NEG_INFINITY), 6.0, "silence cannot clip");
     }
 

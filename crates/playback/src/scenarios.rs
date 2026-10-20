@@ -747,3 +747,408 @@ mod sound_check {
         assert_eq!(rig.player.status().gain_db, Some(-6.0));
     }
 }
+
+mod equalizer {
+    use super::*;
+    use crate::Equalizer;
+
+    /// A bell over the 440 Hz test tone, with the preamp pulling the whole thing down.
+    const SHAPED: Equalizer = Equalizer {
+        preamp_db: -3.0,
+        bands: [0.0, 0.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    };
+
+    fn peak(samples: &[f32]) -> f32 {
+        samples.iter().fold(0.0_f32, |peak, s| peak.max(s.abs()))
+    }
+
+    #[test]
+    fn the_device_hears_the_response_the_filters_were_designed_with_and_the_status_says_so() {
+        let mut rig = rig(Config::default());
+        rig.player.set_equalizer(Some(SHAPED));
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        assert!(rig.player.status().eq_active);
+        rig.until_stopped();
+
+        let wanted = SHAPED.response_db(440.0, 44_100.0);
+        assert!(
+            wanted.abs() > 1.0,
+            "the setting should be audible: {wanted} dB"
+        );
+        let measured = 20.0 * (peak(&rig.heard()) / peak(&decode("sine.flac"))).log10();
+        assert!(
+            (f64::from(measured) - wanted).abs() < 0.25,
+            "{measured} vs {wanted}"
+        );
+        assert!(
+            !rig.player.status().eq_active,
+            "nothing is playing any more"
+        );
+    }
+
+    #[test]
+    fn a_bit_perfect_stream_is_not_equalized_and_does_not_claim_to_be() {
+        let mut rig = rig(Config::default());
+        rig.player.set_equalizer(Some(SHAPED));
+        rig.player.set_bit_perfect(true);
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        let status = rig.player.status();
+        assert!(status.bit_perfect && !status.eq_active);
+
+        rig.until_stopped();
+        assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+    }
+
+    #[test]
+    fn eq_active_follows_the_setting_and_bit_perfect_mode_on_a_playing_track() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        assert!(!rig.player.status().eq_active);
+
+        rig.player.set_equalizer(Some(SHAPED));
+        assert!(rig.player.status().eq_active);
+        rig.player.set_bit_perfect(true);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+        assert!(!rig.player.status().eq_active, "remembered but not applied");
+
+        rig.player.set_bit_perfect(false);
+        rig.await_status("normal output", |s| {
+            !s.bit_perfect && s.state == PlaybackState::Playing
+        });
+        assert!(
+            rig.player.status().eq_active,
+            "the setting came back with the stream"
+        );
+        rig.player.set_equalizer(None);
+        assert!(!rig.player.status().eq_active);
+    }
+}
+
+mod crossfade {
+    use std::fs;
+    use std::path::Path;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::TrackOptions;
+    use crate::crossfade::crossfaded;
+
+    const FADE: Duration = Duration::from_secs(1);
+    /// `FADE` in frames, for tracks long enough to give all of it.
+    const OVERLAP: usize = 44_100;
+
+    /// A stereo 16-bit WAV of a sine, long enough that its end is not decoded the moment it
+    /// starts: a fade can only begin if the next track is queued before that.
+    struct Tone(PathBuf);
+
+    impl Tone {
+        fn new(name: &str, seconds: usize, hz: f64) -> Tone {
+            let path = std::env::temp_dir().join(format!(
+                "antistreaming-crossfade-{}-{name}.wav",
+                std::process::id()
+            ));
+            let frames = 44_100 * seconds;
+            let data_len = (frames * 4) as u32;
+            let mut wav = Vec::new();
+            wav.extend(b"RIFF");
+            wav.extend((36 + data_len).to_le_bytes());
+            wav.extend(b"WAVEfmt ");
+            wav.extend(16u32.to_le_bytes());
+            wav.extend([1, 0, 2, 0]);
+            wav.extend(44_100u32.to_le_bytes());
+            wav.extend((44_100u32 * 4).to_le_bytes());
+            wav.extend([4, 0, 16, 0]);
+            wav.extend(b"data");
+            wav.extend(data_len.to_le_bytes());
+            for n in 0..frames {
+                let phase = 2.0 * std::f64::consts::PI * hz * n as f64 / 44_100.0;
+                let sample = ((0.5 * phase.sin()) * 32_768.0) as i16;
+                wav.extend(sample.to_le_bytes());
+                wav.extend(sample.to_le_bytes());
+            }
+            fs::write(&path, wav).unwrap();
+            Tone(path)
+        }
+
+        fn path(&self) -> PathBuf {
+            self.0.clone()
+        }
+
+        fn decoded(&self) -> Vec<f32> {
+            decode_path(&self.0)
+        }
+    }
+
+    impl Drop for Tone {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    fn decode_path(path: &Path) -> Vec<f32> {
+        let mut decoder = Decoder::open(path).unwrap();
+        let mut samples = Vec::new();
+        while let Some(chunk) = decoder.next_chunk().unwrap() {
+            samples.extend_from_slice(chunk);
+        }
+        samples
+    }
+
+    fn album(key: &str) -> TrackOptions {
+        TrackOptions {
+            gain: None,
+            album_key: Some(key.to_owned()),
+        }
+    }
+
+    /// `(kind, track)` for every start and end event seen.
+    fn starts_and_ends(rig: &Rig) -> Vec<(&'static str, i64)> {
+        rig.seen
+            .iter()
+            .filter_map(|event| match event {
+                PlayerEvent::TrackStarted { track_id } => Some(("started", *track_id)),
+                PlayerEvent::TrackEnded { track_id } => Some(("ended", *track_id)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Plays `first` then `second` with a crossfade wanted and returns what the device got.
+    fn play_pair(
+        rig: &mut Rig,
+        first: (&Tone, TrackOptions),
+        second: (&Tone, TrackOptions),
+    ) -> Vec<f32> {
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play_with(1, first.0.path(), first.1);
+        rig.player.queue_next_with(2, second.0.path(), second.1);
+        rig.until_playing(1);
+        rig.until_stopped();
+        rig.heard()
+    }
+
+    #[test]
+    fn the_device_hears_the_tracks_overlapped_and_each_event_comes_once_midway() {
+        let (a, b) = (Tone::new("a1", 6, 440.0), Tone::new("b1", 6, 660.0));
+        let mut rig = rig(Config::default());
+        let heard = play_pair(
+            &mut rig,
+            (&a, TrackOptions::default()),
+            (&b, TrackOptions::default()),
+        );
+
+        let expected = crossfaded(&a.decoded(), &b.decoded(), OVERLAP);
+        assert_played(&heard, &expected, 0, 2_000);
+        assert_eq!(rig.opened().len(), 1, "one stream throughout");
+        assert_eq!(
+            starts_and_ends(&rig),
+            [("started", 1), ("ended", 1), ("started", 2), ("ended", 2)]
+        );
+    }
+
+    #[test]
+    fn the_status_switches_to_the_next_track_in_the_middle_of_the_overlap_at_its_own_position() {
+        let (a, b) = (Tone::new("a2", 6, 440.0), Tone::new("b2", 6, 660.0));
+        let mut rig = rig(Config {
+            speed: 10,
+            ..Config::default()
+        });
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play(1, a.path());
+        rig.player.queue_next(2, b.path());
+
+        rig.await_status("the first track to reach its fade", |s| {
+            s.track_id == Some(1) && s.position_ms >= 4_500
+        });
+        rig.await_status("the next track", |s| s.track_id == Some(2));
+        let status = rig.player.status();
+        // The overlap is 1 s and the switch is half a second into it, where the new track is
+        // half a second old; the time since the switch is however long the poll took to notice.
+        assert!((480..900).contains(&status.position_ms), "{status:?}");
+        assert_eq!(status.duration_ms, 6_000);
+        rig.until_stopped();
+    }
+
+    #[test]
+    fn tracks_of_one_album_are_not_crossfaded() {
+        let (a, b) = (Tone::new("a3", 6, 440.0), Tone::new("b3", 6, 660.0));
+        let mut rig = rig(Config::default());
+        let heard = play_pair(
+            &mut rig,
+            (&a, album("Kind of Blue")),
+            (&b, album("Kind of Blue")),
+        );
+
+        let both = [a.decoded(), b.decoded()].concat();
+        assert_played(&heard, &both, 0, 2_000);
+    }
+
+    #[test]
+    fn tracks_of_different_albums_are_crossfaded() {
+        let (a, b) = (Tone::new("a4", 6, 440.0), Tone::new("b4", 6, 660.0));
+        let mut rig = rig(Config::default());
+        let heard = play_pair(
+            &mut rig,
+            (&a, album("Kind of Blue")),
+            (&b, album("Blue Train")),
+        );
+
+        assert_played(
+            &heard,
+            &crossfaded(&a.decoded(), &b.decoded(), OVERLAP),
+            0,
+            2_000,
+        );
+    }
+
+    #[test]
+    fn nothing_is_crossfaded_in_bit_perfect_mode() {
+        let (a, b) = (Tone::new("a5", 6, 440.0), Tone::new("b5", 6, 660.0));
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        let heard = play_pair(
+            &mut rig,
+            (&a, TrackOptions::default()),
+            (&b, TrackOptions::default()),
+        );
+
+        assert!(rig.opened().iter().all(|&(_, exact)| exact));
+        assert_played(&heard, &[a.decoded(), b.decoded()].concat(), 0, 2_000);
+    }
+
+    #[test]
+    fn turning_the_crossfade_off_goes_back_to_plain_gapless_joins() {
+        let (a, b) = (Tone::new("a6", 6, 440.0), Tone::new("b6", 6, 660.0));
+        let mut rig = rig(Config::default());
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.set_crossfade(None);
+        rig.player.play(1, a.path());
+        rig.player.queue_next(2, b.path());
+        rig.until_stopped();
+
+        assert_played(&rig.heard(), &[a.decoded(), b.decoded()].concat(), 0, 2_000);
+    }
+
+    #[test]
+    fn a_track_queued_too_late_for_the_fade_still_follows_gaplessly() {
+        // The one-second fixtures are fully decoded the moment they start, before the second
+        // can be queued, so there is nothing left to fade out.
+        let mut rig = rig(Config::default());
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play(1, fixture("sine.flac"));
+        rig.until_playing(1);
+        rig.player.queue_next(2, fixture("sine.mp3"));
+        rig.until_stopped();
+
+        let both = [decode("sine.flac"), decode("sine.mp3")].concat();
+        assert_played(&rig.heard(), &both, 0, 2_000);
+    }
+
+    #[test]
+    fn playing_another_track_with_a_next_one_waiting_cuts_over_and_never_blends_it_in() {
+        let (a, b) = (Tone::new("a7", 6, 440.0), Tone::new("b7", 6, 660.0));
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play(1, a.path());
+        rig.player.queue_next(2, b.path());
+        rig.until_playing(1);
+
+        rig.player.play(3, fixture("sine.ogg"));
+        rig.until("the new track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 3 })
+        });
+        rig.until_stopped();
+
+        assert_eq!(
+            starts_and_ends(&rig),
+            [("started", 1), ("started", 3), ("ended", 3)],
+            "the queued track never began and the replaced one never 'ended'"
+        );
+    }
+
+    /// Whatever happens to a seek that lands before or after the switch, every track starts
+    /// once, ends once and after it started, and nothing fails.
+    fn assert_orderly(rig: &Rig) {
+        let events = starts_and_ends(rig);
+        for id in [1, 2] {
+            let position = |kind| events.iter().position(|&event| event == (kind, id));
+            assert!(position("started") < position("ended"), "{id}: {events:?}");
+            let count = |kind| events.iter().filter(|&&event| event == (kind, id)).count();
+            assert_eq!(
+                (count("started"), count("ended")),
+                (1, 1),
+                "{id}: {events:?}"
+            );
+        }
+        assert!(
+            !rig.seen
+                .iter()
+                .any(|event| matches!(event, PlayerEvent::Error { .. })),
+            "{:?}",
+            rig.seen
+        );
+    }
+
+    #[test]
+    fn seeking_in_the_first_half_of_the_overlap_returns_to_the_current_track_and_fades_again() {
+        let (a, b) = (Tone::new("a8", 6, 440.0), Tone::new("b8", 6, 660.0));
+        let mut rig = rig(Config {
+            speed: 4,
+            ..Config::default()
+        });
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play(1, a.path());
+        rig.player.queue_next(2, b.path());
+        // The overlap is the last second of the first track; its first half is before the switch.
+        rig.await_status("the overlap to begin", |s| {
+            s.track_id == Some(1) && s.position_ms >= 5_100
+        });
+
+        rig.player.seek(2_000);
+        rig.await_status("the first track again", |s| {
+            s.track_id == Some(1) && (2_000..4_000).contains(&s.position_ms)
+        });
+        rig.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        rig.until_stopped();
+        assert_orderly(&rig);
+    }
+
+    #[test]
+    fn seeking_in_the_second_half_of_the_overlap_carries_on_in_the_next_track() {
+        let (a, b) = (Tone::new("a9", 6, 440.0), Tone::new("b9", 6, 660.0));
+        let mut rig = rig(Config {
+            speed: 4,
+            ..Config::default()
+        });
+        rig.player.set_crossfade(Some(FADE));
+        rig.player.play(1, a.path());
+        rig.player.queue_next(2, b.path());
+        rig.await_status("the switch", |s| s.track_id == Some(2));
+
+        rig.player.seek(3_000);
+        rig.await_status("the second track, further on", |s| {
+            s.track_id == Some(2) && (3_000..5_500).contains(&s.position_ms)
+        });
+        rig.until("the second track to end", |e| {
+            matches!(e, PlayerEvent::TrackEnded { track_id: 2 })
+        });
+        rig.until_stopped();
+        assert_orderly(&rig);
+        assert!(
+            rig.player.status().position_ms == 0,
+            "playback ended: {:?}",
+            rig.player.status()
+        );
+    }
+}

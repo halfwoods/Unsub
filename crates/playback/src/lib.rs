@@ -2,10 +2,12 @@
 //! and plays through cpal, or through exclusive-mode WASAPI/hog-mode CoreAudio when bit-perfect.
 
 mod config;
+mod crossfade;
 mod decoder;
 #[cfg(target_os = "macos")]
 mod device_state;
 mod engine;
+mod equalizer;
 mod error;
 #[cfg(feature = "ffmpeg")]
 mod ffmpeg_source;
@@ -26,9 +28,11 @@ mod transcode;
 mod wasapi_exclusive;
 
 pub use decoder::{Backend, Codec, Decoder};
+pub use equalizer::{Equalizer, PRESETS, Preset};
 pub use error::{Error, Result};
 pub use gain::Gain;
 pub use loudness::{BlockHistogram, Loudness, album_loudness, analyze_loudness};
 pub use mix::ChannelLayout;
 pub use player::{PlaybackState, PlaybackStatus, Player, PlayerEvent};
+pub use timeline::TrackOptions;
 pub use transcode::{Target, TranscodeOptions, ipod_compatible, transcode_file, transcode_stream};

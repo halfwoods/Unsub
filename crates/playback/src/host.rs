@@ -1,14 +1,11 @@
 //! The audio system the engine plays through, behind a trait so the engine can be exercised
 //! without a sound device.
 
-use std::sync::Arc;
-
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{BufferSize, ErrorKind, FromSample, I24, SampleFormat, SizedSample, StreamConfig};
 
 use crate::config::{Offer, depth_label, format_label, is_writable, pick_exact, pick_native};
-use crate::gain::Volume;
-use crate::output::{Callback, Format, Output, OutputInfo, Pipe, Request};
+use crate::output::{Callback, Controls, Format, Output, OutputInfo, Pipe, Request};
 use crate::{Error, Result};
 
 /// Called, from any thread but never the audio callback, when a stream has died.
@@ -22,7 +19,7 @@ pub trait Host {
     fn open(
         &mut self,
         request: &Request,
-        volume: Arc<Volume>,
+        controls: Controls,
         on_failure: Failure,
     ) -> Result<Output>;
 
@@ -98,19 +95,19 @@ impl Host for SystemHost {
     fn open(
         &mut self,
         request: &Request,
-        volume: Arc<Volume>,
+        controls: Controls,
         on_failure: Failure,
     ) -> Result<Output> {
         #[cfg(windows)]
         if request.exact {
-            return crate::wasapi_exclusive::open(request, volume, on_failure);
+            return crate::wasapi_exclusive::open(request, controls, on_failure);
         }
         #[cfg(target_os = "macos")]
         if request.exact {
             self.exclusive_seen = true;
         }
         let device = self.output_device()?;
-        self.open_cpal(&device, request, volume, on_failure)
+        self.open_cpal(&device, request, controls, on_failure)
     }
 
     fn capture(&mut self) -> Option<Box<dyn DeviceState>> {
@@ -158,7 +155,7 @@ impl SystemHost {
         &self,
         device: &cpal::Device,
         request: &Request,
-        volume: Arc<Volume>,
+        controls: Controls,
         on_failure: Failure,
     ) -> Result<Output> {
         let offers = offers(device)?;
@@ -182,7 +179,7 @@ impl SystemHost {
             channels: config.channels,
         };
 
-        let (callback, pipe) = Pipe::new(format, volume, request.exact);
+        let (callback, pipe) = Pipe::new(format, controls, request.exact);
         let on_error = move |error: cpal::Error| {
             if is_fatal(error.kind()) {
                 on_failure(Error::Output(error));
@@ -370,7 +367,7 @@ pub(crate) mod simulated {
     }
 
     impl Host for Simulated {
-        fn open(&mut self, request: &Request, volume: Arc<Volume>, _: Failure) -> Result<Output> {
+        fn open(&mut self, request: &Request, controls: Controls, _: Failure) -> Result<Output> {
             let source = request.source;
             let exact_rate = self.config.rates.contains(&source.sample_rate);
             if request.exact && !exact_rate {
@@ -386,7 +383,7 @@ pub(crate) mod simulated {
             };
             locked(&self.log).opened.push(*request);
 
-            let (callback, pipe) = Pipe::new(format, volume, request.exact);
+            let (callback, pipe) = Pipe::new(format, controls, request.exact);
             let stream = Box::new(SimulatedStream {
                 callback: Mutex::new(Some(callback)),
                 format,

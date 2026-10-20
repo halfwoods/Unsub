@@ -18,18 +18,17 @@ use wasapi::{
 };
 
 use crate::config::{Sample, depth_label, exclusive_candidates, format_label, pack_24_bit};
-use crate::gain::Volume;
 use crate::host::Failure;
-use crate::output::{Callback, Format, Output, OutputInfo, Pipe, Request, Stream};
+use crate::output::{Callback, Controls, Format, Output, OutputInfo, Pipe, Request, Stream};
 use crate::{Error, Result};
 
 /// How long to wait for the device to ask for more audio before deciding it has gone.
 const EVENT_TIMEOUT_MS: u32 = 1000;
 
 /// Opens the default render device in exclusive mode at the request's rate and channel count.
-pub fn open(request: &Request, volume: Arc<Volume>, on_failure: Failure) -> Result<Output> {
+pub fn open(request: &Request, controls: Controls, on_failure: Failure) -> Result<Output> {
     let source = request.source;
-    let (callback, pipe) = Pipe::new(source, volume, true);
+    let (callback, pipe) = Pipe::new(source, controls, true);
     let control = Arc::new(Control::default());
     let (ready, opened) = mpsc::channel();
 

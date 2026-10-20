@@ -6,14 +6,15 @@ use std::sync::{Arc, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::crossfade::Holdback;
 use crate::decoder::Decoder;
 use crate::gain::Gain;
 use crate::host::{DeviceState, Host};
 use crate::mix::{ChannelLayout, Mixer};
-use crate::output::{Format, Output, Request, Sink};
+use crate::output::{Controls, Format, Output, Request, Sink};
 use crate::player::{PlaybackState, PlaybackStatus, PlayerEvent, Shared};
 use crate::resample::Resampler;
-use crate::timeline::{Timeline, TrackInfo};
+use crate::timeline::{Timeline, TrackInfo, TrackOptions};
 use crate::{Error, Result};
 
 /// How often the engine tops up the ring, notices track boundaries and refreshes the status.
@@ -25,8 +26,8 @@ const POSITION_INTERVAL: Duration = Duration::from_millis(250);
 const DRAIN_GRACE: Duration = Duration::from_millis(50);
 
 pub(crate) enum Command {
-    Play(i64, PathBuf, Option<Gain>),
-    QueueNext(i64, PathBuf, Option<Gain>),
+    Play(i64, PathBuf, TrackOptions),
+    QueueNext(i64, PathBuf, TrackOptions),
     ClearNext,
     Pause,
     Resume,
@@ -53,14 +54,14 @@ struct Queued {
 }
 
 impl Queued {
-    fn open(open: Opener, id: i64, path: PathBuf, gain: Option<Gain>) -> Result<Queued> {
+    fn open(open: Opener, id: i64, path: PathBuf, options: TrackOptions) -> Result<Queued> {
         let decoder = open(&path)?;
         let track = TrackInfo {
             id,
             path,
             duration_ms: decoder.duration_ms().unwrap_or(0),
             sample_rate: decoder.sample_rate(),
-            gain,
+            options,
         };
         Ok(Queued { track, decoder })
     }
@@ -79,10 +80,20 @@ struct Feed {
     /// boundary is also a change of gain on exactly the boundary frame.
     amplitude: f32,
     resampler: Option<Resampler>,
+    /// One decoded chunk, converted to the device format and scaled, on its way to `holdback`.
+    decoded: Vec<f32>,
+    /// The last `hold_frames` of the stream, kept back so the next track can fade in over them.
+    holdback: Holdback,
+    /// How long a crossfade is wanted to be, in frames; zero when off or bit-perfect.
+    hold_frames: usize,
+    /// Frames of the track being decoded that have been through `decoded` so far.
+    track_frames: u64,
+    out_rate: u32,
     staging: Vec<f32>,
     /// Samples of `staging` already handed to the ring.
     staged: usize,
-    /// Frames produced since the stream began, in the same index space as the consumed counter.
+    /// Frames released for the ring since the stream began, in the same index space as the
+    /// consumed counter. Frames still in `holdback` are not counted yet.
     produced: u64,
     out_channels: usize,
     eof: bool,
@@ -114,6 +125,11 @@ impl Feed {
             decoder,
             source,
             resampler,
+            decoded: Vec::new(),
+            holdback: Holdback::new(usize::from(output.channels)),
+            hold_frames: 0,
+            track_frames: 0,
+            out_rate: output.sample_rate,
             staging: Vec::new(),
             staged: 0,
             produced,
@@ -142,28 +158,68 @@ impl Feed {
         }
     }
 
+    /// Sets the crossfade length in milliseconds, zero for none. A bit-perfect stream cannot
+    /// blend tracks, so it never has one.
+    fn set_crossfade(&mut self, ms: u32) {
+        self.hold_frames = if self.exact {
+            0
+        } else {
+            (u64::from(ms) * u64::from(self.out_rate) / 1000) as usize
+        };
+    }
+
     fn refill(&mut self) -> Result<()> {
-        let before = self.staging.len();
+        self.decoded.clear();
         match self.decoder.next_chunk()? {
             Some(chunk) => match self.resampler.as_mut() {
-                Some(resampler) => resampler.push(chunk, &mut self.staging)?,
-                None => self.staging.extend_from_slice(chunk),
+                Some(resampler) => resampler.push(chunk, &mut self.decoded)?,
+                None => self.decoded.extend_from_slice(chunk),
             },
             None => {
                 // Each track is flushed on its own so the boundary frame index stays exact.
                 if let Some(resampler) = self.resampler.as_mut() {
-                    resampler.finish(&mut self.staging)?;
+                    resampler.finish(&mut self.decoded)?;
                 }
                 self.eof = true;
             }
         }
         if self.amplitude != 1.0 {
-            for sample in &mut self.staging[before..] {
+            for sample in &mut self.decoded {
                 *sample *= self.amplitude;
             }
         }
-        self.produced += ((self.staging.len() - before) / self.out_channels) as u64;
+        self.track_frames += (self.decoded.len() / self.out_channels) as u64;
+        self.holdback.absorb(&self.decoded);
+        if self.eof {
+            self.holdback.finish_mix();
+        }
+        self.release(self.hold_frames);
         Ok(())
+    }
+
+    /// Hands every held frame but the last `keep` over to the staging area.
+    fn release(&mut self, keep: usize) {
+        self.produced += self.holdback.release(keep, &mut self.staging) as u64;
+    }
+
+    /// How many frames the end of `current` and the start of `next` overlap: the crossfade, cut
+    /// down for tracks too short to give it, and none at all inside an album.
+    fn overlap(&self, current: &TrackInfo, next: &TrackInfo) -> usize {
+        let same_album = current.options.album_key.is_some()
+            && current.options.album_key == next.options.album_key;
+        if same_album {
+            return 0;
+        }
+        // A track gives at most half its length to each fade, so its fade in and its fade out
+        // never meet. A length that is not known is taken to be long enough.
+        let next_frames = match next.duration_ms {
+            0 => u64::MAX,
+            ms => ms * u64::from(self.out_rate) / 1000,
+        };
+        let shortest = self.track_frames.min(next_frames) / 2;
+        self.hold_frames
+            .min(self.holdback.frames())
+            .min(usize::try_from(shortest).unwrap_or(usize::MAX))
     }
 
     /// Decodes into `sink` until it is full, handing over to `next` when this track ends.
@@ -183,14 +239,28 @@ impl Feed {
                 continue;
             }
             // One handoff at a time keeps seeks and queue changes simple: see `Engine::reposition`.
-            if timeline.upcoming().is_some() {
-                return Ok(());
-            }
-            let Some(queued) = next.take_if(|queued| self.accepts(&queued.decoder)) else {
+            let Some(queued) = next
+                .take_if(|queued| timeline.upcoming().is_none() && self.accepts(&queued.decoder))
+            else {
+                // Nothing follows yet, so nothing can fade in over the held end of this track.
+                self.release(0);
+                if self.is_staging() {
+                    continue;
+                }
                 return Ok(());
             };
-            let gain = queued.track.gain;
-            timeline.schedule(self.produced, queued.track);
+            let gain = queued.track.options.gain;
+            match self.overlap(timeline.current(), &queued.track) {
+                0 => {
+                    self.release(0);
+                    timeline.schedule(self.produced, queued.track);
+                }
+                overlap => {
+                    self.produced += self.holdback.begin_mix(overlap, &mut self.staging) as u64;
+                    let midway = self.produced + (overlap / 2) as u64;
+                    timeline.schedule_crossfade(self.produced, midway, queued.track);
+                }
+            }
             self.continue_with(queued.decoder, gain);
         }
     }
@@ -199,6 +269,7 @@ impl Feed {
     fn continue_with(&mut self, decoder: Decoder, gain: Option<Gain>) {
         self.decoder = decoder;
         self.amplitude = amplitude(gain, self.exact);
+        self.track_frames = 0;
         self.eof = false;
     }
 
@@ -208,6 +279,8 @@ impl Feed {
         self.amplitude = amplitude(gain, self.exact);
         self.staging.clear();
         self.staged = 0;
+        self.holdback.clear();
+        self.track_frames = 0;
         self.produced = frame;
         self.eof = false;
         if let Some(resampler) = self.resampler.as_mut() {
@@ -239,7 +312,7 @@ impl Session {
         let format = output.format();
         let exact = output.request().exact;
         Ok(Session {
-            feed: Feed::new(decoder, format, 0, exact, track.gain)?,
+            feed: Feed::new(decoder, format, 0, exact, track.options.gain)?,
             timeline: Timeline::new(format.sample_rate, track, 0, position_ms),
             output,
         })
@@ -251,7 +324,9 @@ impl Session {
     }
 
     /// Decodes into the ring until it is full, handing over to `next` when this track ends.
-    fn fill(&mut self, next: &mut Option<Queued>) -> Result<()> {
+    /// `crossfade_ms` is how long the end of this track should fade into the start of the next.
+    fn fill(&mut self, next: &mut Option<Queued>, crossfade_ms: u32) -> Result<()> {
+        self.feed.set_crossfade(crossfade_ms);
         self.feed.fill(&mut self.output, &mut self.timeline, next)
     }
 
@@ -259,7 +334,7 @@ impl Session {
     fn restart(&mut self, queued: Queued, position_ms: u64) {
         let frame = self.output.consumed();
         self.feed.decoder = queued.decoder;
-        self.feed.rewind(frame, queued.track.gain);
+        self.feed.rewind(frame, queued.track.options.gain);
         self.timeline = Timeline::new(
             self.output.format().sample_rate,
             queued.track,
@@ -279,6 +354,7 @@ impl Session {
     fn finished(&self) -> bool {
         self.feed.eof
             && !self.feed.is_staging()
+            && self.feed.holdback.is_empty()
             && self.timeline.upcoming().is_none()
             && self.output.consumed() >= self.feed.produced
     }
@@ -359,8 +435,8 @@ impl Engine {
 
     fn handle(&mut self, command: Command) -> ControlFlow<()> {
         match command {
-            Command::Play(id, path, gain) => self.play(id, path, gain),
-            Command::QueueNext(id, path, gain) => self.queue_next(id, path, gain),
+            Command::Play(id, path, options) => self.play(id, path, options),
+            Command::QueueNext(id, path, options) => self.queue_next(id, path, options),
             Command::ClearNext => self.clear_next(),
             Command::Pause => self.set_paused(true),
             Command::Resume => self.set_paused(false),
@@ -377,9 +453,10 @@ impl Engine {
         ControlFlow::Continue(())
     }
 
-    fn play(&mut self, id: i64, path: PathBuf, gain: Option<Gain>) {
+    fn play(&mut self, id: i64, path: PathBuf, options: TrackOptions) {
         self.next = None;
-        let started = Queued::open(self.open, id, path, gain).and_then(|queued| self.start(queued));
+        let started =
+            Queued::open(self.open, id, path, options).and_then(|queued| self.start(queued));
         if let Err(error) = started {
             self.fail(Some(id), error);
         }
@@ -400,6 +477,7 @@ impl Engine {
     /// is kept when it fits, so there is no reopen pop.
     fn begin(&mut self, queued: Queued, position_ms: u64) -> Result<()> {
         let exact = self.bit_perfect;
+        let crossfade_ms = self.shared.crossfade_ms.load(Ordering::Relaxed);
         match self
             .session
             .as_mut()
@@ -411,7 +489,7 @@ impl Engine {
                 session
                     .output
                     .set_paused(self.state == PlaybackState::Paused);
-                session.fill(&mut self.next)?;
+                session.fill(&mut self.next, crossfade_ms)?;
             }
             None => {
                 self.release();
@@ -420,7 +498,7 @@ impl Engine {
                 session
                     .output
                     .set_paused(self.state == PlaybackState::Paused);
-                session.fill(&mut self.next)?;
+                session.fill(&mut self.next, crossfade_ms)?;
                 // The ring is primed first so the first callback already has audio.
                 session.output.start()?;
                 self.session = Some(session);
@@ -480,15 +558,15 @@ impl Engine {
         let on_failure = move |error| {
             let _ = sender.send(Command::OutputFailed { generation, error });
         };
-        self.host.open(
-            request,
-            Arc::clone(&self.shared.volume),
-            Box::new(on_failure),
-        )
+        let controls = Controls {
+            volume: Arc::clone(&self.shared.volume),
+            equalizer: Arc::clone(&self.shared.equalizer),
+        };
+        self.host.open(request, controls, Box::new(on_failure))
     }
 
-    fn queue_next(&mut self, id: i64, path: PathBuf, gain: Option<Gain>) {
-        match Queued::open(self.open, id, path, gain) {
+    fn queue_next(&mut self, id: i64, path: PathBuf, options: TrackOptions) {
+        match Queued::open(self.open, id, path, options) {
             Ok(queued) => {
                 self.next = Some(queued);
                 // A handoff already decoded into the ring cannot be unpicked, so rewind to the
@@ -579,11 +657,11 @@ impl Engine {
         };
         let upcoming = session.timeline.take_upcoming();
 
-        let mut queued = Queued::open(self.open, audible.id, audible.path, audible.gain)?;
+        let mut queued = Queued::open(self.open, audible.id, audible.path, audible.options)?;
         let landed_ms = queued.decoder.seek(position_ms)?;
         self.release();
         if let Some(track) = upcoming.filter(|_| self.next.is_none()) {
-            match Queued::open(self.open, track.id, track.path, track.gain) {
+            match Queued::open(self.open, track.id, track.path, track.options) {
                 Ok(requeued) => self.next = Some(requeued),
                 Err(error) => self.report(Some(track.id), &error),
             }
@@ -630,13 +708,13 @@ impl Engine {
         }
         let landed_ms = session.feed.decoder.seek(position_ms)?;
         // With a handoff pending the feed had moved on to the next track's gain.
-        session.feed.rewind(frame, audible.gain);
+        session.feed.rewind(frame, audible.options.gain);
         session.timeline.reanchor(frame, landed_ms);
         self.next_position_event = Instant::now();
 
         // A newer queue entry wins over the one that was decoded ahead.
         if let Some(track) = upcoming.filter(|_| keep_upcoming && self.next.is_none()) {
-            match Queued::open(self.open, track.id, track.path, track.gain) {
+            match Queued::open(self.open, track.id, track.path, track.options) {
                 Ok(queued) => self.next = Some(queued),
                 Err(error) => self.report(Some(track.id), &error),
             }
@@ -645,10 +723,11 @@ impl Engine {
     }
 
     fn tick(&mut self) {
+        let crossfade_ms = self.shared.crossfade_ms.load(Ordering::Relaxed);
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        if let Err(error) = session.fill(&mut self.next) {
+        if let Err(error) = session.fill(&mut self.next, crossfade_ms) {
             let feeding = session.feeding_id();
             self.fail(Some(feeding), error);
             return;
@@ -777,9 +856,11 @@ impl Engine {
             bit_perfect: info.bit_perfect,
             output_format: Some(info.label.clone()),
             gain_db: track
+                .options
                 .gain
                 .filter(|_| !info.bit_perfect)
                 .map(Gain::applied_db),
+            eq_active: !info.bit_perfect && self.shared.equalizer.is_on(),
         }
     }
 
@@ -812,10 +893,11 @@ impl Drop for Engine {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU32};
     use std::sync::{Mutex, mpsc};
 
     use super::*;
+    use crate::crossfade::crossfaded;
     use crate::symphonia_source::fault::{self, Fault, Faulty};
 
     const STEREO_44K: Format = Format {
@@ -871,7 +953,7 @@ mod tests {
     }
 
     fn queued_with(id: i64, name: &str, gain: Option<Gain>) -> Queued {
-        Queued::open(Decoder::open, id, fixture(name), gain).unwrap()
+        Queued::open(Decoder::open, id, fixture(name), gain.into()).unwrap()
     }
 
     fn decode(name: &str) -> Vec<f32> {
@@ -1060,6 +1142,8 @@ mod tests {
             let shared = Arc::new(Shared {
                 status: Mutex::new(PlaybackStatus::stopped(0.0)),
                 volume,
+                equalizer: Arc::default(),
+                crossfade_ms: AtomicU32::new(0),
                 bit_perfect: AtomicBool::new(false),
             });
             let (host, _) = crate::host::simulated::Simulated::new(Default::default());
@@ -1080,7 +1164,11 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::Play(7, fixture("sine.flac"), None))
+                .handle(Command::Play(
+                    7,
+                    fixture("sine.flac"),
+                    TrackOptions::default()
+                ))
                 .is_continue()
         );
 
@@ -1100,7 +1188,11 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::Play(8, fixture("missing.flac"), None))
+                .handle(Command::Play(
+                    8,
+                    fixture("missing.flac"),
+                    TrackOptions::default()
+                ))
                 .is_continue()
         );
         let events = harness.events();
@@ -1124,7 +1216,11 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::QueueNext(9, fixture("sine.flac"), None))
+                .handle(Command::QueueNext(
+                    9,
+                    fixture("sine.flac"),
+                    TrackOptions::default()
+                ))
                 .is_continue()
         );
 
@@ -1292,7 +1388,7 @@ mod tests {
         // What `Engine::reposition` does for a seek with a handoff pending.
         device.queue.clear();
         feed.decoder = Decoder::open(&fixture("sine.flac")).unwrap();
-        feed.rewind(0, timeline.current().gain);
+        feed.rewind(0, timeline.current().options.gain);
         timeline.take_upcoming();
         feed.fill(&mut device, &mut timeline, &mut None).unwrap();
 
@@ -1304,7 +1400,7 @@ mod tests {
     fn the_status_reports_the_applied_gain_of_the_audible_track_only_outside_bit_perfect() {
         let mut harness = Harness::new(Decoder::open);
         let quiet = gain(-6.0);
-        let play = Command::Play(1, fixture("sine.flac"), Some(quiet));
+        let play = Command::Play(1, fixture("sine.flac"), quiet.into());
         assert!(harness.engine.handle(play).is_continue());
         assert_eq!(harness.engine.status().gain_db, Some(-6.0));
 
@@ -1323,5 +1419,284 @@ mod tests {
         );
         assert_eq!(harness.engine.status().gain_db, Some(-6.0));
         assert!(harness.engine.handle(Command::Shutdown).is_break());
+    }
+
+    fn with_album(id: i64, name: &str, album: Option<&str>) -> Queued {
+        let options = TrackOptions {
+            gain: None,
+            album_key: album.map(str::to_owned),
+        };
+        Queued::open(Decoder::open, id, fixture(name), options).unwrap()
+    }
+
+    /// Plays `tracks` in order through a feed that crossfades by `fade` frames, the way the
+    /// engine queues them: each track is put in the queue as soon as the one before it is taken.
+    /// The device holds `ring` frames.
+    fn crossfade_ring(fade: usize, ring: usize, tracks: Vec<Queued>) -> (Heard, Timeline) {
+        let mut tracks = tracks.into_iter();
+        let first = tracks.next().unwrap();
+        let gain = first.track.options.gain;
+        let mut timeline = Timeline::new(44_100, first.track, 0, 0);
+        let mut feed = Feed::new(first.decoder, STEREO_44K, 0, false, gain).unwrap();
+        feed.hold_frames = fade;
+        let mut next = tracks.next();
+        let mut device = Device::new(ring, STEREO_44K);
+        let mut heard = Heard {
+            samples: Vec::new(),
+            transitions: Vec::new(),
+        };
+        let mut consumed = 0;
+        loop {
+            feed.fill(&mut device, &mut timeline, &mut next).unwrap();
+            if next.is_none() {
+                next = tracks.next();
+            }
+            if device.queue.is_empty() {
+                return (heard, timeline);
+            }
+            heard.samples.extend(device.queue.drain(..device.channels));
+            consumed += 1;
+            if let Some(transition) = timeline.advance(consumed) {
+                heard
+                    .transitions
+                    .push((transition.ended, transition.started.id, consumed));
+            }
+        }
+    }
+
+    fn crossfade_through(fade: usize, tracks: Vec<Queued>) -> (Heard, Timeline) {
+        crossfade_ring(fade, 4_096, tracks)
+    }
+
+    #[test]
+    fn a_crossfade_overlaps_the_two_tracks_and_switches_in_the_middle_of_the_overlap() {
+        let (first, second) = (decode("sine.flac"), decode("sine.mp3"));
+        for overlap in [4_410, 11_025, 22_050] {
+            let tracks = vec![queued(1, "sine.flac"), queued(2, "sine.mp3")];
+            let (heard, _) = crossfade_through(overlap, tracks);
+
+            assert_eq!(heard.samples.len(), 2 * (88_200 - overlap), "{overlap}");
+            assert!(
+                heard.samples == crossfaded(&first, &second, overlap),
+                "{overlap}: the overlap is the two tracks under equal-power curves"
+            );
+            let midway = (44_100 - overlap + overlap / 2) as u64;
+            assert_eq!(heard.transitions, [(1, 2, midway)], "{overlap}");
+        }
+    }
+
+    #[test]
+    fn a_crossfade_applies_each_tracks_own_gain_on_its_side() {
+        let (quiet, loud) = (gain(-6.0), gain(3.0));
+        let tracks = vec![
+            queued_with(1, "sine.flac", Some(quiet)),
+            queued_with(2, "sine.mp3", Some(loud)),
+        ];
+        let (heard, _) = crossfade_through(11_025, tracks);
+
+        let expected = crossfaded(
+            &scaled(&decode("sine.flac"), Some(quiet)),
+            &scaled(&decode("sine.mp3"), Some(loud)),
+            11_025,
+        );
+        assert!(heard.samples == expected);
+    }
+
+    #[test]
+    fn tracks_of_one_album_stay_gapless_and_others_crossfade() {
+        let (first, second) = (decode("sine.flac"), decode("sine.mp3"));
+        let join = |one: Option<&str>, two: Option<&str>| {
+            let tracks = vec![
+                with_album(1, "sine.flac", one),
+                with_album(2, "sine.mp3", two),
+            ];
+            crossfade_through(11_025, tracks).0
+        };
+
+        let album = join(Some("Kind of Blue"), Some("Kind of Blue"));
+        assert!(album.samples == [first.clone(), second.clone()].concat());
+        assert_eq!(album.transitions, [(1, 2, 44_100)]);
+
+        for (one, two) in [
+            (Some("Kind of Blue"), Some("Blue Train")),
+            (Some("Kind of Blue"), None),
+            (None, None),
+        ] {
+            let heard = join(one, two);
+            assert!(
+                heard.samples == crossfaded(&first, &second, 11_025),
+                "{one:?} {two:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fade_longer_than_half_a_track_is_cut_down_to_half_so_fades_never_meet() {
+        let (first, second) = (decode("sine.flac"), decode("sine.mp3"));
+        // Asked to fade for 0.6 s, tracks of 1 s give 0.5 s each.
+        let tracks = vec![queued(1, "sine.flac"), queued(2, "sine.mp3")];
+        let (heard, _) = crossfade_through(26_460, tracks);
+
+        assert!(heard.samples == crossfaded(&first, &second, 22_050));
+        assert_eq!(heard.transitions, [(1, 2, 44_100 - 11_025)]);
+    }
+
+    #[test]
+    fn a_track_shorter_than_two_fades_gives_each_fade_half_its_length() {
+        let (first, second, third) = (decode("sine.flac"), decode("sine.mp3"), decode("sine.ogg"));
+        let tracks = vec![
+            queued(1, "sine.flac"),
+            queued(2, "sine.mp3"),
+            queued(3, "sine.ogg"),
+        ];
+        let (heard, _) = crossfade_through(26_460, tracks);
+
+        // The middle track is shorter than two fades of 0.6 s: it fades in over its first half
+        // and out over its second, and the two meet without overlapping.
+        let expected = crossfaded(&crossfaded(&first, &second, 22_050), &third, 22_050);
+        assert_eq!(heard.samples.len(), expected.len());
+        assert!(heard.samples == expected);
+        let ids: Vec<_> = heard.transitions.iter().map(|t| (t.0, t.1)).collect();
+        assert_eq!(ids, [(1, 2), (2, 3)]);
+    }
+
+    #[test]
+    fn a_short_track_whose_end_is_decoded_before_its_fade_in_is_heard_joins_the_next_gaplessly() {
+        let (first, second, third) = (decode("sine.flac"), decode("sine.mp3"), decode("sine.ogg"));
+        let tracks = vec![
+            queued(1, "sine.flac"),
+            queued(2, "sine.mp3"),
+            queued(3, "sine.ogg"),
+        ];
+        // The ring is deeper than a track, so the middle one has ended in the decoder while the
+        // first is still fading out; the engine takes one handoff at a time.
+        let (heard, _) = crossfade_ring(26_460, 500_000, tracks);
+
+        let expected = [crossfaded(&first, &second, 22_050), third].concat();
+        assert!(heard.samples == expected);
+        let ids: Vec<_> = heard.transitions.iter().map(|t| (t.0, t.1)).collect();
+        assert_eq!(ids, [(1, 2), (2, 3)]);
+    }
+
+    #[test]
+    fn a_next_track_that_ends_inside_the_fade_leaves_the_rest_of_the_tail_fading_out() {
+        // Its length is not known, so it is not cut down, and at 0.2 s it is shorter than the fade.
+        let mut brief = queued(2, "sine-24bit.flac");
+        brief.track.duration_ms = 0;
+        let tracks = vec![queued(1, "sine.flac"), brief];
+        let (heard, _) = crossfade_through(22_050, tracks);
+
+        assert_eq!(
+            heard.samples.len(),
+            2 * 44_100,
+            "the fade still takes its full length"
+        );
+        // Past the 8820 frames of the short track the held end of the first fades out alone,
+        // along the same curve, to nothing.
+        let first = decode("sine.flac");
+        let start = 44_100 - 22_050;
+        for frame in 8_820..22_050 {
+            let at = 2 * (start + frame);
+            assert_eq!(
+                heard.samples[at],
+                first[at] * crate::crossfade::curves(frame, 22_050).0,
+                "frame {frame}"
+            );
+        }
+        assert!(
+            heard.samples[heard.samples.len() - 2..]
+                .iter()
+                .all(|s| s.abs() < 1e-3)
+        );
+    }
+
+    #[test]
+    fn a_bit_perfect_feed_never_crossfades() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, true, None);
+        feed.set_crossfade(5_000);
+        assert_eq!(feed.hold_frames, 0);
+        let mut next = Some(queued(2, "sine.flac"));
+        let mut device = Device::new(4_096, STEREO_44K);
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+        assert!(heard.samples == [decode("sine.flac"), decode("sine.flac")].concat());
+        assert_eq!(heard.transitions, [(1, 2, 44_100)]);
+    }
+
+    #[test]
+    fn a_crossfade_wanted_in_milliseconds_is_counted_in_device_frames() {
+        let (mut feed, _) = start_with("sine-22k.aiff", STEREO_48K, false, None);
+        feed.set_crossfade(2_500);
+        assert_eq!(feed.hold_frames, 120_000);
+        feed.set_crossfade(0);
+        assert_eq!(feed.hold_frames, 0);
+    }
+
+    #[test]
+    fn turning_the_crossfade_off_lets_the_held_end_go() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, None);
+        feed.hold_frames = 22_050;
+        let mut device = Device::new(500_000, STEREO_44K);
+        feed.fill(&mut device, &mut timeline, &mut None).unwrap();
+        // Nothing follows, so the held end was let go when the track ended.
+        assert_eq!(device.queue.len(), 2 * 44_100);
+        assert!(feed.holdback.is_empty());
+    }
+
+    #[test]
+    fn a_next_track_queued_late_still_follows_gaplessly_once_the_end_was_let_go() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, None);
+        feed.hold_frames = 11_025;
+        let mut device = Device::new(500_000, STEREO_44K);
+        let mut next = None;
+        feed.fill(&mut device, &mut timeline, &mut next).unwrap();
+
+        next = Some(queued(2, "sine.mp3"));
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+        assert!(heard.samples == [decode("sine.flac"), decode("sine.mp3")].concat());
+    }
+
+    #[test]
+    fn a_seek_during_the_fade_drops_it_and_the_next_track_fades_in_afresh() {
+        let (first, second) = (decode("sine.flac"), decode("sine.mp3"));
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, None);
+        feed.hold_frames = 11_025;
+        let mut next = Some(queued(2, "sine.mp3"));
+        let mut device = Device::new(500_000, STEREO_44K);
+        feed.fill(&mut device, &mut timeline, &mut next).unwrap();
+        assert_eq!(timeline.upcoming().map(|track| track.id), Some(2));
+
+        // What `Engine::reposition` does for a seek to 0.5 s with the handoff pending.
+        device.queue.clear();
+        let track = timeline.take_upcoming().unwrap();
+        feed.decoder = Decoder::open(&fixture("sine.flac")).unwrap();
+        feed.decoder.seek(500).unwrap();
+        feed.rewind(0, None);
+        timeline.reanchor(0, 500);
+        next = Some(Queued::open(Decoder::open, track.id, track.path, track.options).unwrap());
+
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+        // Half a second of the first track is left, and a fade takes at most half of that.
+        let tail = first[2 * 22_050..].to_vec();
+        assert!(heard.samples == crossfaded(&tail, &second, 11_025));
+        assert_eq!(heard.transitions.len(), 1);
+    }
+
+    #[test]
+    fn a_seek_discards_the_held_end_instead_of_playing_it_after_the_new_position() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, None);
+        feed.hold_frames = 11_025;
+        let mut device = Device::new(4_096, STEREO_44K);
+        feed.fill(&mut device, &mut timeline, &mut None).unwrap();
+        assert!(
+            feed.holdback.frames() > 0,
+            "mid-track, the last stretch is held"
+        );
+
+        device.queue.clear();
+        feed.decoder.seek(500).unwrap();
+        feed.rewind(0, None);
+        let heard = play_out(&mut feed, &mut timeline, &mut None, &mut device);
+
+        assert!(heard.samples == decode("sine.flac")[2 * 22_050..]);
     }
 }

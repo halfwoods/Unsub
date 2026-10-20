@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use cpal::{FromSample, SampleFormat, SizedSample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::equalizer::{Chain, EqControl};
 use crate::gain::{self, Ramp, Volume};
 use crate::{Error, Result};
 
@@ -20,6 +21,13 @@ const FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 pub struct Format {
     pub sample_rate: u32,
     pub channels: u16,
+}
+
+/// What the user can change while a stream plays, read by the callback without locking.
+#[derive(Clone)]
+pub struct Controls {
+    pub volume: Arc<Volume>,
+    pub equalizer: Arc<EqControl>,
 }
 
 /// What the engine asks of an output stream for one source.
@@ -92,11 +100,11 @@ pub struct Pipe {
 
 impl Pipe {
     /// The callback goes to the backend's device; the pipe stays to become the [`Output`].
-    pub fn new(format: Format, volume: Arc<Volume>, exact: bool) -> (Callback, Pipe) {
+    pub fn new(format: Format, controls: Controls, exact: bool) -> (Callback, Pipe) {
         let capacity = format.sample_rate as usize * usize::from(format.channels) * RING_MS / 1000;
         let (producer, consumer) = RingBuffer::new(capacity);
         let shared = Arc::new(Shared::default());
-        let callback = Callback::new(consumer, Arc::clone(&shared), volume, format, exact);
+        let callback = Callback::new(consumer, Arc::clone(&shared), controls, format, exact);
         (callback, Pipe { producer, shared })
     }
 
@@ -183,8 +191,10 @@ pub struct Callback {
     consumer: Consumer<f32>,
     shared: Arc<Shared>,
     volume: Arc<Volume>,
-    /// Bit-perfect streams ignore the volume and stay at unity.
+    /// Bit-perfect streams ignore the volume and the equalizer and stay at unity.
     exact: bool,
+    /// Applied to the decoded samples before the volume; absent when bit-perfect.
+    equalizer: Option<Chain>,
     /// Pause, resume and flush fade; the ring is only drained while this is above zero.
     fade: Ramp,
     /// Volume changes. Separate from `fade` so that volume 0 still advances playback.
@@ -197,18 +207,21 @@ impl Callback {
     fn new(
         consumer: Consumer<f32>,
         shared: Arc<Shared>,
-        volume: Arc<Volume>,
+        controls: Controls,
         format: Format,
         exact: bool,
     ) -> Self {
+        let channels = usize::from(format.channels);
         Callback {
             consumer,
             shared,
             fade: Ramp::new(format.sample_rate, 0.0),
-            level: Ramp::new(format.sample_rate, level_target(&volume, exact)),
-            volume,
+            level: Ramp::new(format.sample_rate, level_target(&controls.volume, exact)),
+            volume: controls.volume,
             exact,
-            channels: usize::from(format.channels),
+            equalizer: (!exact)
+                .then(|| Chain::new(controls.equalizer, format.sample_rate, channels)),
+            channels,
             flushed: 0,
         }
     }
@@ -219,6 +232,9 @@ impl Callback {
         let hold = flushing || self.shared.paused.load(Ordering::Relaxed);
         let fade_target = if hold { 0.0 } else { 1.0 };
         let level_target = level_target(&self.volume, self.exact);
+        if let Some(equalizer) = self.equalizer.as_mut() {
+            equalizer.sync();
+        }
 
         let ready = self.consumer.slots() / self.channels * self.channels;
         let mut taken = 0;
@@ -233,10 +249,17 @@ impl Callback {
                         frame.fill(T::EQUILIBRIUM);
                         continue;
                     }
-                    for out in frame {
+                    if let Some(equalizer) = self.equalizer.as_mut() {
+                        equalizer.advance();
+                    }
+                    for (channel, out) in frame.iter_mut().enumerate() {
                         *out = match queued.next() {
                             Some(sample) => {
                                 taken += 1;
+                                let sample = match self.equalizer.as_mut() {
+                                    Some(equalizer) => equalizer.process(channel, sample),
+                                    None => sample,
+                                };
                                 to_device(sample * scale)
                             }
                             None => T::EQUILIBRIUM,
@@ -255,6 +278,9 @@ impl Callback {
             let queued = self.consumer.slots();
             if let Ok(chunk) = self.consumer.read_chunk(queued) {
                 chunk.commit_all();
+            }
+            if let Some(equalizer) = self.equalizer.as_mut() {
+                equalizer.reset();
             }
             self.flushed = request;
             self.shared.flush_ack.store(request, Ordering::Release);
@@ -286,6 +312,7 @@ mod tests {
     use cpal::I24;
 
     use super::*;
+    use crate::equalizer::Equalizer;
 
     const RATE: u32 = 48_000;
 
@@ -293,6 +320,7 @@ mod tests {
         producer: Producer<f32>,
         shared: Arc<Shared>,
         callback: Callback,
+        equalizer: Arc<EqControl>,
     }
 
     fn rig(channels: u16, volume: f32) -> Rig {
@@ -306,17 +334,17 @@ mod tests {
             sample_rate: RATE,
             channels,
         };
-        let callback = Callback::new(
-            consumer,
-            Arc::clone(&shared),
-            Arc::new(Volume::new(volume)),
-            format,
-            exact,
-        );
+        let equalizer = Arc::new(EqControl::default());
+        let controls = Controls {
+            volume: Arc::new(Volume::new(volume)),
+            equalizer: Arc::clone(&equalizer),
+        };
+        let callback = Callback::new(consumer, Arc::clone(&shared), controls, format, exact);
         Rig {
             producer,
             shared,
             callback,
+            equalizer,
         }
     }
 
@@ -510,6 +538,26 @@ mod tests {
             render(&mut shared, 2_000)[1_999] < 0.01,
             "cubic curve of 0.25"
         );
+    }
+
+    #[test]
+    fn the_equalizer_shapes_a_normal_stream_and_leaves_a_bit_perfect_one_alone() {
+        let quieter = Equalizer {
+            preamp_db: -6.0,
+            bands: [0.0; 10],
+        };
+        for (exact, expected) in [(false, 0.5 * 10f32.powf(-6.0 / 20.0)), (true, 0.5)] {
+            let mut rig = rig_with(1, 1.0, exact);
+            rig.equalizer.set(Some(quieter));
+            rig.producer.push_entire_slice(&[0.5; 4_000]).unwrap();
+            let out = render(&mut rig, 4_000);
+            // The change glides in over 20 ms and the stream fades in over 10, so look at the end.
+            assert!(
+                (out[3_999] - expected).abs() < 1e-5,
+                "exact {exact}: {}",
+                out[3_999]
+            );
+        }
     }
 
     #[test]
