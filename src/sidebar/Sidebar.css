@@ -217,3 +217,32 @@
   height: 48px;
   list-style: none;
 }
+
+.sidebar-syncing {
+  flex: none;
+  margin-left: auto;
+  /* Centred where the 18px eject button sits. */
+  margin-right: 9px;
+  fill: none;
+  stroke: #5a6577;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: sidebar-syncing 1.6s linear infinite;
+}
+
+[aria-selected="true"] > .sidebar-syncing {
+  stroke: #ffffff;
+}
+
+@keyframes sidebar-syncing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-syncing {
+    animation: none;
+  }
+}

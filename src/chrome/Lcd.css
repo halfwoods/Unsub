@@ -164,3 +164,26 @@
 .lcd-mix:active svg {
   stroke: var(--lcd-ink);
 }
+
+/* iTunes' stop button at the end of a sync or import bar. */
+.lcd-cancel {
+  flex: none;
+  display: grid;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.lcd-cancel circle {
+  fill: #7d8070;
+}
+
+.lcd-cancel path {
+  stroke: #eef0e2;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.lcd-cancel:active circle {
+  fill: #50523f;
+}

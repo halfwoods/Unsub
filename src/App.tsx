@@ -6,6 +6,7 @@ import {
   onCdChanged,
   onCdRip,
   onCloudDownload,
+  onDeviceSync,
   onDevicesChanged,
   onLibraryChanged,
   onMenuAction,
@@ -72,6 +73,7 @@ function useBackendEvents() {
       onDevicesChanged(() => void refreshDevices()),
       onCdChanged(() => void refreshCds()),
       onCdRip((cdRip) => useApp.setState({ cdRip })),
+      onDeviceSync((deviceSync) => useApp.setState({ deviceSync })),
       onScanProgress(setScan),
       onCloudDownload((p) =>
         useApp.setState({ cloudDownload: p && { trackId: p.trackId, fraction: p.total > 0 ? p.done / p.total : 0 } }),

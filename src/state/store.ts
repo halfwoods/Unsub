@@ -8,6 +8,7 @@ import type {
   CdRipStatus,
   ComposerSummary,
   Device,
+  DeviceSyncStatus,
   DeviceView,
   GenreSummary,
   LibraryStats,
@@ -145,6 +146,8 @@ interface AppState {
   cds: AudioCd[];
   /** The CD import in progress, if any. */
   cdRip: CdRipStatus | null;
+  /** The iPod sync in progress, if any. */
+  deviceSync: DeviceSyncStatus | null;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -217,6 +220,7 @@ export const useApp = create<AppState>((set, get) => ({
   devices: [],
   cds: [],
   cdRip: null,
+  deviceSync: null,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },

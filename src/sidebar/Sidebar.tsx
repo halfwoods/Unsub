@@ -124,8 +124,18 @@ function EjectButton({ name, onEject }: { name: string; onEject: () => void }) {
   );
 }
 
+/** iTunes swaps the eject button for turning sync arrows while an iPod syncs. */
+function SyncingIcon() {
+  return (
+    <svg className="sidebar-syncing" width={12} height={12} viewBox="0 0 12 12" aria-label="Syncing">
+      <path d="M2.2 6a3.8 3.8 0 0 1 6.6-2.6M9.8 6a3.8 3.8 0 0 1-6.6 2.6M9.3 1.4v2.4H6.9M2.7 10.6V8.2h2.4" />
+    </svg>
+  );
+}
+
 function DeviceRows({ device }: { device: Device }) {
   const expanded = useApp((s) => s.expandedDevices.has(device.id));
+  const syncing = useApp((s) => s.deviceSync?.deviceId === device.id);
   const toggleDevice = useApp((s) => s.toggleDevice);
   const stop = (e: MouseEvent) => e.stopPropagation();
 
@@ -150,7 +160,7 @@ function DeviceRows({ device }: { device: Device }) {
             onClick={() => toggleDevice(device.id)}
           />
         }
-        after={<EjectButton name={device.name} onEject={() => void deviceEject(device.id)} />}
+        after={syncing ? <SyncingIcon /> : <EjectButton name={device.name} onEject={() => void deviceEject(device.id)} />}
       />
       {expanded && (
         <>

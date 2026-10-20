@@ -142,6 +142,43 @@ export interface Device {
   playlists: DevicePlaylist[];
 }
 
+export type MusicScope = { type: "all" } | { type: "playlists"; ids: number[] };
+
+/** iTunes' per-iPod sync choices. */
+export interface SyncSettings {
+  music: boolean;
+  musicScope: MusicScope;
+  podcasts: boolean;
+  podcastsUnplayedOnly: boolean;
+  audiobooks: boolean;
+  onlyChecked: boolean;
+  /** "Convert higher bit rate songs to … AAC"; null keeps lossless songs lossless. */
+  convertKbps: number | null;
+  /** The first sync to each iPod asks first. */
+  confirmed: boolean;
+}
+
+export interface SyncPreview {
+  tracks: number;
+  add: number;
+  update: number;
+  remove: number;
+  bytesNeeded: number;
+  freeBytes: number;
+  fits: boolean;
+  converted: number;
+  inCloud: number;
+  missing: number;
+}
+
+export interface DeviceSyncStatus {
+  deviceId: string;
+  stage: "preparing" | "copying" | "writingDatabase" | "cleaning";
+  done: number;
+  total: number;
+  current: string;
+}
+
 /** Which slice of a device a list shows: one media kind, or one of its playlists. */
 export type DeviceView = { kind: MediaKind } | { playlistId: string };
 

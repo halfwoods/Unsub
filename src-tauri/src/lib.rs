@@ -12,6 +12,7 @@ mod podcasts;
 mod purchases;
 mod queue;
 mod sharing;
+mod sync;
 
 use antistreaming_playback::Player;
 use tauri::Manager;
@@ -46,6 +47,7 @@ pub fn run() {
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(DevicesState::default());
+            app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
             let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
             let purchases_dir = app.path().audio_dir()?.join("AntiStreaming").join("Purchases");
@@ -131,6 +133,11 @@ pub fn run() {
             cd::cd_import,
             cd::cd_stop_import,
             cd::cd_eject,
+            sync::device_sync_settings,
+            sync::device_set_sync_settings,
+            sync::device_sync_preview,
+            sync::device_sync,
+            sync::device_cancel_sync,
             sharing::sharing_status,
             sharing::sharing_update,
         ])

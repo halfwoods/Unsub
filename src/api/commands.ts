@@ -7,6 +7,7 @@ import type {
   CdRipStatus,
   ComposerSummary,
   Device,
+  DeviceSyncStatus,
   DeviceView,
   GenreSummary,
   ImportFormat,
@@ -29,6 +30,8 @@ import type {
   RepeatMode,
   ScanProgress,
   SharingSettings,
+  SyncPreview,
+  SyncSettings,
   SharingStatus,
   SmartRules,
   Track,
@@ -71,6 +74,12 @@ export const deviceTracks = (deviceId: string, view: DeviceView, query: TrackQue
 export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuery) =>
   invoke<LibraryStats>("device_stats", { deviceId, view, query });
 export const deviceEject = (deviceId: string) => invoke<void>("device_eject", { deviceId });
+export const deviceSyncSettings = (deviceId: string) => invoke<SyncSettings>("device_sync_settings", { deviceId });
+export const deviceSetSyncSettings = (deviceId: string, settings: SyncSettings) =>
+  invoke<void>("device_set_sync_settings", { deviceId, settings });
+export const deviceSyncPreview = (deviceId: string) => invoke<SyncPreview>("device_sync_preview", { deviceId });
+export const deviceSync = (deviceId: string) => invoke<void>("device_sync", { deviceId });
+export const deviceCancelSync = () => invoke<void>("device_cancel_sync");
 
 export const cdList = () => invoke<AudioCd[]>("cd_list");
 export const cdTracks = (discId: string) => invoke<Track[]>("cd_tracks", { discId });
@@ -171,6 +180,8 @@ export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus
 
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());
+export const onDeviceSync = (handler: (status: DeviceSyncStatus | null) => void): Promise<UnlistenFn> =>
+  listen<DeviceSyncStatus | null>("devices://sync", (e) => handler(e.payload));
 export const onCdChanged = (handler: () => void): Promise<UnlistenFn> => listen("cd://changed", () => handler());
 export const onCdRip = (handler: (status: CdRipStatus | null) => void): Promise<UnlistenFn> =>
   listen<CdRipStatus | null>("cd://rip", (e) => handler(e.payload));

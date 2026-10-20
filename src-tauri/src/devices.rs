@@ -60,6 +60,18 @@ impl DevicesState {
             .ok_or_else(|| CommandError::from(format!("device {device_id} is not connected")))
     }
 
+    /// The iPod behind a device id, for syncing.
+    pub(crate) fn ipod(&self, device_id: &str) -> CommandResult<Ipod> {
+        Ok(self.find(device_id)?.ipod.clone())
+    }
+
+    /// Re-reads an iPod whose database a sync just rewrote.
+    pub(crate) fn reconnect(&self, mount: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let device = connect(mount)?;
+        self.connected().insert(mount.to_path_buf(), Arc::new(device));
+        Ok(())
+    }
+
     pub fn track_path(&self, device_id: &str, track_id: i64) -> CommandResult<PathBuf> {
         self.find(device_id)?
             .tracks()

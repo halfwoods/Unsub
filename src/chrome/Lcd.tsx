@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { libraryMixFor, playerSeek } from "../api/commands";
+import { cdStopImport, deviceCancelSync, libraryMixFor, playerSeek } from "../api/commands";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { VinylMark } from "./VinylMark";
@@ -60,8 +60,11 @@ function Progress({ positionMs, durationMs }: { positionMs: number; durationMs: 
   );
 }
 
-/** The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar. */
-function ProgressLcd({ title, subtitle, fraction }: { title: string; subtitle: string; fraction: number | null }) {
+/**
+ * The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar.
+ * `onCancel` adds iTunes' ⓧ at the end of the bar.
+ */
+function ProgressLcd({ title, subtitle, fraction, onCancel }: { title: string; subtitle: string; fraction: number | null; onCancel?: () => void }) {
   return (
     <div className="lcd lcd--playing">
       <div className="lcd-title">{title}</div>
@@ -72,6 +75,14 @@ function ProgressLcd({ title, subtitle, fraction }: { title: string; subtitle: s
             {fraction !== null && <div className="lcd-progress-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />}
           </div>
         </div>
+        {onCancel && (
+          <button className="lcd-cancel" aria-label={`Stop ${title}`} title="Stop" onClick={onCancel}>
+            <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
+              <circle cx="6" cy="6" r="6" />
+              <path d="M3.9 3.9l4.2 4.2M8.1 3.9L3.9 8.1" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -87,6 +98,8 @@ export function Lcd() {
     s.cloudDownload ? (s.playingTracks.find((t) => t.id === s.cloudDownload?.trackId)?.title ?? "") : "",
   );
   const cdRip = useApp((s) => s.cdRip);
+  const deviceSync = useApp((s) => s.deviceSync);
+  const syncingName = useApp((s) => s.devices.find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "iPod");
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const playTrackIds = useApp((s) => s.playTrackIds);
@@ -128,10 +141,29 @@ export function Lcd() {
 
   if (cloudDownload) return <ProgressLcd title="Downloading from iCloud" subtitle={downloadingTitle} fraction={cloudDownload.fraction} />;
 
+  if (deviceSync) {
+    const { stage, done, total, current } = deviceSync;
+    const subtitle =
+      stage === "writingDatabase" ? "Updating the iPod's database" : stage === "cleaning" ? "Removing songs" : `Copying ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
+    return (
+      <ProgressLcd
+        title={`Syncing “${syncingName}”`}
+        subtitle={subtitle}
+        fraction={total > 0 ? done / total : null}
+        onCancel={stage === "preparing" || stage === "copying" ? () => void deviceCancelSync() : undefined}
+      />
+    );
+  }
+
   // Each imported song is then added to the library, so the import outranks "Adding to Library".
   if (cdRip) {
     return (
-      <ProgressLcd title={`Importing “${cdRip.title}”`} subtitle={`Song ${cdRip.index + 1} of ${cdRip.count}`} fraction={cdRip.fraction} />
+      <ProgressLcd
+        title={`Importing “${cdRip.title}”`}
+        subtitle={`Song ${cdRip.index + 1} of ${cdRip.count}`}
+        fraction={cdRip.fraction}
+        onCancel={() => void cdStopImport()}
+      />
     );
   }
 
