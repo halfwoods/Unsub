@@ -8,6 +8,7 @@ import type {
   Chapter,
   ComposerSummary,
   Device,
+  DirectoryStation,
   ArtworkChange,
   DeviceSyncStatus,
   EditReport,
@@ -25,6 +26,10 @@ import type {
   PodcastEpisode,
   PodcastFeed,
   Purchase,
+  RadioGenre,
+  RadioLink,
+  RadioStation,
+  RadioTitle,
   PurchasesStatus,
   StoreLink,
   PartyView,
@@ -237,6 +242,28 @@ export const onUpdateResult = (handler: (result: UpdateResult) => void): Promise
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
 
+export const radioGenres = () => invoke<RadioGenre[]>("radio_genres");
+export const radioStations = (genre: string, offset: number, limit: number) =>
+  invoke<DirectoryStation[]>("radio_stations", { genre, offset, limit });
+export const radioSearch = (query: string, limit: number) => invoke<DirectoryStation[]>("radio_search", { query, limit });
+export const radioMyStations = () => invoke<RadioStation[]>("radio_my_stations");
+export const radioRecent = (limit: number) => invoke<RadioStation[]>("radio_recent", { limit });
+export const radioAdd = (station: DirectoryStation) => invoke<number>("radio_add", { station });
+export const radioRemove = (id: number) => invoke<void>("radio_remove", { id });
+/** The play commands return once the station is chosen; it connects in the background, announced by `onRadioStation`. */
+export const radioPlay = (stationId: number) => invoke<void>("radio_play", { stationId });
+export const radioPlayDirectory = (station: DirectoryStation) => invoke<void>("radio_play_directory", { station });
+export const radioOpenStream = (url: string) => invoke<void>("radio_open_stream", { url });
+/** Adds the stations a .pls or .m3u lists; returns their ids. */
+export const radioImport = (path: string) => invoke<number[]>("radio_import", { path });
+/** The station being tuned in, again when its details change; null once it is removed. */
+export const onRadioStation = (handler: (station: RadioStation | null) => void): Promise<UnlistenFn> =>
+  listen<RadioStation | null>("radio://station", (e) => handler(e.payload));
+export const onRadioLink = (handler: (link: RadioLink | null) => void): Promise<UnlistenFn> =>
+  listen<RadioLink | null>("radio://link", (e) => handler(e.payload));
+export const onRadioNowPlaying = (handler: (title: RadioTitle) => void): Promise<UnlistenFn> =>
+  listen<RadioTitle>("radio://now-playing", (e) => handler(e.payload));
+
 export const onDevicesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("devices://changed", () => handler());
 export const onDeviceSync = (handler: (status: DeviceSyncStatus | null) => void): Promise<UnlistenFn> =>
@@ -264,6 +291,7 @@ export type MenuAction =
   | "organize-library"
   | "set-up-player"
   | "connect-to-server"
+  | "open-stream"
   | "equalizer"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>

@@ -164,6 +164,10 @@ export interface PlaybackStatus {
   bitPerfect: boolean;
   /** What the device is actually running at, e.g. "24-bit 96 kHz". */
   outputFormat: string | null;
+  /** A radio station: no duration, and the position counts up from when it was tuned in. */
+  live: boolean;
+  /** A station is waiting for enough audio to play. */
+  buffering: boolean;
 }
 
 export type PlayerEvent =
@@ -172,7 +176,9 @@ export type PlayerEvent =
   | { type: "trackStarted"; trackId: number }
   | { type: "trackEnded"; trackId: number }
   | { type: "error"; trackId: number | null; message: string }
-  | { type: "notice"; message: string };
+  | { type: "notice"; message: string }
+  | { type: "buffering"; id: number }
+  | { type: "liveEnded"; id: number; reason: string };
 
 export type RepeatMode = "off" | "all" | "one";
 
@@ -591,3 +597,47 @@ export type InstallEvent =
   | { event: "started"; data: { contentLength: number | null } }
   | { event: "progress"; data: { chunkLength: number } }
   | { event: "finished" };
+
+export interface RadioGenre {
+  name: string;
+  count: number;
+}
+
+/**
+ * A station in the Radio Browser directory. It goes back to the backend whole to be played or
+ * kept; its homepage and icon are never loaded here.
+ */
+export interface DirectoryStation {
+  uuid: string;
+  name: string;
+  url: string;
+  homepage: string;
+  favicon: string;
+  tags: string[];
+  country: string;
+  codec: string;
+  bitrateKbps: number;
+  isHls: boolean;
+  votes: number;
+}
+
+/** A station kept in the library. */
+export interface RadioStation {
+  id: number;
+  name: string;
+  url: string;
+  genre: string;
+  bitrateKbps: number | null;
+  codec: string;
+  radioBrowserUuid: string | null;
+}
+
+/** While a station is being reached, or reached again after a drop. */
+export type RadioLink = "connecting" | "reconnecting";
+
+/** What a station says is playing; both are null when it clears its title. */
+export interface RadioTitle {
+  stationId: number;
+  artist: string | null;
+  title: string | null;
+}

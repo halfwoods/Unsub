@@ -9,6 +9,7 @@ const PLACEHOLDER: Partial<Record<SourceId, string>> = {
   music: "Search Music",
   podcasts: "Search Podcasts",
   audiobooks: "Search Audiobooks",
+  radio: "Search Radio",
 };
 
 export function SearchField() {

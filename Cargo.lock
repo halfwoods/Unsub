@@ -86,6 +86,7 @@ dependencies = [
  "antistreaming-playback",
  "antistreaming-podcasts",
  "antistreaming-purchases",
+ "antistreaming-radio",
  "antistreaming-remote",
  "antistreaming-subsonic",
  "fastrand",

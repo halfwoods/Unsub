@@ -22,6 +22,9 @@ import type {
   PlayerEvent,
   Playlist,
   PlaylistKind,
+  RadioLink,
+  RadioStation,
+  RadioTitle,
   RepeatMode,
   ScanProgress,
   SmartRules,
@@ -65,6 +68,7 @@ export type SourceId =
   | "toOwn"
   | "partyShuffle"
   | "mixes"
+  | "radio"
   | "inbox"
   | "purchased";
 
@@ -170,6 +174,8 @@ const IDLE_PLAYBACK: PlaybackStatus = {
   volume: 0.75,
   bitPerfect: false,
   outputFormat: null,
+  live: false,
+  buffering: false,
 };
 
 /** How long a player notice stays in the LCD before the song info returns. */
@@ -211,6 +217,11 @@ interface AppState {
   organize: OrganizeProgress | null;
   settingUpPlayer: boolean;
   connectingToServer: boolean;
+  openingStream: boolean;
+  /** The station being listened to, kept once paused so Play can tune it in again; a song replaces it. */
+  liveStation: RadioStation | null;
+  liveTitle: RadioTitle | null;
+  liveLink: RadioLink | null;
   equalizerOpen: boolean;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
@@ -298,6 +309,10 @@ export const useApp = create<AppState>((set, get) => ({
   organize: null,
   settingUpPlayer: false,
   connectingToServer: false,
+  openingStream: false,
+  liveStation: null,
+  liveTitle: null,
+  liveLink: null,
   equalizerOpen: false,
   expandedDevices: new Set(),
   playingTracks: [],
@@ -424,7 +439,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (tracks[index].missing) return set({ librarySheet: { type: "locate", track: tracks[index] } });
     const playingSource = playSourceOf(source);
     // iTunes skips unchecked songs when playing through a list, but plays one you double-click.
-    const queue = tracks.filter((t, i) => t.enabled || i === index);
+    // A station in the list plays alone; it can't queue behind songs.
+    const queue = tracks.filter((t, i) => i === index || (t.enabled && t.kind !== "radio"));
     set({ playingTracks: tracks, playingSource });
     await api.playerPlayList(
       playingSource,
@@ -436,7 +452,7 @@ export const useApp = create<AppState>((set, get) => ({
   // iTunes' play button with nothing loaded plays the selection, else the top of the list.
   togglePlay: async () => {
     const { playback, tracks, selection, source } = get();
-    if (playback.trackId !== null) return api.playerTogglePause();
+    if (playback.trackId !== null || get().liveStation !== null) return api.playerTogglePause();
     // In Party Shuffle, Play starts the party rather than the (empty) song list.
     if (source === "partyShuffle") {
       set({ playingSource: { type: "library" } });
@@ -593,9 +609,12 @@ export const useApp = create<AppState>((set, get) => ({
         const { type: _type, ...status } = event;
         set({ playback: status });
         if (status.trackId === null) set({ nowPlaying: null, chapters: null });
+        // Tuning in again starts without a title until the station announces one.
+        if (!status.live) set({ liveTitle: null });
         break;
       }
       case "trackStarted": {
+        set({ liveStation: null, liveLink: null });
         const known = get().playingTracks.find((t) => t.id === event.trackId);
         if (known) set({ nowPlaying: known });
         else void api.libraryTrack(event.trackId).then((t) => set({ nowPlaying: t }));

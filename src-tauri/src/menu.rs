@@ -13,11 +13,12 @@ const IMPORT_XML: &str = "import-library-xml";
 const CHECK_FOR_UPDATES: &str = "check-for-updates";
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
-const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
+const FILE_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("new-playlist", "New Playlist", Some("CmdOrCtrl+N")),
     ("new-playlist-from-selection", "New Playlist from Selection", Some("Shift+CmdOrCtrl+N")),
     ("new-smart-playlist", "New Smart Playlist…", Some("Alt+CmdOrCtrl+N")),
     ("new-playlist-folder", "New Playlist Folder", Some("Shift+Alt+CmdOrCtrl+N")),
+    ("open-stream", "Open Stream…", Some("CmdOrCtrl+U")),
 ];
 /// The selection-dependent half of iTunes 10's File menu.
 const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [

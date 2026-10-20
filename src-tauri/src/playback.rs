@@ -16,6 +16,7 @@ use crate::library::LibraryState;
 use crate::party::{self, PartyShuffle};
 use crate::podcasts::PodcastsState;
 use crate::queue::{PlayQueue, RepeatMode};
+use crate::radio::{self, RadioState};
 use crate::remote::RemoteState;
 
 pub const PLAYER_EVENT: &str = "player://event";
@@ -266,6 +267,7 @@ impl PlaybackState {
     }
 
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
+        self.app.state::<RadioState>().end_live();
         let track_id = playing.queue.current();
         let located = self.locate(tracks, &playing.source, track_id)?;
         let options = self.options(tracks, &playing.source, track_id);
@@ -342,6 +344,13 @@ impl PlaybackState {
         });
     }
 
+    /// A station is taking over: a song stops now, saving its place, rather than when the station
+    /// connects, and one still being fetched mustn't start over the station.
+    pub(crate) fn stop_for_station(&self) {
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        self.player.stop();
+    }
+
     /// Stops and forgets the queue when its source goes away, e.g. an iPod is unplugged.
     pub fn stop_if_playing(&self, source: &PlaySource) {
         let mut slot = self.playing();
@@ -406,7 +415,7 @@ fn mark_local(app: &AppHandle, track_id: i64) {
     }
 }
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
@@ -425,6 +434,9 @@ pub fn spawn_event_worker(app: AppHandle) -> std::io::Result<Sender<PlayerEvent>
 /// Forwards every event to the UI and keeps the queue in step.
 fn handle_event(app: &AppHandle, event: PlayerEvent) {
     let _ = app.emit(PLAYER_EVENT, &event);
+    if let PlayerEvent::LiveEnded { id, reason } = &event {
+        radio::live_ended(app, *id, reason);
+    }
     let (Some(playback), Some(library), Some(devices)) =
         (app.try_state::<PlaybackState>(), app.try_state::<LibraryState>(), app.try_state::<DevicesState>())
     else {
@@ -476,6 +488,7 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
 
 #[tauri::command]
 pub fn player_play_list(
+    app: AppHandle,
     playback: State<'_, PlaybackState>,
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
@@ -483,6 +496,15 @@ pub fn player_play_list(
     track_ids: Vec<i64>,
     start_index: usize,
 ) -> CommandResult<()> {
+    // A station in a playlist isn't a file: it is tuned in, alone. This can't wait for `start`,
+    // which runs with `playing` locked and a station takes that lock itself.
+    let station = match track_ids.get(start_index) {
+        Some(&id) if source == PlaySource::Library => library.queries().station(id)?.map(|_| id),
+        _ => None,
+    };
+    if let Some(id) = station {
+        return radio::play(&app, id);
+    }
     let (shuffle, repeat) = {
         let modes = playback.modes();
         (modes.shuffle, modes.repeat)
@@ -498,14 +520,22 @@ pub fn player_play_list(
 
 #[tauri::command]
 pub fn player_toggle_pause(
+    app: AppHandle,
     playback: State<'_, PlaybackState>,
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
 ) -> CommandResult<()> {
     match playback.player.status().state {
-        EngineState::Playing => playback.player.pause(),
+        EngineState::Playing => {
+            playback.player.pause();
+            radio::paused(&app);
+        }
         EngineState::Paused => playback.player.resume(),
         EngineState::Stopped => {
+            // The engine drops a paused station, so playing it again is a new connection.
+            if radio::toggle_stopped(&app) {
+                return Ok(());
+            }
             if let Some(playing) = playback.playing().as_ref() {
                 playback.start(&Tracks { library: &library, devices: &devices }, playing)?;
             }

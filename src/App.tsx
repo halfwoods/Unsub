@@ -3,7 +3,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect } from "react";
 import {
-  libraryAddPaths,
   onCdChanged,
   onCdRip,
   onDownload,
@@ -14,6 +13,9 @@ import {
   onLibraryChanged,
   onMenuAction,
   onPlayerEvent,
+  onRadioLink,
+  onRadioNowPlaying,
+  onRadioStation,
   onScanProgress,
   playerNext,
   playerPrevious,
@@ -29,6 +31,8 @@ import { Toolbar } from "./chrome/Toolbar";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { LibrarySheets } from "./info/LibrarySheets";
+import { addDropped } from "./radio/importStations";
+import { OpenStream } from "./radio/OpenStream";
 import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
 import { UpdateSheet } from "./updates/UpdateSheet";
@@ -68,6 +72,8 @@ function runMenuAction(action: MenuAction) {
       return useApp.setState({ settingUpPlayer: true });
     case "connect-to-server":
       return useApp.setState({ connectingToServer: true });
+    case "open-stream":
+      return useApp.setState({ openingStream: true });
     case "equalizer":
       return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
@@ -111,6 +117,9 @@ function useBackendEvents() {
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onMenuAction(runMenuAction),
+      onRadioStation((liveStation) => useApp.setState({ liveStation, liveTitle: null })),
+      onRadioLink((liveLink) => useApp.setState({ liveLink })),
+      onRadioNowPlaying((title) => useApp.setState((s) => (s.liveStation?.id === title.stationId ? { liveTitle: title } : {}))),
       onDevicesChanged(() => void refreshDevices()),
       onCdChanged(() => void refreshCds()),
       onRemoteChanged(() => void refreshShared()),
@@ -129,7 +138,7 @@ function useBackendEvents() {
       }),
       getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
       getCurrentWebview().onDragDropEvent(({ payload }) => {
-        if (payload.type === "drop" && payload.paths.length > 0) void libraryAddPaths(payload.paths);
+        if (payload.type === "drop" && payload.paths.length > 0) addDropped(payload.paths);
       }),
     ];
     void refresh();
@@ -168,6 +177,7 @@ export default function App() {
   const preferencesOpen = useApp((s) => s.preferencesOpen);
   const settingUpPlayer = useApp((s) => s.settingUpPlayer);
   const connectingToServer = useApp((s) => s.connectingToServer);
+  const openingStream = useApp((s) => s.openingStream);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   useBackendEvents();
   useGlobalKeys();
@@ -186,6 +196,7 @@ export default function App() {
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
       {connectingToServer && <ConnectToServer />}
+      {openingStream && <OpenStream />}
       <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
     </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { cdStopImport, deviceCancelSync, libraryMixFor, playerSeek } from "../api/commands";
-import type { Chapter } from "../api/types";
+import type { Chapter, RadioStation } from "../api/types";
 import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { VinylMark } from "./VinylMark";
@@ -146,7 +146,35 @@ function ProgressLcd({ title, subtitle, fraction, onCancel }: { title: string; s
   );
 }
 
+/** A station: its name, then what it says is playing; time counts up, with nothing to scrub or run out. */
+function LiveLcd({ station, notice }: { station: RadioStation; notice: string | null }) {
+  const title = useApp((s) => s.liveTitle);
+  const buffering = useApp((s) => s.playback.buffering);
+  const link = useApp((s) => s.liveLink);
+  const positionMs = useApp((s) => s.playback.positionMs);
+  const details = [station.genre, station.bitrateKbps ? `${station.bitrateKbps} kbps` : ""].filter(Boolean).join(" · ");
+  const playing = title?.title ? (title.artist ? `${title.artist} – ${title.title}` : title.title) : details;
+  const status = link === "connecting" ? "Connecting…" : link === "reconnecting" ? "Reconnecting…" : buffering ? "Buffering…" : playing;
+  const subtitle = notice ?? status;
+  return (
+    <div className="lcd lcd--playing">
+      <div className="lcd-title">{station.name}</div>
+      <div className="lcd-subtitle" key={subtitle}>
+        {subtitle}
+      </div>
+      <div className="lcd-timeline">
+        <span className="lcd-time lcd-time--elapsed">{formatClock(positionMs)}</span>
+        <div className="lcd-progress">
+          <div className="lcd-progress-groove" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Lcd() {
+  const live = useApp((s) => s.playback.live || s.liveLink === "connecting");
+  const liveStation = useApp((s) => s.liveStation);
   const nowPlaying = useApp((s) => s.nowPlaying);
   const positionMs = useApp((s) => s.playback.positionMs);
   const durationMs = useApp((s) => s.playback.durationMs);
@@ -167,6 +195,8 @@ export function Lcd() {
   const playTrackIds = useApp((s) => s.playTrackIds);
   const [showTotal, setShowTotal] = useState(false);
   const flip = useAlternating(nowPlaying !== null);
+
+  if (live && liveStation) return <LiveLcd station={liveStation} notice={notice} />;
 
   if (nowPlaying) {
     const secondLine = flip && nowPlaying.album ? nowPlaying.album : nowPlaying.artist || nowPlaying.album;
@@ -250,6 +280,15 @@ export function Lcd() {
   }
 
   if (scan) return <ProgressLcd title="Adding to Library" subtitle={scan.currentPath.split(/[\\/]/).pop() ?? ""} fraction={null} />;
+
+  // A notice with nothing playing, such as a station that couldn't be reached.
+  if (notice) {
+    return (
+      <div className="lcd lcd--playing">
+        <div className="lcd-title lcd-title--centered">{notice}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="lcd lcd--idle">

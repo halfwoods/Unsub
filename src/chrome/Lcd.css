@@ -49,6 +49,10 @@
   font-size: var(--font-size);
 }
 
+.lcd-title--centered {
+  top: 15px;
+}
+
 .lcd-subtitle {
   top: 15px;
   font-size: var(--font-size);

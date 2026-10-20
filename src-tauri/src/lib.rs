@@ -12,6 +12,7 @@ mod playback;
 mod podcasts;
 mod purchases;
 mod queue;
+mod radio;
 mod remote;
 mod sharing;
 mod sync;
@@ -63,6 +64,9 @@ pub fn run() {
             let purchases_dir = app.path().audio_dir()?.join("AntiStreaming").join("Purchases");
             app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
             app.state::<PurchasesState>().apply(app.handle());
+            let radio_cache = app.path().app_cache_dir()?;
+            std::fs::create_dir_all(&radio_cache)?;
+            app.manage(radio::RadioState::new(radio_cache.join("RadioGenres.json")));
             let events = playback::spawn_event_worker(app.handle().clone())?;
             let player = Player::new(move |event| {
                 let _ = events.send(event);
@@ -177,6 +181,17 @@ pub fn run() {
             updates::updates_install,
             sharing::sharing_status,
             sharing::sharing_update,
+            radio::radio_genres,
+            radio::radio_stations,
+            radio::radio_search,
+            radio::radio_my_stations,
+            radio::radio_recent,
+            radio::radio_add,
+            radio::radio_remove,
+            radio::radio_play,
+            radio::radio_play_directory,
+            radio::radio_open_stream,
+            radio::radio_import,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AntiStreaming");

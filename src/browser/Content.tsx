@@ -3,6 +3,7 @@ import { DeviceSummary, PlayerSummary } from "../devices/DeviceSummary";
 import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
 import { PodcastsView } from "../podcasts/PodcastsView";
+import { RadioView } from "../radio/RadioView";
 import { InboxView, PurchasedView } from "../purchases/PurchasesViews";
 import { SharedLogin } from "../shared/Shared";
 import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, playerIdOf, sharedIdOf, useApp } from "../state/store";
@@ -84,6 +85,8 @@ export function Content() {
       return <MixesView />;
     case "podcasts":
       return <PodcastsView />;
+    case "radio":
+      return <RadioView />;
     case "inbox":
       return <InboxView />;
     case "purchased":

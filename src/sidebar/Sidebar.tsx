@@ -20,6 +20,7 @@ const SECTIONS: { heading: string; items: SourceItem[] }[] = [
       { id: "music", label: "Music", icon: "music" },
       { id: "podcasts", label: "Podcasts", icon: "podcasts" },
       { id: "audiobooks", label: "Audiobooks", icon: "audiobooks" },
+      { id: "radio", label: "Radio", icon: "radio" },
     ],
   },
   {
