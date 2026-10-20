@@ -15,6 +15,15 @@ macOS and Windows. GPL-3.0-or-later.
 
 See [docs/SPEC.md](docs/SPEC.md) for decisions, the measured window anatomy, and milestones.
 
+## Download
+
+Get the latest build from [Releases](https://github.com/halfwoods/Unsub/releases/latest).
+
+- **Mac** (macOS 11 or later): download the `.dmg` for your Mac, `aarch64` for Apple silicon or `x86_64` for Intel, open it, and drag Unsub to Applications.
+- **Windows**: download and run the installer. Until the installers are signed, Windows shows "Windows protected your PC"; choose **More info › Run anyway**.
+
+To bring in an existing library, use **File › Import Music Library** (it asks once for access to your Music library), or drag a folder of music onto the window. Unsub updates itself from new releases.
+
 ## Develop
 
 Requires Rust (stable), Node 24+, and pnpm.
