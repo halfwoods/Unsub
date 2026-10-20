@@ -1,10 +1,10 @@
 import { audioDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
-import { libraryMediaSettings, librarySetMediaSettings, playerSetBitPerfect, sharingStatus, sharingUpdate } from "../api/commands";
+import { libraryMediaSettings, librarySetMediaSettings, playerSetBitPerfect, playerSetSoundCheck, sharingStatus, sharingUpdate } from "../api/commands";
 import type { MediaSettings, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
-import { loadBitPerfect, saveBitPerfect } from "./playbackPrefs";
+import { loadBitPerfect, loadSoundCheck, saveBitPerfect, saveSoundCheck } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
 
@@ -103,6 +103,7 @@ function GeneralTab() {
 
 function PlaybackTab() {
   const [bitPerfect, setBitPerfect] = useState(loadBitPerfect);
+  const [soundCheck, setSoundCheck] = useState(loadSoundCheck);
   const outputFormat = useApp((s) => s.playback.outputFormat);
   const active = useApp((s) => s.playback.bitPerfect);
   const toggle = (enabled: boolean) => {
@@ -110,8 +111,21 @@ function PlaybackTab() {
     saveBitPerfect(enabled);
     void playerSetBitPerfect(enabled);
   };
+  const toggleSoundCheck = (enabled: boolean) => {
+    setSoundCheck(enabled);
+    saveSoundCheck(enabled);
+    void playerSetSoundCheck(enabled);
+  };
   return (
     <div>
+      <label className="prefs-check">
+        <input type="checkbox" checked={soundCheck} onChange={(e) => toggleSoundCheck(e.target.checked)} />
+        Sound Check
+      </label>
+      <p className="prefs-note">
+        Automatically adjusts songs to play at the same volume. Songs with ReplayGain or Sound Check tags use them; the rest are
+        measured in the background, a few seconds each. Not applied with bit-perfect output.
+      </p>
       <label className="prefs-check">
         <input type="checkbox" checked={bitPerfect} onChange={(e) => toggle(e.target.checked)} />
         Bit-perfect output
@@ -182,6 +196,19 @@ function SharingTab() {
             {revealed ? "Hide" : "Show"}
           </button>
         </span>
+        <span className="prefs-label">Stream at most:</span>
+        <select
+          className="smart-popup"
+          value={draft.maxKbps ?? 0}
+          onChange={(e) => save({ ...draft, maxKbps: Number(e.target.value) || null })}
+        >
+          <option value={0}>Original quality</option>
+          {[320, 256, 192, 128].map((kbps) => (
+            <option key={kbps} value={kbps}>
+              {kbps} kbps
+            </option>
+          ))}
+        </select>
         <span className="prefs-label">Port:</span>
         <input
           className="smart-input smart-input--number"

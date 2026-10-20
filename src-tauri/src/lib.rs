@@ -5,6 +5,7 @@ mod devices;
 mod error;
 mod import;
 mod library;
+mod loudness;
 mod menu;
 mod party;
 mod playback;
@@ -48,6 +49,7 @@ pub fn run() {
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(DevicesState::default());
+            app.manage(loudness::LoudnessState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
             let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
@@ -93,6 +95,7 @@ pub fn run() {
             devices::device_eject,
             devices::players_list,
             devices::player_set_up,
+            devices::player_eject,
             collection::collection_report,
             collection::collection_load_music_app,
             collection::collection_load_xml,
@@ -109,6 +112,7 @@ pub fn run() {
             playback::player_set_repeat,
             playback::player_status,
             playback::player_set_bit_perfect,
+            playback::player_set_sound_check,
             party::party_view,
             party::party_play,
             party::party_set_settings,

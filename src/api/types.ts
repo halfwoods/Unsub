@@ -439,6 +439,8 @@ export interface SharingSettings {
   port: number;
   username: string;
   password: string;
+  /** Converts streams to at most this rate when a phone doesn't ask for one; null sends originals. */
+  maxKbps: number | null;
 }
 
 export interface SharingStatus {

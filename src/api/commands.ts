@@ -76,6 +76,7 @@ export const librarySetRating = (trackId: number, rating: number) =>
 
 export const devicesList = () => invoke<Device[]>("devices_list");
 export const playersList = () => invoke<Player[]>("players_list");
+export const playerEject = (deviceId: string) => invoke<void>("player_eject", { deviceId });
 export type PlayerPreset = "massStorage" | "android" | "rockbox";
 export const playerSetUp = (path: string, name: string, preset: PlayerPreset) => invoke<void>("player_set_up", { path, name, preset });
 export const deviceTracks = (deviceId: string, view: DeviceView, query: TrackQuery) =>
@@ -140,6 +141,7 @@ export const playerSetShuffle = (shuffle: boolean) => invoke<void>("player_set_s
 export const playerSetRepeat = (repeat: RepeatMode) => invoke<void>("player_set_repeat", { repeat });
 export const playerStatus = () => invoke<PlaybackStatus>("player_status");
 export const playerSetBitPerfect = (enabled: boolean) => invoke<void>("player_set_bit_perfect", { enabled });
+export const playerSetSoundCheck = (enabled: boolean) => invoke<void>("player_set_sound_check", { enabled });
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));

@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { artworkUrl, cdEject, deviceEject, partyAdd } from "../api/commands";
+import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject } from "../api/commands";
 import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
@@ -217,7 +217,13 @@ export function Sidebar() {
                 id={playerSource(player.id)}
                 label={player.name}
                 icon="player"
-                after={syncingId === player.id ? <SyncingIcon /> : undefined}
+                after={
+                  syncingId === player.id ? (
+                    <SyncingIcon />
+                  ) : (
+                    <EjectButton name={player.name} onEject={() => void playerEject(player.id).catch((e: unknown) => showNotice(String(e)))} />
+                  )
+                }
               />
             ))}
             {cds.map((cd) => (

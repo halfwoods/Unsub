@@ -4,7 +4,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_playback::{PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent};
+use antistreaming_library::GainMode;
+use antistreaming_playback::{Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -16,6 +17,9 @@ use crate::podcasts::PodcastsState;
 use crate::queue::{PlayQueue, RepeatMode};
 
 pub const PLAYER_EVENT: &str = "player://event";
+/// Sound Check's target, about where iTunes levelled songs.
+const SOUND_CHECK_LUFS: f64 = -16.0;
+
 /// Progress while a song in iCloud Drive downloads before it can play; `null` when done.
 pub const DOWNLOADING_EVENT: &str = "player://downloading";
 
@@ -87,6 +91,7 @@ pub struct PlaybackState {
     starts: AtomicU64,
     /// Bumped on every queue_following, so a slow prefetch can't queue a stale next song.
     nexts: AtomicU64,
+    sound_check: AtomicBool,
 }
 
 impl PlaybackState {
@@ -96,6 +101,7 @@ impl PlaybackState {
             app,
             starts: AtomicU64::new(0),
             nexts: AtomicU64::new(0),
+            sound_check: AtomicBool::new(false),
             playing: Mutex::new(None),
             modes: Mutex::new(Modes { shuffle: false, repeat: RepeatMode::Off }),
             party: Mutex::new(PartyShuffle::default()),
@@ -114,19 +120,30 @@ impl PlaybackState {
         self.modes.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Sound Check's adjustment for a library song; songs on iPods and CDs play as they are.
+    fn gain(&self, tracks: &Tracks, source: &PlaySource, track_id: i64) -> Option<Gain> {
+        if !self.sound_check.load(Ordering::Relaxed) || *source != PlaySource::Library {
+            return None;
+        }
+        let gain = tracks.library.queries().sound_check_gain(track_id, GainMode::Track, SOUND_CHECK_LUFS).ok()??;
+        // An unknown peak counts as full scale: cuts apply, boosts don't.
+        Some(Gain { db: gain.db as f32, peak_dbtp: gain.peak_dbtp.unwrap_or(0.0) as f32 })
+    }
+
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         let track_id = playing.queue.current();
         let path = tracks.path(&playing.source, track_id)?;
+        let gain = self.gain(tracks, &playing.source, track_id);
         let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
         if !antistreaming_library::is_dataless(&path) {
-            self.player.play(track_id, path);
+            self.player.play_with(track_id, path, gain);
             return self.queue_following(tracks, playing);
         }
         // Opening a cloud-only file would block the engine while macOS downloads it, so fetch
         // it first and start playing once it's local, showing progress in the LCD meanwhile.
         self.player.stop();
         let next = match playing.queue.peek_next() {
-            Some(next) => Some((next, tracks.path(&playing.source, next)?)),
+            Some(next) => Some((next, tracks.path(&playing.source, next)?, self.gain(tracks, &playing.source, next))),
             None => None,
         };
         let app = self.app.clone();
@@ -147,9 +164,9 @@ impl PlaybackState {
             match result {
                 Ok(()) => {
                     mark_local(&app, track_id);
-                    playback.player.play(track_id, path);
-                    if let Some((next, next_path)) = next {
-                        playback.queue_when_local(next, next_path);
+                    playback.player.play_with(track_id, path, gain);
+                    if let Some((next, next_path, next_gain)) = next {
+                        playback.queue_when_local(next, next_path, next_gain);
                     }
                 }
                 Err(error) => {
@@ -163,7 +180,7 @@ impl PlaybackState {
     /// Hands the engine the next track early so it can play gaplessly.
     pub(crate) fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         match playing.queue.peek_next() {
-            Some(next) => self.queue_when_local(next, tracks.path(&playing.source, next)?),
+            Some(next) => self.queue_when_local(next, tracks.path(&playing.source, next)?, self.gain(tracks, &playing.source, next)),
             None => {
                 self.nexts.fetch_add(1, Ordering::SeqCst);
                 self.player.clear_next();
@@ -174,10 +191,10 @@ impl PlaybackState {
 
     /// Queues the next song for gapless play, prefetching it from iCloud first when needed so the
     /// engine never decodes ahead into a placeholder.
-    fn queue_when_local(&self, track_id: i64, path: PathBuf) {
+    fn queue_when_local(&self, track_id: i64, path: PathBuf, gain: Option<Gain>) {
         let next = self.nexts.fetch_add(1, Ordering::SeqCst) + 1;
         if !antistreaming_library::is_dataless(&path) {
-            self.player.queue_next(track_id, path);
+            self.player.queue_next_with(track_id, path, gain);
             return;
         }
         self.player.clear_next();
@@ -188,7 +205,7 @@ impl PlaybackState {
             if fetched.is_ok() {
                 mark_local(&app, track_id);
                 if playback.nexts.load(Ordering::SeqCst) == next {
-                    playback.player.queue_next(track_id, path);
+                    playback.player.queue_next_with(track_id, path, gain);
                 }
             }
         });
@@ -389,6 +406,14 @@ pub fn player_set_repeat(
 #[tauri::command]
 pub fn player_set_bit_perfect(playback: State<'_, PlaybackState>, enabled: bool) {
     playback.player.set_bit_perfect(enabled);
+}
+
+/// iTunes' Sound Check: levels songs to one loudness from the next song on, measuring in the
+/// background whatever the tags don't already state.
+#[tauri::command]
+pub fn player_set_sound_check(app: AppHandle, playback: State<'_, PlaybackState>, enabled: bool) {
+    playback.sound_check.store(enabled, Ordering::Relaxed);
+    crate::loudness::set_measuring(&app, enabled);
 }
 
 #[tauri::command]

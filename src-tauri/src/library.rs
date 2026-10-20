@@ -44,7 +44,7 @@ impl LibraryState {
 
     /// Runs a change that touches files (tag writes, moves, the Trash) on its own connection,
     /// taking turns with imports, so the song list stays responsive meanwhile.
-    fn with_writer<T>(&self, change: impl FnOnce(&mut Library) -> antistreaming_library::Result<T>) -> CommandResult<T> {
+    pub(crate) fn with_writer<T>(&self, change: impl FnOnce(&mut Library) -> antistreaming_library::Result<T>) -> CommandResult<T> {
         let _turn = self.scan_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut library = Library::open(&self.db_path)?;
         Ok(change(&mut library)?)

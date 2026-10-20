@@ -278,6 +278,15 @@ pub enum PlayerPreset {
     Rockbox,
 }
 
+#[tauri::command]
+pub fn player_eject(app: AppHandle, state: State<'_, DevicesState>, device_id: String) -> CommandResult<()> {
+    let player = state.player(&device_id).ok_or_else(|| CommandError::from("that player is no longer connected".to_owned()))?;
+    antistreaming_devicesync::eject(&player).map_err(|error| CommandError::from(error.to_string()))?;
+    state.rediscover_players();
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(())
+}
+
 /// Makes a drive a sync target by writing devicesync's marker file to it, which holds its name
 /// and what it plays.
 #[tauri::command]

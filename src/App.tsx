@@ -17,6 +17,7 @@ import {
   playerNext,
   playerPrevious,
   playerSetBitPerfect,
+  playerSetSoundCheck,
   playerStatus,
   type MenuAction,
 } from "./api/commands";
@@ -28,7 +29,7 @@ import { LibrarySheets } from "./info/LibrarySheets";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
-import { loadBitPerfect } from "./preferences/playbackPrefs";
+import { loadBitPerfect, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
 import { isLibrarySource, isPlaylistSource, useApp } from "./state/store";
 import "./theme/base.css";
@@ -121,6 +122,7 @@ function useBackendEvents() {
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     if (loadBitPerfect()) void playerSetBitPerfect(true);
+    if (loadSoundCheck()) void playerSetSoundCheck(true);
     return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
   }, []);
 }
