@@ -91,6 +91,8 @@ pub fn run() {
             devices::device_tracks,
             devices::device_stats,
             devices::device_eject,
+            devices::players_list,
+            devices::player_set_up,
             collection::collection_report,
             collection::collection_load_music_app,
             collection::collection_load_xml,

@@ -23,6 +23,7 @@ import {
 import { Content } from "./browser/Content";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
+import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
@@ -57,6 +58,8 @@ function runMenuAction(action: MenuAction) {
       return void showDuplicates(true);
     case "organize-library":
       return openLibrarySheet({ type: "organize" });
+    case "set-up-player":
+      return useApp.setState({ settingUpPlayer: true });
     case "preferences":
       return setPreferencesOpen(true);
     case "new-playlist":
@@ -141,6 +144,7 @@ export default function App() {
   const windowActive = useApp((s) => s.windowActive);
   const smartEditor = useApp((s) => s.smartEditor);
   const preferencesOpen = useApp((s) => s.preferencesOpen);
+  const settingUpPlayer = useApp((s) => s.settingUpPlayer);
   useBackendEvents();
   useGlobalKeys();
 
@@ -156,6 +160,7 @@ export default function App() {
       {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
       {preferencesOpen && <Preferences />}
       <LibrarySheets />
+      {settingUpPlayer && <SetUpPlayer />}
     </div>
   );
 }

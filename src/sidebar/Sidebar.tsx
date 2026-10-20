@@ -1,7 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import { artworkUrl, cdEject, deviceEject, partyAdd } from "../api/commands";
 import type { Device } from "../api/types";
-import { cdSource, deviceSource, playSourceOf, useApp, type SourceId } from "../state/store";
+import { cdSource, deviceSource, playerSource, playSourceOf, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
 import { PlaylistRows, TRACKS_MIME } from "./PlaylistRows";
 import "./Sidebar.css";
@@ -190,6 +190,8 @@ export function Sidebar() {
   const showArtwork = useApp((s) => s.showArtwork);
   const devices = useApp((s) => s.devices);
   const cds = useApp((s) => s.cds);
+  const players = useApp((s) => s.players);
+  const syncingId = useApp((s) => s.deviceSync?.deviceId ?? null);
   const showNotice = useApp((s) => s.showNotice);
   const [library, purchases, ...rest] = SECTIONS;
 
@@ -204,10 +206,19 @@ export function Sidebar() {
           </Section>
         ))}
         {/* iTunes only shows DEVICES while something is plugged in. */}
-        {devices.length + cds.length > 0 && (
+        {devices.length + players.length + cds.length > 0 && (
           <Section heading="Devices">
             {devices.map((device) => (
               <DeviceRows key={device.id} device={device} />
+            ))}
+            {players.map((player) => (
+              <Row
+                key={player.id}
+                id={playerSource(player.id)}
+                label={player.name}
+                icon="player"
+                after={syncingId === player.id ? <SyncingIcon /> : undefined}
+              />
             ))}
             {cds.map((cd) => (
               <Row

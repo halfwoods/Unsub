@@ -45,6 +45,8 @@ pub struct DevicesState {
     /// Keyed by mount path, which is what discovery reports.
     connected: Mutex<HashMap<PathBuf, Arc<Connected>>>,
     pub cds: Cds,
+    /// Non-Apple players: Rockbox, marked USB players and phones.
+    players: Mutex<Vec<antistreaming_devicesync::Device>>,
 }
 
 impl DevicesState {
@@ -58,6 +60,19 @@ impl DevicesState {
             .find(|device| device.ipod.id == device_id)
             .cloned()
             .ok_or_else(|| CommandError::from(format!("device {device_id} is not connected")))
+    }
+
+    fn players(&self) -> MutexGuard<'_, Vec<antistreaming_devicesync::Device>> {
+        self.players.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn player(&self, device_id: &str) -> Option<antistreaming_devicesync::Device> {
+        self.players().iter().find(|p| p.id == device_id).cloned()
+    }
+
+    /// Looks for players again, e.g. after a sync changed one's free space.
+    pub(crate) fn rediscover_players(&self) {
+        *self.players() = antistreaming_devicesync::discover();
     }
 
     /// The iPod behind a device id, for syncing.
@@ -204,10 +219,25 @@ fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Err
 /// Watches for iPods arriving and leaving for the life of the app.
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || loop {
-        let mounts = antistreaming_ipod::discover();
+        let players = antistreaming_devicesync::discover();
+        let player_mounts: Vec<PathBuf> = players
+            .iter()
+            .filter_map(|p| match &p.root {
+                antistreaming_devicesync::DeviceRoot::Path(path) => Some(path.clone()),
+                antistreaming_devicesync::DeviceRoot::Mtp { .. } => None,
+            })
+            .collect();
+        // A Rockbox-flashed iPod still has iPod_Control; it syncs as the player it now is.
+        let mounts: Vec<PathBuf> = antistreaming_ipod::discover().into_iter().filter(|m| !player_mounts.contains(m)).collect();
         let state = app.state::<DevicesState>();
+        let mut changed = {
+            let mut known = state.players();
+            let before: Vec<&str> = known.iter().map(|p| p.id.as_str()).collect();
+            let arrived_or_left = before != players.iter().map(|p| p.id.as_str()).collect::<Vec<_>>();
+            *known = players;
+            arrived_or_left
+        };
         let known: Vec<PathBuf> = state.connected().keys().cloned().collect();
-        let mut changed = false;
 
         for gone in known.iter().filter(|mount| !mounts.contains(mount)) {
             // Bind first so the map lock is released before playback's lock is taken (lock order).
@@ -232,6 +262,34 @@ pub fn watch(app: AppHandle) {
         }
         std::thread::sleep(POLL_INTERVAL);
     });
+}
+
+#[tauri::command]
+pub fn players_list(state: State<'_, DevicesState>) -> Vec<antistreaming_devicesync::Device> {
+    state.players().clone()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayerPreset {
+    MassStorage,
+    Android,
+    Rockbox,
+}
+
+/// Makes a drive a sync target by writing devicesync's marker file to it, which holds its name
+/// and what it plays.
+#[tauri::command]
+pub fn player_set_up(app: AppHandle, state: State<'_, DevicesState>, path: PathBuf, name: String, preset: PlayerPreset) -> CommandResult<()> {
+    let profile = match preset {
+        PlayerPreset::MassStorage => antistreaming_devicesync::Profile::mass_storage(),
+        PlayerPreset::Android => antistreaming_devicesync::Profile::android(),
+        PlayerPreset::Rockbox => antistreaming_devicesync::Profile::rockbox(),
+    };
+    antistreaming_devicesync::mark_device(&path, &name, &profile).map_err(|error| CommandError::from(error.to_string()))?;
+    state.rediscover_players();
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(())
 }
 
 #[tauri::command]

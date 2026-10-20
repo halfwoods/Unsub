@@ -255,3 +255,17 @@
   margin: 0 0 10px;
   font-size: 13px;
 }
+
+.set-up-player {
+  min-width: 0;
+  width: 500px;
+}
+
+.set-up-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #444444;
+}

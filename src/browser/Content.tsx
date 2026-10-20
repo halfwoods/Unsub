@@ -1,10 +1,10 @@
 import { OwnershipView } from "../collection/OwnershipView";
-import { DeviceSummary } from "../devices/DeviceSummary";
+import { DeviceSummary, PlayerSummary } from "../devices/DeviceSummary";
 import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
 import { PodcastsView } from "../podcasts/PodcastsView";
 import { InboxView, PurchasedView } from "../purchases/PurchasesViews";
-import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, useApp } from "../state/store";
+import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, playerIdOf, useApp } from "../state/store";
 import { AlbumGrid } from "./AlbumGrid";
 import { AlbumList } from "./AlbumList";
 import { CoverFlow } from "./CoverFlow";
@@ -46,6 +46,7 @@ function DuplicatesBar({ exact }: { exact: boolean }) {
 export function Content() {
   const source = useApp((s) => s.source);
   const devices = useApp((s) => s.devices);
+  const players = useApp((s) => s.players);
   const hasTracks = useApp((s) => s.tracks.length > 0);
   const searching = useApp((s) => s.query.search !== null);
   const loaded = useApp((s) => s.stats !== null);
@@ -56,6 +57,11 @@ export function Content() {
     const found = devices.find((d) => d.id === device?.deviceId);
     if (!found) return null;
     return device?.view ? <SongList /> : <DeviceSummary device={found} />;
+  }
+  const playerId = playerIdOf(source);
+  if (playerId !== null) {
+    const player = players.find((p) => p.id === playerId);
+    return player ? <PlayerSummary player={player} /> : null;
   }
   // A CD has no albums to browse, so it is always the song list.
   if (cdIdOf(source) !== null) return <SongList />;

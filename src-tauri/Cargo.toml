@@ -27,5 +27,9 @@ antistreaming-subsonic.workspace = true
 antistreaming-podcasts.workspace = true
 antistreaming-purchases.workspace = true
 antistreaming-cdrip.workspace = true
+antistreaming-devicesync.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

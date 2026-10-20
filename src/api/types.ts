@@ -198,6 +198,28 @@ export interface Device {
   playlists: DevicePlaylist[];
 }
 
+/** What a non-Apple player plays and where it keeps things; editable in its marker file. */
+export interface PlayerProfile {
+  musicDir: string;
+  playlistDir: string;
+  playlistFormat: "m3u8" | "pls";
+  /** Playable extensions; the first is what other files become. Empty plays everything. */
+  formats: string[];
+  maxSampleRate: number | null;
+  maxBitDepth: number | null;
+  layout: string;
+}
+
+/** A Rockbox player, a USB player marked as a sync target, or a phone. */
+export interface Player {
+  id: string;
+  name: string;
+  kind: "rockbox" | "massStorage" | "mtp";
+  capacityBytes: number;
+  freeBytes: number;
+  profile: PlayerProfile;
+}
+
 export type MusicScope = { type: "all" } | { type: "playlists"; ids: number[] };
 
 /** iTunes' per-iPod sync choices. */
@@ -229,7 +251,8 @@ export interface SyncPreview {
 
 export interface DeviceSyncStatus {
   deviceId: string;
-  stage: "preparing" | "copying" | "writingDatabase" | "cleaning";
+  // iPods report preparing and writingDatabase; players report skipped and playlists.
+  stage: "preparing" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists";
   done: number;
   total: number;
   current: string;

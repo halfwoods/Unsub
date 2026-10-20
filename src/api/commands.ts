@@ -27,6 +27,7 @@ import type {
   StoreLink,
   PartyView,
   PlaybackStatus,
+  Player,
   PlaySource,
   PlayerEvent,
   Playlist,
@@ -74,6 +75,9 @@ export const librarySetRating = (trackId: number, rating: number) =>
   invoke<void>("library_set_rating", { trackId, rating });
 
 export const devicesList = () => invoke<Device[]>("devices_list");
+export const playersList = () => invoke<Player[]>("players_list");
+export type PlayerPreset = "massStorage" | "android" | "rockbox";
+export const playerSetUp = (path: string, name: string, preset: PlayerPreset) => invoke<void>("player_set_up", { path, name, preset });
 export const deviceTracks = (deviceId: string, view: DeviceView, query: TrackQuery) =>
   invoke<Track[]>("device_tracks", { deviceId, view, query });
 export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuery) =>
@@ -219,6 +223,7 @@ export type MenuAction =
   | "show-duplicates"
   | "show-exact-duplicates"
   | "organize-library"
+  | "set-up-player"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

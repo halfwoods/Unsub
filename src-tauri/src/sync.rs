@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use antistreaming_devicesync::{Device as Player, Profile, SyncItem};
 use antistreaming_ipod::{Ipod, IpodMediaKind, SyncPlaylist, SyncProgress, SyncSupport, SyncTrack};
 use antistreaming_library::{Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
 use antistreaming_playback::{Target, TranscodeOptions};
@@ -15,7 +16,7 @@ use crate::error::{CommandError, CommandResult};
 use crate::library::{self, LibraryState};
 use crate::playback::{PlaySource, PlaybackState};
 
-/// Progress while an iPod syncs; `null` once it's done.
+/// Progress while an iPod or player syncs; `null` once it's done.
 pub const SYNC_EVENT: &str = "devices://sync";
 
 /// iPods play Apple Lossless up to 48 kHz and 16 bits.
@@ -141,13 +142,70 @@ fn ipod_rate(rate: u32) -> u32 {
     }
 }
 
-/// What a sync would put on the iPod, and what it had to leave out.
-struct Selection {
+/// The library songs and playlists a sync takes, whatever the device, and what it left out.
+struct Chosen {
+    tracks: Vec<Track>,
+    /// Each playlist's name and its songs in order, limited to the chosen songs.
+    playlists: Vec<(String, Vec<i64>)>,
+    in_cloud: usize,
+    missing: usize,
+}
+
+/// The iPod's view of a selection: songs as its database describes them, and how each file is
+/// made playable (the conversion, and whether the source is lossless).
+struct IpodSelection {
     tracks: Vec<SyncTrack>,
     conversions: HashMap<i64, (Conversion, bool)>,
     playlists: Vec<SyncPlaylist>,
-    in_cloud: usize,
-    missing: usize,
+}
+
+fn is_lossless(track: &Track) -> bool {
+    !LOSSY_CODECS.contains(&track.codec.as_str())
+}
+
+fn for_ipod(chosen: &Chosen, convert_kbps: Option<u32>) -> IpodSelection {
+    let mut selection = IpodSelection { tracks: Vec::new(), conversions: HashMap::new(), playlists: Vec::new() };
+    for track in &chosen.tracks {
+        let conversion = Conversion::for_track(track, convert_kbps);
+        selection.conversions.insert(track.id, (conversion, is_lossless(track)));
+        selection.tracks.push(sync_track(track, conversion));
+    }
+    selection.playlists = chosen.playlists.iter().map(|(name, tracks)| SyncPlaylist { name: name.clone(), tracks: tracks.clone() }).collect();
+    selection
+}
+
+/// What a player gets instead of a file it can't play: the profile's first format, made from
+/// lossless sources losslessly where that format allows. `None` copies the file as it is.
+fn player_target(track: &Track, profile: &Profile) -> Option<(Target, &'static str)> {
+    let extension = std::path::Path::new(&track.path).extension()?.to_str()?.to_ascii_lowercase();
+    let within = profile.max_sample_rate.is_none_or(|max| track.sample_rate.is_none_or(|rate| rate <= max))
+        && profile.max_bit_depth.is_none_or(|max| track.bit_depth.is_none_or(|bits| bits <= max));
+    if profile.formats.is_empty() || (profile.formats.contains(&extension) && within) {
+        return None;
+    }
+    let lossless = is_lossless(track);
+    Some(match profile.formats.first().map(String::as_str) {
+        Some("flac") if lossless => (Target::Flac, "flac"),
+        Some("m4a") if lossless => (Target::Alac, "m4a"),
+        Some("m4a" | "aac") => (Target::Aac { kbps: FALLBACK_AAC_KBPS }, "m4a"),
+        Some("opus") => (Target::Opus { kbps: 160 }, "opus"),
+        // MP3 plays on everything, so it's the answer for any format the transcoder can't write.
+        _ => (Target::Mp3 { kbps: 320 }, "mp3"),
+    })
+}
+
+fn sync_item(track: &Track) -> SyncItem {
+    SyncItem {
+        library_id: track.id,
+        source: PathBuf::from(&track.path),
+        album_artist: if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() },
+        album: track.album.clone(),
+        title: track.title.clone(),
+        disc: track.disc_number,
+        track: track.track_number,
+        size: track.file_size,
+        mtime: track.date_modified,
+    }
 }
 
 fn query(kind: Option<MediaKind>, playlist: Option<i64>) -> TrackQuery {
@@ -200,7 +258,7 @@ fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
     }
 }
 
-fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::Result<Selection> {
+fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::Result<Chosen> {
     let all_playlists = library.playlists()?;
     let synced_playlists: Vec<_> = match &settings.music_scope {
         // Syncing everything brings every playlist along, as iTunes did.
@@ -227,36 +285,35 @@ fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::
         candidates.extend(library.tracks(&query(Some(MediaKind::Audiobook), None))?);
     }
 
-    let mut selection = Selection { tracks: Vec::new(), conversions: HashMap::new(), playlists: Vec::new(), in_cloud: 0, missing: 0 };
+    let mut chosen = Chosen { tracks: Vec::new(), playlists: Vec::new(), in_cloud: 0, missing: 0 };
     let mut seen = HashSet::new();
     for track in candidates {
         if !seen.insert(track.id) || (settings.only_checked && !track.enabled) {
             continue;
         }
         if track.missing {
-            selection.missing += 1;
+            chosen.missing += 1;
             continue;
         }
         if track.in_cloud {
-            selection.in_cloud += 1;
+            chosen.in_cloud += 1;
             continue;
         }
-        let conversion = Conversion::for_track(&track, settings.convert_kbps);
-        selection.conversions.insert(track.id, (conversion, !LOSSY_CODECS.contains(&track.codec.as_str())));
-        selection.tracks.push(sync_track(&track, conversion));
+        chosen.tracks.push(track);
     }
     if settings.music {
+        let ids: HashSet<i64> = chosen.tracks.iter().map(|t| t.id).collect();
         for playlist in synced_playlists {
             let tracks: Vec<i64> = library
                 .tracks(&query(None, Some(playlist.id)))?
                 .into_iter()
                 .map(|t| t.id)
-                .filter(|id| selection.conversions.contains_key(id))
+                .filter(|id| ids.contains(id))
                 .collect();
-            selection.playlists.push(SyncPlaylist { name: playlist.name.clone(), tracks });
+            chosen.playlists.push((playlist.name.clone(), tracks));
         }
     }
-    Ok(selection)
+    Ok(chosen)
 }
 
 /// The iPod as it is now: free space changes as music is added outside the app.
@@ -297,9 +354,27 @@ pub struct SyncPreview {
 /// What Sync would do with the current settings; touches nothing.
 #[tauri::command]
 pub async fn device_sync_preview(app: AppHandle, device_id: String) -> CommandResult<SyncPreview> {
-    let ipod = fresh_ipod(&app.state::<DevicesState>(), &device_id)?;
     let settings = app.state::<SyncState>().settings_for(&device_id);
-    let selection = select(&app.state::<LibraryState>().queries(), &settings)?;
+    let chosen = select(&app.state::<LibraryState>().queries(), &settings)?;
+    if let Some(player) = app.state::<DevicesState>().player(&device_id) {
+        let (items, playlists) = for_player(&chosen);
+        let plan = antistreaming_devicesync::plan(&player, &items, &playlists).map_err(to_error)?;
+        let converting: HashSet<i64> = chosen.tracks.iter().filter(|t| player_target(t, &player.profile).is_some()).map(|t| t.id).collect();
+        return Ok(SyncPreview {
+            tracks: items.len(),
+            add: plan.add.len(),
+            update: plan.update.len(),
+            remove: plan.remove.len(),
+            bytes_needed: plan.bytes_needed,
+            free_bytes: plan.free_bytes,
+            fits: plan.fits,
+            converted: plan.add.iter().chain(&plan.update).filter(|f| converting.contains(&f.library_id)).count(),
+            in_cloud: chosen.in_cloud,
+            missing: chosen.missing,
+        });
+    }
+    let ipod = fresh_ipod(&app.state::<DevicesState>(), &device_id)?;
+    let selection = for_ipod(&chosen, settings.convert_kbps);
     let database = antistreaming_ipod::read_database(&ipod).map_err(to_error)?;
     let plan = antistreaming_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
     Ok(SyncPreview {
@@ -311,9 +386,28 @@ pub async fn device_sync_preview(app: AppHandle, device_id: String) -> CommandRe
         free_bytes: ipod.free_bytes,
         fits: plan.fits,
         converted: plan.add.iter().filter(|id| selection.conversions.get(id).is_some_and(|(c, _)| *c != Conversion::Copy)).count(),
-        in_cloud: selection.in_cloud,
-        missing: selection.missing,
+        in_cloud: chosen.in_cloud,
+        missing: chosen.missing,
     })
+}
+
+fn for_player(chosen: &Chosen) -> (Vec<SyncItem>, Vec<antistreaming_devicesync::SyncPlaylist>) {
+    let items = chosen.tracks.iter().map(sync_item).collect();
+    let playlists = chosen
+        .playlists
+        .iter()
+        .map(|(name, items)| antistreaming_devicesync::SyncPlaylist { name: name.clone(), items: items.clone() })
+        .collect();
+    (items, playlists)
+}
+
+/// Where a sync's converted songs are made; it never holds more than one at a time.
+fn fresh_work_dir(app: &AppHandle) -> CommandResult<PathBuf> {
+    let work_dir = app.path().app_cache_dir().map_err(to_error)?.join("Device Sync");
+    // Clears what an interrupted sync may have left.
+    let _ = std::fs::remove_dir_all(&work_dir);
+    std::fs::create_dir_all(&work_dir).map_err(to_error)?;
+    Ok(work_dir)
 }
 
 #[derive(Clone, Serialize)]
@@ -349,7 +443,65 @@ fn merge_play_counts(app: &AppHandle, ipod: &Ipod) -> CommandResult<bool> {
     Ok(true)
 }
 
+/// Copies the chosen songs onto a non-Apple player as files and playlists. Its manifest records
+/// each copy as it lands, so a stopped sync picks up where it left off next time.
+fn run_player_sync(app: &AppHandle, player: &Player, cancel: &AtomicBool) -> CommandResult<()> {
+    let settings = app.state::<SyncState>().settings_for(&player.id);
+    let chosen = select(&app.state::<LibraryState>().queries(), &settings)?;
+    let work_dir = fresh_work_dir(app)?;
+    sync_to_player(player, &chosen, &work_dir, cancel, &mut |progress| {
+        let _ = app.emit(SYNC_EVENT, Some(PlayerSyncStatus { device_id: player.id.clone(), progress }));
+    })?;
+    app.state::<DevicesState>().rediscover_players();
+    let _ = app.emit(devices::CHANGED_EVENT, ());
+    Ok(())
+}
+
+fn sync_to_player(
+    player: &Player,
+    chosen: &Chosen,
+    work_dir: &std::path::Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(antistreaming_devicesync::SyncProgress),
+) -> CommandResult<()> {
+    let (items, playlists) = for_player(chosen);
+    let plan = antistreaming_devicesync::plan(player, &items, &playlists).map_err(to_error)?;
+    let targets: HashMap<i64, (Target, &'static str)> =
+        chosen.tracks.iter().filter_map(|t| player_target(t, &player.profile).map(|target| (t.id, target))).collect();
+    let mut previous: Option<PathBuf> = None;
+    let mut prepare = |item: &SyncItem, profile: &Profile| -> io::Result<PathBuf> {
+        if let Some(done) = previous.take() {
+            let _ = std::fs::remove_file(done);
+        }
+        let Some(&(target, extension)) = targets.get(&item.library_id) else {
+            return Ok(item.source.clone());
+        };
+        let output = work_dir.join(format!("{}.{extension}", item.library_id));
+        let options = TranscodeOptions { target, max_sample_rate: profile.max_sample_rate, max_bit_depth: profile.max_bit_depth, keep_tags: true };
+        antistreaming_playback::transcode_file(&item.source, &output, &options, &mut |_, _| {}, cancel)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        previous = Some(output.clone());
+        Ok(output)
+    };
+    let result = antistreaming_devicesync::apply(player, &plan, &items, &playlists, &mut prepare, progress, cancel);
+    if let Some(done) = previous {
+        let _ = std::fs::remove_file(done);
+    }
+    result.map_err(to_error)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayerSyncStatus {
+    device_id: String,
+    #[serde(flatten)]
+    progress: antistreaming_devicesync::SyncProgress,
+}
+
 fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandResult<()> {
+    if let Some(player) = app.state::<DevicesState>().player(device_id) {
+        return run_player_sync(app, &player, cancel);
+    }
     let devices = app.state::<DevicesState>();
     let ipod = fresh_ipod(&devices, device_id)?;
     // Songs playing from the iPod would hold files the sync may remove.
@@ -357,14 +509,11 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
 
     let merged = merge_play_counts(app, &ipod)?;
     let settings = app.state::<SyncState>().settings_for(device_id);
-    let selection = select(&app.state::<LibraryState>().queries(), &settings)?;
+    let selection = for_ipod(&select(&app.state::<LibraryState>().queries(), &settings)?, settings.convert_kbps);
     let database = antistreaming_ipod::read_database(&ipod).map_err(to_error)?;
     let plan = antistreaming_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
 
-    let work_dir = app.path().app_cache_dir().map_err(to_error)?.join("iPod Sync");
-    // Clears what an interrupted sync may have left.
-    let _ = std::fs::remove_dir_all(&work_dir);
-    std::fs::create_dir_all(&work_dir).map_err(to_error)?;
+    let work_dir = fresh_work_dir(app)?;
     // apply_sync copies each prepared file before asking for the next, so a converted file can
     // go as soon as the following one is requested: the cache never holds more than one song.
     let mut previous: Option<PathBuf> = None;
@@ -424,7 +573,7 @@ pub fn device_sync(app: AppHandle, state: State<'_, SyncState>, device_id: Strin
     {
         let mut running = lock(&state.running);
         if running.is_some() {
-            return Err(CommandError::from("an iPod is already syncing".to_owned()));
+            return Err(CommandError::from("a device is already syncing".to_owned()));
         }
         *running = Some(Arc::clone(&cancel));
     }
@@ -433,7 +582,7 @@ pub fn device_sync(app: AppHandle, state: State<'_, SyncState>, device_id: Strin
         *lock(&app.state::<SyncState>().running) = None;
         let _ = app.emit(SYNC_EVENT, None::<SyncStatus>);
         if let Err(error) = result {
-            let message = if cancel.load(Ordering::Relaxed) { "Sync cancelled. Your iPod is as it was.".to_owned() } else { format!("Sync failed: {error}") };
+            let message = if cancel.load(Ordering::Relaxed) { "Sync stopped".to_owned() } else { format!("Sync failed: {error}") };
             let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
         }
     });
@@ -540,8 +689,8 @@ mod tests {
         (library, playlist)
     }
 
-    fn ids(selection: &Selection) -> Vec<i64> {
-        let mut ids: Vec<i64> = selection.tracks.iter().map(|t| t.library_id).collect();
+    fn ids(chosen: &Chosen) -> Vec<i64> {
+        let mut ids: Vec<i64> = chosen.tracks.iter().map(|t| t.id).collect();
         ids.sort_unstable();
         ids
     }
@@ -554,10 +703,10 @@ mod tests {
         assert_eq!((selection.in_cloud, selection.missing), (1, 1));
         // Every playlist comes along, the default smart ones included, as in iTunes; each keeps
         // its order but lists only songs that are going onto the iPod.
-        let names: Vec<&str> = selection.playlists.iter().map(|p| p.name.as_str()).collect();
+        let names: Vec<&str> = selection.playlists.iter().map(|(name, _)| name.as_str()).collect();
         assert!(names.contains(&"Top 25 Most Played"));
-        let road_trip = selection.playlists.iter().find(|p| p.name == "Road Trip").unwrap();
-        assert_eq!(road_trip.tracks, [2, 1]);
+        let (_, road_trip) = selection.playlists.iter().find(|(name, _)| name == "Road Trip").unwrap();
+        assert_eq!(road_trip, &[2, 1]);
     }
 
     #[test]
@@ -574,7 +723,7 @@ mod tests {
         };
         let selection = select(&library, &chosen).unwrap();
         assert_eq!(ids(&selection), [1, 2]);
-        assert_eq!(selection.playlists[0].tracks, [2, 1]);
+        assert_eq!(selection.playlists[0].1, [2, 1]);
     }
 
     #[test]
@@ -584,6 +733,82 @@ mod tests {
         assert_eq!(ids(&select(&library, &music_off).unwrap()), [6]);
         let every_episode = SyncSettings { podcasts_unplayed_only: false, ..music_off };
         assert_eq!(ids(&select(&library, &every_episode).unwrap()), [5, 6]);
+    }
+
+    #[test]
+    fn players_get_files_they_play_as_they_are_and_the_rest_in_their_first_format() {
+        let mp3_only = Profile { formats: vec!["mp3".into()], ..Profile::mass_storage() };
+        let flac = Track { path: "/music/a.flac".into(), ..track(1, "FLAC", MediaKind::Music) };
+        let mp3 = Track { path: "/music/b.mp3".into(), ..track(2, "MP3", MediaKind::Music) };
+        assert!(matches!(player_target(&flac, &mp3_only), Some((Target::Mp3 { kbps: 320 }, "mp3"))));
+        assert!(player_target(&mp3, &mp3_only).is_none());
+
+        let lossless_first = Profile { formats: vec!["flac".into(), "mp3".into()], max_sample_rate: Some(48_000), ..Profile::mass_storage() };
+        let hires = Track { sample_rate: Some(96_000), ..flac.clone() };
+        assert!(player_target(&flac, &lossless_first).is_none());
+        assert!(matches!(player_target(&hires, &lossless_first), Some((Target::Flac, "flac"))));
+
+        let anything = Profile { formats: Vec::new(), ..Profile::mass_storage() };
+        assert!(player_target(&hires, &anything).is_none());
+    }
+
+    /// A real sync onto a folder posing as an MP3-only player: the FLAC is converted, the MP3
+    /// copied as it is, the playlist written, and nothing converted is left behind.
+    #[test]
+    fn a_player_gets_its_songs_converted_copied_and_listed() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../crates/playback/tests/fixtures");
+        let root = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let profile = Profile { formats: vec!["mp3".into()], ..Profile::mass_storage() };
+        let player = Player {
+            id: "test".into(),
+            name: "Test Player".into(),
+            kind: antistreaming_devicesync::DeviceKind::MassStorage,
+            root: antistreaming_devicesync::DeviceRoot::Path(root.path().to_path_buf()),
+            capacity_bytes: 1 << 40,
+            free_bytes: 1 << 40,
+            profile,
+        };
+        let file = |name: &str| fixtures.join(name);
+        let size = |name: &str| std::fs::metadata(file(name)).unwrap().len();
+        let chosen = Chosen {
+            tracks: vec![
+                Track { path: file("sine.flac").to_string_lossy().into(), file_size: size("sine.flac"), title: "Sine".into(), ..track(1, "FLAC", MediaKind::Music) },
+                Track { path: file("sine.mp3").to_string_lossy().into(), file_size: size("sine.mp3"), title: "Beep".into(), ..track(2, "MP3", MediaKind::Music) },
+            ],
+            playlists: vec![("Tones".into(), vec![2, 1])],
+            in_cloud: 0,
+            missing: 0,
+        };
+        let mut stages = Vec::new();
+        sync_to_player(&player, &chosen, work.path(), &AtomicBool::new(false), &mut |p| stages.push(p.stage)).unwrap();
+
+        let mut files: Vec<PathBuf> = walk(root.path()).into_iter().filter(|p| !p.to_string_lossy().contains(".antistreaming")).collect();
+        files.sort();
+        let names: Vec<String> = files.iter().map(|p| p.strip_prefix(root.path()).unwrap().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().any(|n| n.ends_with("Sine.mp3")), "{names:?}");
+        assert!(names.iter().any(|n| n.ends_with("Beep.mp3")), "{names:?}");
+        assert!(names.iter().all(|n| !n.ends_with(".flac")), "{names:?}");
+        let copied = files.iter().find(|p| p.to_string_lossy().ends_with("Beep.mp3")).unwrap();
+        assert_eq!(std::fs::read(copied).unwrap(), std::fs::read(file("sine.mp3")).unwrap());
+        let playlist = files.iter().find(|p| p.extension().is_some_and(|e| e == "m3u8")).expect("a playlist");
+        let text = std::fs::read_to_string(playlist).unwrap();
+        assert!(text.find("Beep").unwrap() < text.find("Sine").unwrap(), "{text}");
+        assert!(walk(work.path()).is_empty(), "converted files left behind");
+        assert!(stages.contains(&antistreaming_devicesync::SyncStage::Copying));
+    }
+
+    fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                found.extend(walk(&path));
+            } else {
+                found.push(path);
+            }
+        }
+        found
     }
 
     #[test]

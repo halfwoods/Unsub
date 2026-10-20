@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "antistreaming-applemusic",
  "antistreaming-cdrip",
+ "antistreaming-devicesync",
  "antistreaming-ipod",
  "antistreaming-library",
  "antistreaming-playback",
@@ -83,6 +84,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
 ]
 
 [[package]]

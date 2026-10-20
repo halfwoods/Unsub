@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { deviceSetSyncSettings, deviceSync, deviceSyncPreview, deviceSyncSettings } from "../api/commands";
-import type { Device, SyncPreview, SyncSettings } from "../api/types";
+import type { Device, Player, SyncPreview, SyncSettings } from "../api/types";
 import { SourceIcon } from "../sidebar/icons";
 import { useApp } from "../state/store";
 import { formatBytes, pluralize } from "../util/format";
@@ -27,14 +27,13 @@ function segmentsOf(device: Device): Segment[] {
   ];
 }
 
-function CapacityBar({ device }: { device: Device }) {
-  const segments = segmentsOf(device);
-  const total = Math.max(1, device.capacityBytes);
+function CapacityBar({ capacityBytes, segments }: { capacityBytes: number; segments: Segment[] }) {
+  const total = Math.max(1, capacityBytes);
   return (
     <div className="capacity">
       <div className="capacity-total">
         <strong>Capacity</strong>
-        {formatBytes(device.capacityBytes)}
+        {formatBytes(capacityBytes)}
       </div>
       <div className="capacity-bar">
         {segments
@@ -221,13 +220,13 @@ function BooksTab({ settings, update }: { settings: SyncSettings; update: Update
   );
 }
 
-function describePreview(preview: SyncPreview) {
+function describePreview(preview: SyncPreview, noun: string) {
   if (!preview.fits) {
     return `Not enough space: this sync needs ${formatBytes(preview.bytesNeeded)} and ${formatBytes(preview.freeBytes)} is free.`;
   }
   const changes = [
     preview.add > 0 && `adds ${pluralize(preview.add, "song", "songs")} (${formatBytes(preview.bytesNeeded)})`,
-    preview.converted > 0 && `${preview.converted.toLocaleString()} converted for the iPod`,
+    preview.converted > 0 && `${preview.converted.toLocaleString()} converted for the ${noun}`,
     preview.update > 0 && `updates ${preview.update.toLocaleString()}`,
     preview.remove > 0 && `removes ${preview.remove.toLocaleString()}`,
   ].filter(Boolean);
@@ -267,7 +266,32 @@ function FirstSyncSheet({ device, onCancel, onSync }: { device: Device; onCancel
   );
 }
 
-export function DeviceSummary({ device }: { device: Device }) {
+/**
+ * A device's sync page: its Summary, Music, Podcasts and Books tabs, and the footer with its
+ * capacity, what Sync will do, and the Sync button. iPods and other players share it.
+ */
+function SyncPage({
+  deviceId,
+  noun,
+  device,
+  writable,
+  unwritable,
+  summary,
+  capacity,
+  firstSync,
+}: {
+  deviceId: string;
+  /** What to call the device in the footer: "iPod" or "player". */
+  noun: string;
+  /** Replaced after each sync, which is when the preview needs recomputing. */
+  device: unknown;
+  writable: boolean;
+  unwritable: string;
+  summary: (settings: SyncSettings, update: Update) => ReactNode;
+  capacity: ReactNode;
+  /** A sheet to show before the first sync, if the device needs one. */
+  firstSync?: (onCancel: () => void, onSync: () => void) => ReactNode;
+}) {
   const [tab, setTab] = useState<Tab>("summary");
   const [settings, setSettings] = useState<SyncSettings | null>(null);
   const [saved, setSaved] = useState(0);
@@ -276,11 +300,10 @@ export function DeviceSummary({ device }: { device: Device }) {
   const [confirming, setConfirming] = useState(false);
   const syncing = useApp((s) => s.deviceSync !== null);
   const showNotice = useApp((s) => s.showNotice);
-  const writable = device.sync === "supported" || device.sync === "needsHash58";
 
   useEffect(() => {
-    void deviceSyncSettings(device.id).then(setSettings);
-  }, [device.id]);
+    void deviceSyncSettings(deviceId).then(setSettings);
+  }, [deviceId]);
 
   // Recomputed once settings load, after each change is saved (the backend reads the saved
   // copy), and after each sync, which replaces `device`.
@@ -289,7 +312,7 @@ export function DeviceSummary({ device }: { device: Device }) {
     if (!writable || !loaded || syncing) return;
     let current = true;
     const timer = setTimeout(() => {
-      void deviceSyncPreview(device.id).then(
+      void deviceSyncPreview(deviceId).then(
         (p) => {
           if (!current) return;
           setPreview(p);
@@ -304,20 +327,17 @@ export function DeviceSummary({ device }: { device: Device }) {
       current = false;
       clearTimeout(timer);
     };
-  }, [device, saved, loaded, syncing, writable]);
+  }, [deviceId, device, saved, loaded, syncing, writable]);
 
   const update: Update = (patch) => {
     if (!settings) return;
     const next = { ...settings, ...patch };
     setSettings(next);
-    void deviceSetSyncSettings(device.id, next).then(() => setSaved((n) => n + 1));
+    void deviceSetSyncSettings(deviceId, next).then(() => setSaved((n) => n + 1));
   };
 
-  const sync = () => void deviceSync(device.id).catch((e: unknown) => showNotice(String(e)));
-
-  const status = !writable
-    ? "AntiStreaming can't write to this iPod model yet. You can still browse and play its music."
-    : previewError ?? (preview ? describePreview(preview) : "Checking what will sync…");
+  const sync = () => void deviceSync(deviceId).catch((e: unknown) => showNotice(String(e)));
+  const status = !writable ? unwritable : (previewError ?? (preview ? describePreview(preview, noun) : "Checking what will sync…"));
 
   return (
     <div className="device-summary">
@@ -331,7 +351,7 @@ export function DeviceSummary({ device }: { device: Device }) {
       <div className="device-body">
         {settings &&
           (tab === "summary" ? (
-            <SummaryTab device={device} settings={settings} update={update} />
+            summary(settings, update)
           ) : tab === "music" ? (
             <MusicTab settings={settings} update={update} />
           ) : tab === "podcasts" ? (
@@ -342,28 +362,114 @@ export function DeviceSummary({ device }: { device: Device }) {
       </div>
       <footer className="device-footer">
         <div className="device-footer-main">
-          <CapacityBar device={device} />
+          {capacity}
           <p className={preview && !preview.fits ? "sync-status sync-status--warning" : "sync-status"}>{status}</p>
         </div>
         <button
           className="push-button"
           disabled={!writable || syncing || !preview?.fits}
-          onClick={() => (settings?.confirmed ? sync() : setConfirming(true))}
+          onClick={() => (firstSync && !settings?.confirmed ? setConfirming(true) : sync())}
         >
           {syncing ? "Syncing…" : "Sync"}
         </button>
       </footer>
-      {confirming && (
-        <FirstSyncSheet
-          device={device}
-          onCancel={() => setConfirming(false)}
-          onSync={() => {
+      {confirming &&
+        firstSync?.(
+          () => setConfirming(false),
+          () => {
             setConfirming(false);
             update({ confirmed: true });
             sync();
-          }}
-        />
-      )}
+          },
+        )}
     </div>
+  );
+}
+
+export function DeviceSummary({ device }: { device: Device }) {
+  return (
+    <SyncPage
+      deviceId={device.id}
+      noun="iPod"
+      device={device}
+      writable={device.sync === "supported" || device.sync === "needsHash58"}
+      unwritable="AntiStreaming can't write to this iPod model yet. You can still browse and play its music."
+      summary={(settings, update) => <SummaryTab device={device} settings={settings} update={update} />}
+      capacity={<CapacityBar capacityBytes={device.capacityBytes} segments={segmentsOf(device)} />}
+      firstSync={(onCancel, onSync) => <FirstSyncSheet device={device} onCancel={onCancel} onSync={onSync} />}
+    />
+  );
+}
+
+const PLAYER_KINDS: Record<Player["kind"], string> = {
+  rockbox: "Rockbox player",
+  massStorage: "USB music player",
+  mtp: "Phone",
+};
+
+function PlayerSummaryTab({ player, settings, update }: { player: Player; settings: SyncSettings; update: Update }) {
+  const { profile } = player;
+  const formats = profile.formats.map((f) => f.toUpperCase());
+  return (
+    <>
+      <section className="device-box">
+        <h2>{PLAYER_KINDS[player.kind]}</h2>
+        <div className="device-box-content">
+          <dl className="device-facts">
+            <dt>Name:</dt>
+            <dd>{player.name}</dd>
+            <dt>Capacity:</dt>
+            <dd>{formatBytes(player.capacityBytes)}</dd>
+            <dt>Plays:</dt>
+            <dd>{formats.length > 0 ? formats.join(", ") : "Every format"}</dd>
+            <dt>Music folder:</dt>
+            <dd>/{profile.musicDir}</dd>
+            <dt>Playlists:</dt>
+            <dd>
+              /{profile.playlistDir} ({profile.playlistFormat})
+            </dd>
+          </dl>
+        </div>
+      </section>
+      <section className="device-box">
+        <h2>Options</h2>
+        <div className="device-box-content device-options">
+          <label className="prefs-check">
+            <input type="checkbox" checked={settings.onlyChecked} onChange={(e) => update({ onlyChecked: e.target.checked })} />
+            Sync only checked songs
+          </label>
+          <p className="prefs-note">
+            {formats.length > 0
+              ? `Songs in other formats become ${formats[0]} on the player; your library keeps the originals. `
+              : ""}
+            Files you put on the player yourself are never touched.
+          </p>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** A non-Apple player's page: the same tabs as an iPod's, syncing plain files and playlists. */
+export function PlayerSummary({ player }: { player: Player }) {
+  const used = Math.max(0, player.capacityBytes - player.freeBytes);
+  return (
+    <SyncPage
+      deviceId={player.id}
+      noun="player"
+      device={player}
+      writable={player.kind !== "mtp"}
+      unwritable="Syncing to phones over MTP isn't available yet. Phones that mount as a USB drive can be set up as a player."
+      summary={(settings, update) => <PlayerSummaryTab player={player} settings={settings} update={update} />}
+      capacity={
+        <CapacityBar
+          capacityBytes={player.capacityBytes}
+          segments={[
+            { label: "Used", bytes: used, className: "capacity-other" },
+            { label: "Free", bytes: player.freeBytes, className: "capacity-free" },
+          ]}
+        />
+      }
+    />
   );
 }

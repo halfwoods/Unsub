@@ -9,6 +9,7 @@ import type {
   ComposerSummary,
   Device,
   DeviceSyncStatus,
+  Player,
   DeviceView,
   GenreSummary,
   LibraryStats,
@@ -46,10 +47,14 @@ export type DeviceSourceId = `device:${string}`;
 /** "cd:<MusicBrainz DiscID>": an audio CD's songs. */
 export type CdSourceId = `cd:${string}`;
 
+/** "player:<id>": a non-Apple player's sync page. */
+export type PlayerSourceId = `player:${string}`;
+
 export type SourceId =
   | LibrarySource
   | DeviceSourceId
   | CdSourceId
+  | PlayerSourceId
   | PlaylistSourceId
   | "toOwn"
   | "partyShuffle"
@@ -73,6 +78,8 @@ export function deviceSource(deviceId: string, view?: DeviceView): DeviceSourceI
 export const isDeviceSource = (source: SourceId): source is DeviceSourceId => source.startsWith("device:");
 
 export const cdSource = (discId: string): CdSourceId => `cd:${discId}`;
+export const playerSource = (id: string): PlayerSourceId => `player:${id}`;
+export const playerIdOf = (source: SourceId) => (source.startsWith("player:") ? source.slice("player:".length) : null);
 export const cdIdOf = (source: SourceId) => (source.startsWith("cd:") ? source.slice("cd:".length) : null);
 
 export const isPlaylistSource = (source: SourceId): source is PlaylistSourceId => source.startsWith("playlist:");
@@ -151,6 +158,7 @@ interface AppState {
   scan: ScanProgress | null;
   showArtwork: boolean;
   devices: Device[];
+  players: Player[];
   cds: AudioCd[];
   /** The CD import in progress, if any. */
   cdRip: CdRipStatus | null;
@@ -160,6 +168,7 @@ interface AppState {
   /** Display Duplicates is on, showing only songs that have duplicates. */
   duplicates: { exact: boolean } | null;
   organize: OrganizeProgress | null;
+  settingUpPlayer: boolean;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -233,12 +242,14 @@ export const useApp = create<AppState>((set, get) => ({
   scan: null,
   showArtwork: false,
   devices: [],
+  players: [],
   cds: [],
   cdRip: null,
   deviceSync: null,
   librarySheet: null,
   duplicates: null,
   organize: null,
+  settingUpPlayer: false,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
@@ -409,11 +420,14 @@ export const useApp = create<AppState>((set, get) => ({
   toggleArtwork: () => set((s) => ({ showArtwork: !s.showArtwork })),
 
   refreshDevices: async () => {
-    const devices = await api.devicesList();
-    set({ devices });
+    const [devices, players] = await Promise.all([api.devicesList(), api.playersList()]);
+    set({ devices, players });
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
-    if (device && !devices.some((d) => d.id === device.deviceId)) get().setSource("music");
+    const player = playerIdOf(get().source);
+    if ((device && !devices.some((d) => d.id === device.deviceId)) || (player !== null && !players.some((p) => p.id === player))) {
+      get().setSource("music");
+    }
   },
 
   openLibrarySheet: (librarySheet) => set({ librarySheet }),

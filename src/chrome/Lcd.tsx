@@ -100,7 +100,9 @@ export function Lcd() {
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
   const organize = useApp((s) => s.organize);
-  const syncingName = useApp((s) => s.devices.find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "iPod");
+  const syncingName = useApp(
+    (s) => [...s.devices, ...s.players].find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "device",
+  );
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const playTrackIds = useApp((s) => s.playTrackIds);
@@ -145,13 +147,22 @@ export function Lcd() {
   if (deviceSync) {
     const { stage, done, total, current } = deviceSync;
     const subtitle =
-      stage === "writingDatabase" ? "Updating the iPod's database" : stage === "cleaning" ? "Removing songs" : `Copying ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
+      stage === "writingDatabase"
+        ? "Updating the iPod's database"
+        : stage === "cleaning"
+          ? "Removing songs"
+          : stage === "playlists"
+            ? "Writing playlists"
+            : stage === "skipped"
+              ? `Skipped: ${current}`
+              : `Copying ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
     return (
       <ProgressLcd
         title={`Syncing “${syncingName}”`}
         subtitle={subtitle}
         fraction={total > 0 ? done / total : null}
-        onCancel={stage === "preparing" || stage === "copying" ? () => void deviceCancelSync() : undefined}
+        // Only the iPod database's commit can't be stopped halfway.
+        onCancel={stage === "writingDatabase" ? undefined : () => void deviceCancelSync()}
       />
     );
   }
