@@ -291,6 +291,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "antistreaming-visualize"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "realfft",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
