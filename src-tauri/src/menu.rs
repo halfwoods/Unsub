@@ -1,4 +1,4 @@
-use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
@@ -13,6 +13,8 @@ const IMPORT_MUSIC: &str = "import-music-library";
 const IMPORT_XML: &str = "import-library-xml";
 const CHECK_FOR_UPDATES: &str = "check-for-updates";
 const DELETE: &str = "delete";
+/// The design follows classic iTunes, so the About box makes clear Unsub isn't Apple's.
+const NOT_APPLE: &str = "Not affiliated with or endorsed by Apple. iTunes, iPod and Apple Music are trademarks of Apple Inc.";
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
 const SHOW_VISUALIZER: (&str, &str, Option<&str>) = ("show-visualizer", "Show Visualizer", Some("CmdOrCtrl+T"));
@@ -52,12 +54,21 @@ const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
 ];
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let info = app.package_info();
+    // macOS shows credits and the other platforms show comments, so the notice goes in both.
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        credits: Some(NOT_APPLE.to_owned()),
+        comments: Some(NOT_APPLE.to_owned()),
+        ..AboutMetadata::default()
+    };
     let app_menu = Submenu::with_items(
         app,
         "Unsub",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About Unsub"), None)?,
+            &PredefinedMenuItem::about(app, Some("About Unsub"), Some(about))?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, PREFERENCES.0, PREFERENCES.1, true, PREFERENCES.2)?,
             &PredefinedMenuItem::separator(app)?,

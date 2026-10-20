@@ -1,6 +1,6 @@
 # Unsub
 
-A music player for people who own their music. It looks and works like iTunes 10, the version before Apple Music. Instead of a store and a streaming service, it gives you:
+A music player for people who own their music, inspired by classic iTunes from before Apple Music. Instead of a store and a streaming service, it gives you:
 
 - Lossless playback, bit-perfect when you want it
 - Smart playlists, Party Shuffle, "more like this" mixes and an equalizer
@@ -61,3 +61,7 @@ Drag a folder of music onto the window, use **File › Add to Library…**, or b
 ## Clean-room rule
 
 The repo contains no Apple code, images or fonts. iTunes was used only as a measuring reference, from outside the repo.
+
+## Trademarks
+
+Unsub is not affiliated with or endorsed by Apple. iTunes, iPod, Apple Music and iCloud are trademarks of Apple Inc., named here only to say what Unsub works with.
