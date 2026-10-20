@@ -284,3 +284,25 @@ fn locating_with_nothing_missing_does_nothing() {
             .is_empty()
     );
 }
+
+#[test]
+fn the_search_for_missing_files_never_reads_a_candidate_that_is_only_in_the_cloud() {
+    let dir = copy_fixtures();
+    let mut library = Library::open_in_memory().unwrap();
+    scan(&mut library, dir.path());
+    let halo = track_titled(&library, "Halo").id;
+    // Re-encoded, so only its tags could tell it is the song.
+    let found = TempDir::new().unwrap();
+    let mut reencoded = fs::read(fixtures_dir().join("halo.mp3")).unwrap();
+    reencoded.extend_from_slice(&[0; 200]);
+    fs::write(found.path().join("halo.mp3"), reencoded).unwrap();
+    fs::remove_file(dir.path().join("halo.mp3")).unwrap();
+    library.check_missing().unwrap();
+
+    library.set_dataless_check(|path| path.ends_with("halo.mp3"));
+    assert!(library.relink_folder(found.path()).unwrap().is_empty());
+    assert!(library.track(halo).unwrap().unwrap().missing);
+
+    library.set_dataless_check(|_| false);
+    assert_eq!(library.relink_folder(found.path()).unwrap(), [halo]);
+}

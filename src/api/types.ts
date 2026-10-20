@@ -139,6 +139,21 @@ export interface OrganizeProgress {
   currentPath: string;
 }
 
+/** What File › Import Music Library found in the Music library. */
+export interface ImportPreview {
+  songs: number;
+  withFiles: number;
+  /** Songs that should have a file but don't: no location, or one that has gone. */
+  missing: number;
+}
+
+export interface ImportProgress {
+  stage: "reading" | "locating" | "adding" | "merging";
+  done: number;
+  /** Null while the library is read or the folder is listed. */
+  total: number | null;
+}
+
 export interface LibraryStats {
   count: number;
   totalDurationMs: number;

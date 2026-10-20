@@ -123,8 +123,13 @@ impl Library {
             let same_size = free.iter().find(|candidate| {
                 fs::metadata(candidate).is_ok_and(|m| m.len() == track.file_size)
             });
+            // Reading a file's tags would download it, so one only in the cloud is known by size alone.
             let found = same_size
-                .or_else(|| free.iter().find(|candidate| same_song(&track, candidate)))
+                .or_else(|| {
+                    free.iter().find(|candidate| {
+                        !(self.is_dataless)(candidate) && same_song(&track, candidate)
+                    })
+                })
                 .map(|candidate| (*candidate).clone());
             if let Some(found) = found {
                 self.relink_to(track.id, &found)?;

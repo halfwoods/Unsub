@@ -15,6 +15,8 @@ import type {
   DeviceView,
   GenreSummary,
   ImportFormat,
+  ImportPreview,
+  ImportProgress,
   LibraryStats,
   Lyrics,
   MediaSettings,
@@ -185,6 +187,15 @@ export const onScanProgress = (handler: (progress: ScanProgress) => void): Promi
 export const onLibraryChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("library://changed", () => handler());
 
+/** Reads the Music app, or the exported library at `xml`, and says what importing it would find. */
+export const importMusicInspect = (xml: string | null) => invoke<ImportPreview>("import_music_inspect", { xml });
+/** Imports the library read by `importMusicInspect`, looking in `folder` for the files Music lost. */
+export const importMusicRun = (folder: string | null) => invoke<void>("import_music_run", { folder });
+/** Lets go of the library `importMusicInspect` read, when the sheet is dismissed. */
+export const importMusicCancel = () => invoke<void>("import_music_cancel");
+export const onImportProgress = (handler: (progress: ImportProgress | null) => void): Promise<UnlistenFn> =>
+  listen<ImportProgress | null>("import://progress", (e) => handler(e.payload));
+
 export const collectionReport = () => invoke<OwnershipReport | null>("collection_report");
 export const collectionLoadMusicApp = () => invoke<void>("collection_load_music_app");
 export const collectionLoadXml = () => invoke<void>("collection_load_xml");
@@ -292,6 +303,8 @@ export type MenuAction =
   | "set-up-player"
   | "connect-to-server"
   | "open-stream"
+  | "import-music-library"
+  | "import-library-xml"
   | "equalizer"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>

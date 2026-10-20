@@ -340,6 +340,51 @@ pub struct TrackOverrides {
     pub compilation: Option<bool>,
     /// Plain lyrics, for a file that cannot carry them; empty means none.
     pub lyrics: Option<String>,
+    /// For a placeholder, whose length can't be read; a file's own length is never replaced.
+    pub duration_ms: Option<u64>,
+}
+
+impl TrackOverrides {
+    /// These, with `theirs` added for each detail neither these nor `track` already hold, so
+    /// importing again never replaces what the library knows or the user has changed. `None`
+    /// for a track whose own details are only guesses from its file name: then only these count.
+    pub(crate) fn filled_from(mut self, theirs: &Self, track: Option<&Track>) -> Self {
+        let text = |own: &mut Option<String>, new: &Option<String>, held: fn(&Track) -> &str| {
+            if own.is_none() && track.is_none_or(|track| held(track).is_empty()) {
+                own.clone_from(new);
+            }
+        };
+        text(&mut self.title, &theirs.title, |t| &t.title);
+        text(&mut self.artist, &theirs.artist, |t| &t.artist);
+        text(&mut self.album, &theirs.album, |t| &t.album);
+        text(&mut self.album_artist, &theirs.album_artist, |t| {
+            &t.album_artist
+        });
+        text(&mut self.genre, &theirs.genre, |t| &t.genre);
+        text(&mut self.composer, &theirs.composer, |t| &t.composer);
+        let number = |own: &mut Option<u32>, new: Option<u32>, held: fn(&Track) -> Option<u32>| {
+            if own.is_none() && track.is_none_or(|track| held(track).is_none()) {
+                *own = new;
+            }
+        };
+        number(&mut self.track_number, theirs.track_number, |t| {
+            t.track_number
+        });
+        number(&mut self.track_count, theirs.track_count, |t| t.track_count);
+        number(&mut self.disc_number, theirs.disc_number, |t| t.disc_number);
+        number(&mut self.disc_count, theirs.disc_count, |t| t.disc_count);
+        if self.year.is_none() && track.is_none_or(|track| track.year.is_none()) {
+            self.year = theirs.year;
+        }
+        if self.duration_ms.is_none() && track.is_none_or(|track| track.duration_ms == 0) {
+            self.duration_ms = theirs.duration_ms;
+        }
+        self.kind = self.kind.or(theirs.kind);
+        self.date_added = self.date_added.or(theirs.date_added);
+        self.compilation = self.compilation.or(theirs.compilation);
+        self.lyrics = self.lyrics.or_else(|| theirs.lyrics.clone());
+        self
+    }
 }
 
 /// What `add_files` made of its input.

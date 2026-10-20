@@ -28,7 +28,11 @@ impl Library {
         };
         let size = size.max(1);
         let cache = self.artwork_cache.as_deref();
-        if let Some(art) = own_thumbnail(cache, Path::new(&track.path), &track.album, size) {
+        let dataless = &*self.is_dataless;
+        if !track.in_cloud
+            && let Some(art) =
+                own_thumbnail(cache, Path::new(&track.path), &track.album, size, dataless)
+        {
             return Ok(Some(art));
         }
         // Without an album name, "the same album" would pool unrelated songs.
@@ -39,6 +43,7 @@ impl Library {
         let mut stmt = self.conn.prepare_cached(
             "SELECT path, album FROM tracks
              WHERE album_group = (SELECT album_group FROM tracks WHERE id = ?1) AND id <> ?1
+               AND in_cloud = 0
              ORDER BY id",
         )?;
         let others = stmt.query_map([track_id], |row| {
@@ -46,7 +51,7 @@ impl Library {
         })?;
         for other in others {
             let (path, album) = other?;
-            if let Some(art) = own_thumbnail(cache, Path::new(&path), &album, size) {
+            if let Some(art) = own_thumbnail(cache, Path::new(&path), &album, size, dataless) {
                 return Ok(Some(art));
             }
         }
@@ -56,13 +61,19 @@ impl Library {
 
 /// A missing file or undecodable picture simply means no art. Both outcomes
 /// are cached, so a bare track costs a few `stat`s instead of a tag parse.
+/// A file that is only in the cloud is neither read nor cached as bare: it
+/// has art to give once it is local.
 fn own_thumbnail(
     cache: Option<&Path>,
     track_path: &Path,
     album: &str,
     size: u32,
+    dataless: &dyn Fn(&Path) -> bool,
 ) -> Option<Artwork> {
-    let source = sibling_path(track_path, album);
+    if dataless(track_path) {
+        return None;
+    }
+    let source = sibling_path(track_path, album, dataless);
     let key = format!(
         "{:016x}",
         source_key(track_path, source.as_ref().map(|(path, _)| path.as_path()))?
@@ -76,7 +87,7 @@ fn own_thumbnail(
         }
     }
 
-    let thumbnail = own_art(track_path, album).and_then(|art| resize(&art.bytes, size));
+    let thumbnail = own_art(track_path, album, dataless).and_then(|art| resize(&art.bytes, size));
     if let Some(dir) = cache {
         let (name, bytes) = match &thumbnail {
             Some(bytes) => (format!("{key}-{size}.jpg"), bytes.as_slice()),

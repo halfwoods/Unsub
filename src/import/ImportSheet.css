@@ -1,0 +1,35 @@
+/* A Mac alert with one choice in it, like Set Up a Music Player. */
+.import-library {
+  min-width: 0;
+  width: 480px;
+}
+
+.import-library p {
+  margin: 0 0 10px;
+  line-height: 16px;
+}
+
+.import-library .import-library-title {
+  font-weight: bold;
+}
+
+.import-library-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.import-library-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #444444;
+}
+
+.import-library .import-library-note {
+  color: #555555;
+  line-height: 15px;
+}

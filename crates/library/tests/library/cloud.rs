@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
 use antistreaming_library::{
-    Library, MediaKind, ScanSummary, Track, TrackOverrides, ensure_local, is_dataless,
+    Library, MediaKind, ScanSummary, Track, TrackEdits, TrackOverrides, ensure_local, is_dataless,
 };
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -657,6 +657,176 @@ fn placeholders_are_not_copied_into_the_media_folder_and_duplicates_are_one_row(
     assert_eq!(row.title, "Second", "the later one wins");
     assert!(Path::new(&row.path).ends_with("A/B/01 Song.mp3"));
     assert_eq!(fs::read_dir(media.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn adding_in_place_again_keeps_the_users_edits_and_only_fills_what_is_missing() {
+    let dir = TempDir::new().unwrap();
+    let path = put(dir.path(), "Artist/Album/01 Song.m4a", b"not audio");
+    evict(&path);
+    let mut library = cloud_library();
+    // Music has no genre or year for it yet.
+    let first = TrackOverrides {
+        genre: None,
+        year: None,
+        ..from_music("Music Title", 1)
+    };
+    let id = library
+        .add_files_in_place(&[(path.clone(), first)])
+        .unwrap()
+        .ids[0]
+        .unwrap();
+    library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                title: Some("My Title".into()),
+                lyrics: Some("la la la".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+
+    // Since then Music has retitled it and learned its genre, year and length.
+    let again = TrackOverrides {
+        duration_ms: Some(123_000),
+        ..from_music("Retitled in Music", 1)
+    };
+    library
+        .add_files_in_place(&[(path.clone(), again)])
+        .unwrap();
+
+    let row = library.track(id).unwrap().unwrap();
+    assert_eq!(
+        (row.title.as_str(), row.genre.as_str(), row.year),
+        ("My Title", "Music Genre", Some(1999))
+    );
+    assert_eq!((row.has_lyrics, row.duration_ms), (true, 123_000));
+    assert_eq!(library.lyrics(id).unwrap().unwrap().text, "la la la");
+    assert_eq!(library.stats(&all_kinds()).unwrap().count, 1);
+}
+
+#[test]
+fn a_scanned_placeholder_takes_musics_details_on_import_but_keeps_an_edit() {
+    let dir = TempDir::new().unwrap();
+    let plain = put(dir.path(), "Folder/Guess/01 Plain.m4a", b"not audio");
+    let edited = put(dir.path(), "Folder/Guess/02 Edited.m4a", b"not audio");
+    evict(&plain);
+    evict(&edited);
+    let mut library = cloud_library();
+    // Added the ordinary way, its details are guesses from the path.
+    rescan(&mut library, dir.path());
+    let (plain_id, edited_id) = (
+        track_titled(&library, "Plain").id,
+        track_titled(&library, "Edited").id,
+    );
+    library
+        .edit_tracks(
+            &[edited_id],
+            &TrackEdits {
+                title: Some("My Edit".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+
+    library
+        .add_files_in_place(&[
+            (plain, from_music("Music Plain", 7)),
+            (edited, from_music("Music Edited", 8)),
+        ])
+        .unwrap();
+
+    let plain = library.track(plain_id).unwrap().unwrap();
+    assert_eq!(
+        (
+            plain.title.as_str(),
+            plain.artist.as_str(),
+            plain.album.as_str(),
+            plain.track_number
+        ),
+        ("Music Plain", "Music Artist", "Music Album", Some(7))
+    );
+    let edited = library.track(edited_id).unwrap().unwrap();
+    assert_eq!(
+        (
+            edited.title.as_str(),
+            edited.artist.as_str(),
+            edited.track_number
+        ),
+        ("My Edit", "Music Artist", Some(8))
+    );
+}
+
+#[test]
+fn editing_a_file_evicted_since_the_last_scan_changes_only_the_library() {
+    let dir = TempDir::new().unwrap();
+    let db = TempDir::new().unwrap();
+    let db_path = db.path().join("library.db");
+    let path = put_fixture(dir.path(), "dump/halo.mp3", "halo.mp3");
+    let original = fs::read(&path).unwrap();
+    let mut library = Library::open(&db_path).unwrap();
+    library.set_dataless_check(|path| path.with_extension("evicted").exists());
+    rescan(&mut library, dir.path());
+    let id = track_titled(&library, "Halo").id;
+    assert!(!library.track(id).unwrap().unwrap().in_cloud);
+    // Keeping the folder organized would move it for the new title and album.
+    library.set_media_folder(dir.path()).unwrap();
+    library.set_organize(true).unwrap();
+    evict(&path);
+
+    let report = library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                title: Some("Halo (Edit)".into()),
+                album: Some("Fierce".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+
+    assert!(report.written.is_empty() && report.moved.is_empty());
+    assert_eq!(report.db_only.len(), 1);
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        original,
+        "the file is not rewritten"
+    );
+    let row = library.track(id).unwrap().unwrap();
+    assert_eq!(
+        (row.title.as_str(), row.album.as_str()),
+        ("Halo (Edit)", "Fierce")
+    );
+    assert_eq!(row.path, fs::canonicalize(&path).unwrap().to_str().unwrap());
+    let pinned: String = Connection::open(&db_path)
+        .unwrap()
+        .query_row("SELECT overrides FROM tracks WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(pinned.contains("Halo (Edit)"), "{pinned}");
+}
+
+#[test]
+fn a_placeholder_takes_its_length_from_music_but_a_file_keeps_its_own() {
+    let dir = TempDir::new().unwrap();
+    let cloud = put(dir.path(), "A/B/01 Cloud.m4a", b"not audio");
+    evict(&cloud);
+    let local = put_fixture(dir.path(), "A/B/02 Local.mp3", "halo.mp3");
+    let mut library = cloud_library();
+    let music_says = TrackOverrides {
+        duration_ms: Some(1),
+        ..TrackOverrides::default()
+    };
+
+    let summary = library
+        .add_files_in_place(&[(cloud, music_says.clone()), (local, music_says)])
+        .unwrap();
+
+    let [cloud, local] = [0, 1].map(|n| library.track(summary.ids[n].unwrap()).unwrap().unwrap());
+    assert_eq!(cloud.duration_ms, 1);
+    assert!(local.duration_ms > 1, "{}", local.duration_ms);
 }
 
 #[test]

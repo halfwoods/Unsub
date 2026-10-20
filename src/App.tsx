@@ -1,5 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect } from "react";
 import {
@@ -10,6 +11,7 @@ import {
   onRemoteChanged,
   onOrganizeProgress,
   onDevicesChanged,
+  onImportProgress,
   onLibraryChanged,
   onMenuAction,
   onPlayerEvent,
@@ -30,6 +32,7 @@ import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
+import { ImportSheet } from "./import/ImportSheet";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { addDropped } from "./radio/importStations";
 import { OpenStream } from "./radio/OpenStream";
@@ -46,8 +49,13 @@ import "./App.css";
 
 const VOLUME_STEP = 0.1;
 
+async function importLibraryXml() {
+  const path = await open({ title: "Import Library XML", multiple: false, directory: false, filters: [{ name: "Library XML", extensions: ["xml"] }] });
+  if (typeof path === "string") await useApp.getState().openImportSheet(path);
+}
+
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, showDuplicates, showNotice } =
+  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, openImportSheet, showDuplicates, showNotice } =
     useApp.getState();
   const { source, selection, tracks, chapters } = useApp.getState();
   // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
@@ -74,6 +82,10 @@ function runMenuAction(action: MenuAction) {
       return useApp.setState({ connectingToServer: true });
     case "open-stream":
       return useApp.setState({ openingStream: true });
+    case "import-music-library":
+      return void openImportSheet(null);
+    case "import-library-xml":
+      return void importLibraryXml();
     case "equalizer":
       return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
@@ -126,6 +138,7 @@ function useBackendEvents() {
       onCdRip((cdRip) => useApp.setState({ cdRip })),
       onDeviceSync((deviceSync) => useApp.setState({ deviceSync })),
       onOrganizeProgress((organize) => useApp.setState({ organize })),
+      onImportProgress((importProgress) => useApp.setState({ importProgress })),
       onScanProgress(setScan),
       onDownload((p) =>
         useApp.setState({ download: p && { trackId: p.trackId, from: p.from, fraction: p.total > 0 ? p.done / p.total : 0 } }),
@@ -178,6 +191,7 @@ export default function App() {
   const settingUpPlayer = useApp((s) => s.settingUpPlayer);
   const connectingToServer = useApp((s) => s.connectingToServer);
   const openingStream = useApp((s) => s.openingStream);
+  const importSheet = useApp((s) => s.importSheet);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   useBackendEvents();
   useGlobalKeys();
@@ -197,6 +211,7 @@ export default function App() {
       {settingUpPlayer && <SetUpPlayer />}
       {connectingToServer && <ConnectToServer />}
       {openingStream && <OpenStream />}
+      {importSheet && <ImportSheet preview={importSheet} />}
       <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
     </div>

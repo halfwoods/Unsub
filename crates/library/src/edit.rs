@@ -280,7 +280,7 @@ impl Library {
             let mut overrides = self.stored_overrides(track.id)?.unwrap_or_default();
             let mut in_file = false;
             if edits.touches_tags() {
-                match unwritable(&track) {
+                match unwritable(&track, (self.is_dataless)(Path::new(&track.path))) {
                     Some(reason) => report.db_only.push((track.id, reason)),
                     None => match write_tags(Path::new(&track.path), &edits, picture.as_ref()) {
                         Ok(()) => {
@@ -308,6 +308,7 @@ impl Library {
                 && let Some(folder) = &media.folder
                 && Path::new(&track.path).starts_with(folder)
                 && !track.in_cloud
+                && !(self.is_dataless)(Path::new(&track.path))
                 && !track.missing
             {
                 match self.move_into_place(&track, folder) {
@@ -394,11 +395,13 @@ impl Library {
 }
 
 /// Why the file cannot be written, if it plainly cannot.
-fn unwritable(track: &Track) -> Option<String> {
+/// `dataless` is asked of the file now: one iCloud evicted since the last scan still has
+/// `in_cloud` unset, and writing to it would download the whole song first.
+fn unwritable(track: &Track, dataless: bool) -> Option<String> {
     if track.kind == MediaKind::Radio {
         return Some("a station has no file".to_owned());
     }
-    if track.in_cloud {
+    if track.in_cloud || dataless {
         return Some("the file is in iCloud and has not been downloaded".to_owned());
     }
     match fs::metadata(&track.path) {

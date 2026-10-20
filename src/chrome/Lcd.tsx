@@ -186,6 +186,7 @@ export function Lcd() {
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
   const organize = useApp((s) => s.organize);
+  const importProgress = useApp((s) => s.importProgress);
   const syncingName = useApp(
     (s) => [...s.devices, ...s.players].find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "device",
   );
@@ -277,6 +278,17 @@ export function Lcd() {
         fraction={organize.total > 0 ? organize.done / organize.total : null}
       />
     );
+  }
+
+  if (importProgress) {
+    const { stage, done, total } = importProgress;
+    const subtitle = {
+      reading: "Reading your Music library",
+      locating: total === null ? `Looking through the folder: ${done.toLocaleString()} files` : `Finding files: ${done.toLocaleString()} of ${total.toLocaleString()}`,
+      adding: `Adding songs: ${done.toLocaleString()} of ${(total ?? 0).toLocaleString()}`,
+      merging: "Merging play counts and playlists",
+    }[stage];
+    return <ProgressLcd title="Importing Music Library" subtitle={subtitle} fraction={total && done > 0 ? done / total : null} />;
   }
 
   if (scan) return <ProgressLcd title="Adding to Library" subtitle={scan.currentPath.split(/[\\/]/).pop() ?? ""} fraction={null} />;

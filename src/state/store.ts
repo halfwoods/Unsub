@@ -14,6 +14,8 @@ import type {
   SharedLibrary,
   DeviceView,
   GenreSummary,
+  ImportPreview,
+  ImportProgress,
   LibraryStats,
   MediaKind,
   OrganizeProgress,
@@ -215,6 +217,9 @@ interface AppState {
   /** Display Duplicates is on, showing only songs that have duplicates. */
   duplicates: { exact: boolean } | null;
   organize: OrganizeProgress | null;
+  /** The Music library File › Import Music Library has read, shown in the sheet that asks where its files are. */
+  importSheet: ImportPreview | null;
+  importProgress: ImportProgress | null;
   settingUpPlayer: boolean;
   connectingToServer: boolean;
   openingStream: boolean;
@@ -262,6 +267,8 @@ interface AppState {
   refreshCds: () => Promise<void>;
   refreshShared: () => Promise<void>;
   openLibrarySheet: (sheet: LibrarySheet | null) => void;
+  /** Reads the Music app (or the exported library at `xml`), then opens the import sheet. */
+  openImportSheet: (xml: string | null) => Promise<void>;
   showDuplicates: (exact: boolean) => Promise<void>;
   showAllSongs: () => void;
   toggleDevice: (deviceId: string) => void;
@@ -307,6 +314,8 @@ export const useApp = create<AppState>((set, get) => ({
   librarySheet: null,
   duplicates: null,
   organize: null,
+  importSheet: null,
+  importProgress: null,
   settingUpPlayer: false,
   connectingToServer: false,
   openingStream: false,
@@ -502,6 +511,14 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   openLibrarySheet: (librarySheet) => set({ librarySheet }),
+
+  openImportSheet: async (xml) => {
+    try {
+      set({ importSheet: await api.importMusicInspect(xml) });
+    } catch (e) {
+      get().showNotice(String(e));
+    }
+  },
 
   showDuplicates: async (exact) => {
     const ids = (await api.libraryDuplicates(exact)).flat();

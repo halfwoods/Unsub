@@ -252,3 +252,76 @@ fn thumbnails_work_without_a_cache() {
 
     assert_eq!(first, second, "rendering is deterministic");
 }
+
+/// Makes the file unreadable, as a cloud placeholder is until it is downloaded.
+fn make_unreadable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+}
+
+#[test]
+fn a_cloud_only_song_has_no_art_and_is_not_cached_as_bare() {
+    let dir = TempDir::new().unwrap();
+    let cache = TempDir::new().unwrap();
+    // The image is here, but the song beside it is not: nothing is read for it.
+    write_png(&dir.path().join("cover.png"), 40, 40, [1, 2, 3]);
+    let mut library = on_disk(&[(1, dir.path(), "Album")]);
+    make_unreadable(&dir.path().join("track1.mp3"));
+    library.set_artwork_cache(cache.path().to_path_buf());
+    library.set_dataless_check(|path| path.extension().is_some_and(|e| e == "mp3"));
+
+    assert!(library.artwork(1).unwrap().is_none());
+    assert!(library.artwork_thumbnail(1, 100).unwrap().is_none());
+    assert!(cached(cache.path()).is_empty());
+}
+
+#[test]
+fn the_album_fallback_never_reads_a_cloud_only_song() {
+    let local = TempDir::new().unwrap();
+    let flagged = TempDir::new().unwrap();
+    let evicted = TempDir::new().unwrap();
+    let cache = TempDir::new().unwrap();
+    // Songs 2 and 3 are on the same album, each with a cover beside it that reading would
+    // download: 2 is known to be in the cloud, 3 was evicted since the last scan.
+    write_png(&flagged.path().join("cover.png"), 40, 40, [1, 2, 3]);
+    write_png(&evicted.path().join("cover.png"), 40, 40, [4, 5, 6]);
+    let mut library = on_disk(&[
+        (1, local.path(), "Album"),
+        (2, flagged.path(), "Album"),
+        (3, evicted.path(), "Album"),
+    ]);
+    let second = library.track(2).unwrap().unwrap();
+    library
+        .import_tracks(&[Track {
+            in_cloud: true,
+            ..second
+        }])
+        .unwrap();
+    make_unreadable(&flagged.path().join("track2.mp3"));
+    make_unreadable(&evicted.path().join("track3.mp3"));
+    library.set_artwork_cache(cache.path().to_path_buf());
+    let evicted_dir = evicted.path().to_path_buf();
+    library.set_dataless_check(move |path| path.starts_with(&evicted_dir));
+
+    assert!(library.artwork_thumbnail(1, 100).unwrap().is_none());
+    // Only song 1's own lookup is remembered; the others weren't looked at.
+    assert_eq!(cached(cache.path()).len(), 1);
+    assert!(cached(cache.path())[0].ends_with(".none"));
+}
+
+#[test]
+fn a_cover_image_that_is_only_in_the_cloud_is_passed_over() {
+    let dir = TempDir::new().unwrap();
+    // `cover.png` is tried first, but it is a placeholder; the album-named image is local.
+    write_png(&dir.path().join("cover.png"), 40, 40, [1, 2, 3]);
+    write_png(&dir.path().join("album.png"), 40, 40, [4, 5, 6]);
+    let mut library = on_disk(&[(1, dir.path(), "Album")]);
+    library.set_dataless_check(|path| path.file_name().is_some_and(|name| name == "cover.png"));
+
+    let art = library.artwork(1).unwrap().unwrap();
+
+    assert_eq!(art.bytes, fs::read(dir.path().join("album.png")).unwrap());
+}

@@ -252,6 +252,25 @@ impl Library {
     /// One already in the library as a placeholder keeps what is known of it.
     /// A file that cannot be added is reported in `failed`; the rest are added.
     pub fn add_files(&mut self, files: &[(PathBuf, TrackOverrides)]) -> Result<AddSummary> {
+        self.add_files_with(files, false)
+    }
+
+    /// `add_files` for songs another library already filed. Each file stays exactly where it is,
+    /// whatever "copy on add" and "keep organized" say, so nothing in the folder is copied, moved
+    /// or renamed. A song already in the library keeps its own details: the overrides only fill in
+    /// what it has none of, so adding the same files again never undoes an edit.
+    pub fn add_files_in_place(
+        &mut self,
+        files: &[(PathBuf, TrackOverrides)],
+    ) -> Result<AddSummary> {
+        self.add_files_with(files, true)
+    }
+
+    fn add_files_with(
+        &mut self,
+        files: &[(PathBuf, TrackOverrides)],
+        in_place: bool,
+    ) -> Result<AddSummary> {
         let now = now_unix();
         let media = self.media_settings()?;
         let mut summary = AddSummary {
@@ -260,10 +279,10 @@ impl Library {
         };
         // The same file twice in one call is placed once.
         let mut placed: HashMap<String, String> = HashMap::new();
-        let mut tracks: Vec<(usize, Track)> = Vec::with_capacity(files.len());
+        let mut tracks: Vec<(usize, Track, TrackOverrides)> = Vec::with_capacity(files.len());
         for (index, (path, overrides)) in files.iter().enumerate() {
-            match self.prepare_added(path, overrides, now, &media, &mut placed) {
-                Ok(track) => tracks.push((index, track)),
+            match self.prepare_added(path, overrides, now, &media, &mut placed, in_place) {
+                Ok((track, overrides)) => tracks.push((index, track, overrides)),
                 Err(err @ Error::Database(_)) => return Err(err),
                 Err(err) => summary
                     .failed
@@ -275,7 +294,7 @@ impl Library {
         write_tracks(
             &tx,
             WriteMode::RefreshTags,
-            tracks.iter().map(|(_, track)| track),
+            tracks.iter().map(|(_, track, _)| track),
         )?;
         {
             // An existing row keeps its date added on refresh, so an explicit one is set here.
@@ -283,8 +302,7 @@ impl Library {
                 "UPDATE tracks SET overrides = ?2, date_added = COALESCE(?3, date_added)
                  WHERE path = ?1 RETURNING id",
             )?;
-            for (index, track) in &tracks {
-                let overrides = &files[*index].1;
+            for (index, track, overrides) in &tracks {
                 let json = (*overrides != TrackOverrides::default())
                     .then(|| serde_json::to_string(overrides))
                     .transpose()?;
@@ -306,24 +324,38 @@ impl Library {
         now: i64,
         media: &MediaSettings,
         placed: &mut HashMap<String, String>,
-    ) -> Result<Track> {
+        in_place: bool,
+    ) -> Result<(Track, TrackOverrides)> {
         let canonical = fs::canonicalize(path)?;
         let facts = FileFacts::of(&canonical)?;
+        let known = self.track_at_path(&facts.path)?;
+        let overrides = match &known {
+            Some(known) if in_place => self
+                .stored_overrides(known.id)?
+                .unwrap_or_default()
+                // A placeholder's own details are guessed from its path, so only edits count.
+                .filled_from(overrides, Some(known).filter(|known| !known.in_cloud)),
+            _ => overrides.clone(),
+        };
         if (self.is_dataless)(&canonical) {
             // Reading the tags would download the file, and so would placing it.
-            return Ok(match self.track_at_path(&facts.path)? {
+            let track = match known {
                 Some(mut known) => {
                     known.in_cloud = true;
                     known.missing = false;
                     known.file_size = facts.file_size;
                     known.date_modified = facts.date_modified;
-                    apply_overrides(&mut known, overrides);
+                    apply_overrides(&mut known, &overrides);
                     known
                 }
-                None => placeholder_track(&canonical, None, facts, now, Some(overrides)),
-            });
+                None => placeholder_track(&canonical, None, facts, now, Some(&overrides)),
+            };
+            return Ok((track, overrides));
         }
-        let mut track = read_track(&canonical, facts, now, Some(overrides))?;
+        let mut track = read_track(&canonical, facts, now, Some(&overrides))?;
+        if in_place {
+            return Ok((track, overrides));
+        }
         if let Some(path) = placed.get(&track.path) {
             track.path.clone_from(path);
         } else if !self.path_in_library(Path::new(&track.path))? {
@@ -331,7 +363,7 @@ impl Library {
             self.place_new_file(&mut track, media)?;
             placed.insert(original, track.path.clone());
         }
-        Ok(track)
+        Ok((track, overrides))
     }
 
     fn flush(&mut self, batch: &mut Vec<Track>) -> Result<()> {
@@ -452,6 +484,10 @@ fn apply_overrides(track: &mut Track, overrides: &TrackOverrides) {
     }
     if let Some(lyrics) = &overrides.lyrics {
         track.has_lyrics = !lyrics.is_empty();
+    }
+    // Only a placeholder lacks one; a file read from disk knows its own length.
+    if let Some(duration_ms) = overrides.duration_ms.filter(|_| track.duration_ms == 0) {
+        track.duration_ms = duration_ms;
     }
 }
 

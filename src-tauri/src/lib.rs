@@ -56,6 +56,7 @@ pub fn run() {
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
+            app.manage(import::ImportState::default());
             app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
             app.manage(loudness::LoudnessState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
@@ -122,6 +123,9 @@ pub fn run() {
             collection::collection_import_owned,
             collection::collection_locate_folder,
             collection::collection_download_from_icloud,
+            import::import_music_inspect,
+            import::import_music_run,
+            import::import_music_cancel,
             playback::player_play_list,
             playback::player_toggle_pause,
             playback::player_next,

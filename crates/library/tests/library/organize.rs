@@ -377,6 +377,32 @@ fn add_files_copies_in_once_per_file() {
 }
 
 #[test]
+fn adding_in_place_never_copies_moves_or_renames_a_file() {
+    let s = setup();
+    let outside = copy_fixture("halo.mp3", &s.incoming.join("dump/halo.mp3"));
+    // Inside the media folder, where keeping it organized would move it.
+    let inside = copy_fixture("something.m4a", &s.media.join("loose/x.m4a"));
+    let mut library = library_with_media(&s);
+    library.set_copy_on_add(true).unwrap();
+    library.set_organize(true).unwrap();
+    let files = [
+        (outside.clone(), TrackOverrides::default()),
+        (inside.clone(), TrackOverrides::default()),
+    ];
+
+    for _ in 0..2 {
+        let summary = library.add_files_in_place(&files).unwrap();
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+    }
+
+    assert_eq!(files_under(&s.incoming), ["dump/halo.mp3"]);
+    assert_eq!(files_under(&s.media), ["loose/x.m4a"]);
+    let mut paths = paths_in(&library, &s.media);
+    paths.sort();
+    assert_eq!(paths, [outside.to_str().unwrap(), "loose/x.m4a"]);
+}
+
+#[test]
 fn editing_moves_the_file_to_follow_its_new_details() {
     let s = setup();
     let mut library = library_with_media(&s);

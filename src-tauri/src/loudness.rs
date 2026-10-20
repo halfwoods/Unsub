@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,6 +36,15 @@ pub fn set_measuring(app: &AppHandle, on: bool) {
     std::thread::spawn(move || measure(&app, &cancel));
 }
 
+/// Decodes unless iCloud has evicted the file since it was queued: decoding would download the whole
+/// song, and `in_cloud` in the database only knows about evictions up to the last scan.
+fn decode_if_local<T>(path: &Path, dataless: impl FnOnce(&Path) -> bool, decode: impl FnOnce(&Path) -> Option<T>) -> Option<T> {
+    if dataless(path) {
+        return None;
+    }
+    decode(path)
+}
+
 fn measure(app: &AppHandle, cancel: &AtomicBool) {
     let library = app.state::<LibraryState>();
     let Ok(reader) = Library::open(library.db_path()) else { return };
@@ -61,9 +71,13 @@ fn measure(app: &AppHandle, cancel: &AtomicBool) {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            let measured = antistreaming_playback::analyze_loudness(&path, &mut |_, _| {}, cancel)
-                .ok()
-                .filter(|l| l.integrated_lufs.is_finite() && l.true_peak_dbtp.is_finite());
+            // Skipped like an unmeasurable song, for this session only: nothing is recorded, so it is
+            // measured once it is local again.
+            let measured = decode_if_local(&path, antistreaming_library::is_dataless, |path| {
+                antistreaming_playback::analyze_loudness(path, &mut |_, _| {}, cancel)
+                    .ok()
+                    .filter(|l| l.integrated_lufs.is_finite() && l.true_peak_dbtp.is_finite())
+            });
             let saved = measured.is_some_and(|l| {
                 let loudness =
                     Loudness { lufs: l.integrated_lufs, true_peak_dbtp: l.true_peak_dbtp, state: serde_json::to_vec(&l.blocks).ok() };
@@ -73,5 +87,32 @@ fn measure(app: &AppHandle, cancel: &AtomicBool) {
                 unmeasurable.insert(id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn a_song_evicted_to_icloud_is_not_decoded() {
+        let decoded = Cell::new(false);
+        let result = decode_if_local(
+            Path::new("/music/a.m4a"),
+            |_| true,
+            |_| {
+                decoded.set(true);
+                Some(1)
+            },
+        );
+        assert_eq!(result, None);
+        assert!(!decoded.get());
+    }
+
+    #[test]
+    fn a_local_song_is_decoded() {
+        assert_eq!(decode_if_local(Path::new("/music/a.m4a"), |_| false, |_| Some(1)), Some(1));
     }
 }

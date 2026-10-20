@@ -2,9 +2,10 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{import, library, updates};
+use crate::{library, updates};
 
 /// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
+/// So are the imports, whose sheet asks where the music files are now.
 pub const MENU_ACTION_EVENT: &str = "menu://action";
 
 const ADD_TO_LIBRARY: &str = "add-to-library";
@@ -124,17 +125,10 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         });
     } else if id == CHECK_FOR_UPDATES {
         updates::run_check(app, true);
-    } else if id == IMPORT_MUSIC {
-        import::run(app, None);
-    } else if id == IMPORT_XML {
-        let handle = app.clone();
-        app.dialog().file().set_title("Import Library XML").add_filter("Library XML", &["xml"]).pick_file(move |file| {
-            if let Some(path) = file.and_then(|f| f.into_path().ok()) {
-                import::run(&handle, Some(path));
-            }
-        });
     } else if id == PREFERENCES.0
         || id == EQUALIZER.0
+        || id == IMPORT_MUSIC
+        || id == IMPORT_XML
         || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).any(|(action, _, _)| *action == id)
     {
         let _ = app.emit(MENU_ACTION_EVENT, id);
