@@ -37,3 +37,7 @@ strip = true
 # manages optimized.
 [profile.dev.package.antistreaming-visualize]
 opt-level = 3
+
+# Windows: bindgen overflows the stack of an unoptimised ffmpeg-sys-next build script.
+[profile.dev.build-override]
+opt-level = 3

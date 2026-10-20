@@ -226,6 +226,21 @@ impl Callback {
         }
     }
 
+    /// How many of `period` frames a simulated device should render now. Pause and flush render
+    /// silence by design, so they get the whole period; otherwise only the frames the engine has
+    /// supplied, so that a device running far faster than real time does not turn the engine's
+    /// scheduling delays into dropouts a real-time device would never have had.
+    #[cfg(test)]
+    pub fn frames_to_render(&self, period: usize) -> usize {
+        let held = self.shared.flush_request.load(Ordering::Acquire) != self.flushed
+            || self.shared.paused.load(Ordering::Relaxed);
+        if held {
+            period
+        } else {
+            (self.consumer.slots() / self.channels).min(period)
+        }
+    }
+
     pub fn render<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T]) {
         let request = self.shared.flush_request.load(Ordering::Acquire);
         let flushing = request != self.flushed;
@@ -399,6 +414,42 @@ mod tests {
 
         assert!(out.iter().all(|&sample| sample == 0.0));
         assert_eq!(consumed(&rig), 0);
+    }
+
+    #[test]
+    fn a_simulated_device_takes_only_what_is_queued_unless_it_is_held() {
+        let mut rig = rig(2, 1.0);
+        assert_eq!(rig.callback.frames_to_render(256), 0, "nothing queued");
+
+        rig.producer.push_entire_slice(&[0.5; 200]).unwrap();
+        assert_eq!(rig.callback.frames_to_render(256), 100, "a partial period");
+
+        rig.producer.push_entire_slice(&[0.5; 1_000]).unwrap();
+        assert_eq!(
+            rig.callback.frames_to_render(256),
+            256,
+            "capped at a period"
+        );
+
+        rig.callback
+            .consumer
+            .read_chunk(1_200)
+            .unwrap()
+            .commit_all();
+        rig.shared.paused.store(true, Ordering::Relaxed);
+        assert_eq!(
+            rig.callback.frames_to_render(256),
+            256,
+            "silence is played whole"
+        );
+
+        rig.shared.paused.store(false, Ordering::Relaxed);
+        rig.shared.flush_request.fetch_add(1, Ordering::AcqRel);
+        assert_eq!(
+            rig.callback.frames_to_render(256),
+            256,
+            "so is the fade of a flush"
+        );
     }
 
     #[test]

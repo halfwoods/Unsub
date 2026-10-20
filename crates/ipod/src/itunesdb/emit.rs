@@ -462,6 +462,8 @@ fn position_mhod(position: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::FixedOffset;
+
     use super::super::edit::{Codec, Metadata, Origin};
     use super::super::raw::RawPlaylist;
     use super::*;
@@ -482,6 +484,13 @@ mod tests {
             mhsd,
             list: header(list_tag, 0x5c),
         }
+    }
+
+    /// The expected hash was computed on a Mac in America/New_York, where 1970-01-01 (the dates
+    /// `minimal_db` records) falls in standard time, UTC-5; the zone in force in October is not the
+    /// one that applies to that date.
+    fn pinned_zone() -> FixedOffset {
+        FixedOffset::west_opt(5 * 3600).unwrap()
     }
 
     /// One track in a master playlist: the smallest database an iPod would accept.
@@ -528,7 +537,7 @@ mod tests {
             database_tag: 0,
             extension: "mp3".into(),
         };
-        let mut master = RawPlaylist::create(1, "Pod", vec![52], 0);
+        let mut master = RawPlaylist::create(1, "Pod", vec![52], 0, &pinned_zone());
         put(&mut master.header, 20, &[1]);
         RawDb {
             header: database,
@@ -539,7 +548,7 @@ mod tests {
                     heads: heads(2, b"mhlp"),
                 },
             ],
-            tracks: vec![RawTrack::create(0x184, &origin, &metadata)],
+            tracks: vec![RawTrack::create(0x184, &origin, &metadata, &pinned_zone())],
             playlists: vec![master],
         }
     }

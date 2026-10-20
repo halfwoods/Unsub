@@ -5,6 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::Local;
+
 use super::commit::{self, Staged};
 use super::files::{self, Rng};
 use super::mapping::{MappedImage, MappedPlaylist, MappedTrack, Mapping};
@@ -593,7 +595,7 @@ impl<'a> Job<'a> {
             added.push(Added {
                 library_id: *library_id,
                 dbid,
-                track: RawTrack::create(header_len, &origin, &metadata(track)),
+                track: RawTrack::create(header_len, &origin, &metadata(track), &Local),
             });
         }
         Ok(added)
@@ -643,7 +645,7 @@ impl<'a> Job<'a> {
                 .and_then(|dbid| position_of.get(dbid))
             {
                 let track = &mut self.raw.tracks[position];
-                track.apply(&metadata(self.sources[library_id]));
+                track.apply(&metadata(self.sources[library_id]), &Local);
                 if let Some(link) = self.artwork_links.get(&track.dbid()) {
                     track.link_artwork(link.image_id, link.source_len);
                 }
@@ -778,7 +780,7 @@ impl<'a> Job<'a> {
             taken.insert(id);
             self.raw
                 .playlists
-                .push(RawPlaylist::create(id, &wanted.name, members, now));
+                .push(RawPlaylist::create(id, &wanted.name, members, now, &Local));
             mapped.push(MappedPlaylist {
                 name: wanted.name.clone(),
                 id,

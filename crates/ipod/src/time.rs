@@ -16,7 +16,7 @@ pub(crate) fn unix_to_mac(unix: i64) -> u32 {
     unix_to_mac_in(unix, &Local)
 }
 
-fn unix_to_mac_in<Tz: TimeZone>(unix: i64, zone: &Tz) -> u32 {
+pub(crate) fn unix_to_mac_in<Tz: TimeZone>(unix: i64, zone: &Tz) -> u32 {
     let Some(instant) = zone.timestamp_opt(unix, 0).single() else {
         return 0;
     };

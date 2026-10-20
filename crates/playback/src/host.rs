@@ -463,10 +463,12 @@ pub(crate) mod simulated {
                 let pause = Duration::from_secs_f64(
                     PERIOD_FRAMES as f64 / f64::from(format.sample_rate) / f64::from(speed),
                 );
-                let mut buffer = vec![0.0_f32; PERIOD_FRAMES * usize::from(format.channels)];
+                let channels = usize::from(format.channels);
+                let mut buffer = vec![0.0_f32; PERIOD_FRAMES * channels];
                 while !stop.load(Ordering::Relaxed) {
-                    callback.render(&mut buffer);
-                    locked(&log).heard.extend_from_slice(&buffer);
+                    let played = &mut buffer[..callback.frames_to_render(PERIOD_FRAMES) * channels];
+                    callback.render(played);
+                    locked(&log).heard.extend_from_slice(played);
                     thread::sleep(pause);
                 }
             });

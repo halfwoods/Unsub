@@ -1,12 +1,14 @@
 //! Creating and editing track records the way libgpod's writer lays them out (`mk_mhit` and
 //! `itdb_track_set_defaults` in itdb_itunesdb.c and itdb_track.c).
 
+use chrono::TimeZone;
+
 use super::mhit::at;
 use super::mhod;
 use super::raw::{RawMhod, RawPlaylist, RawTrack};
 use crate::bytes::put;
 use crate::database::IpodMediaKind;
-use crate::time::unix_to_mac;
+use crate::time::unix_to_mac_in;
 
 /// What a sync may change about a track that is already on the iPod.
 pub(crate) struct Metadata {
@@ -102,8 +104,14 @@ fn file_type_marker(extension: &str) -> u32 {
 
 impl RawTrack {
     /// A new track record with a header of `header_len` bytes. Fields beyond a short header are
-    /// left out, as older iTunes versions did not have them.
-    pub(crate) fn create(header_len: usize, origin: &Origin, metadata: &Metadata) -> Self {
+    /// left out, as older iTunes versions did not have them. The wall-clock times are written in
+    /// `zone`, which a sync takes from the machine and a test pins.
+    pub(crate) fn create(
+        header_len: usize,
+        origin: &Origin,
+        metadata: &Metadata,
+        zone: &impl TimeZone,
+    ) -> Self {
         let mut header = vec![0; header_len];
         put(&mut header, 0, b"mhit");
         put(&mut header, 4, &mhod::u32_from(header_len).to_le_bytes());
@@ -114,7 +122,7 @@ impl RawTrack {
 
         let marker = file_type_marker(&origin.extension);
         let kind = origin.media_kind;
-        let added = unix_to_mac(origin.date_added);
+        let added = unix_to_mac_in(origin.date_added, zone);
         let hz = origin.sample_rate.unwrap_or(0);
         track.set_u32(at::ID, origin.id);
         track.set_u32(at::VISIBLE, 1);
@@ -192,7 +200,7 @@ impl RawTrack {
 
         track.set_text(mhod::FILE_TYPE, Some(origin.codec.type_name()));
         track.set_text(mhod::PATH, Some(&origin.ipod_path));
-        track.apply(metadata);
+        track.apply(metadata, zone);
         track
     }
 
@@ -210,7 +218,7 @@ impl RawTrack {
     }
 
     /// Writes the editable fields; everything else in the record is left as it was.
-    pub(crate) fn apply(&mut self, metadata: &Metadata) {
+    pub(crate) fn apply(&mut self, metadata: &Metadata, zone: &impl TimeZone) {
         self.set_text(mhod::TITLE, Some(&metadata.title));
         self.set_text(mhod::ARTIST, Some(&metadata.artist));
         self.set_text(mhod::ALBUM, Some(&metadata.album));
@@ -243,7 +251,12 @@ impl RawTrack {
         self.set_u32(at::SOUND_CHECK, metadata.sound_check);
         self.set_u32(at::PLAY_COUNT, metadata.play_count);
         self.set_u32(at::PLAY_COUNT_REPEAT, metadata.play_count);
-        self.set_u32(at::LAST_PLAYED, metadata.last_played.map_or(0, unix_to_mac));
+        self.set_u32(
+            at::LAST_PLAYED,
+            metadata
+                .last_played
+                .map_or(0, |played| unix_to_mac_in(played, zone)),
+        );
     }
 }
 
@@ -252,7 +265,13 @@ const PLAYLIST_HEADER_LEN: usize = 108;
 const SORT_ORDER_MANUAL: u32 = 1;
 
 impl RawPlaylist {
-    pub(crate) fn create(id: u64, name: &str, members: Vec<u32>, now_unix: i64) -> Self {
+    pub(crate) fn create(
+        id: u64,
+        name: &str,
+        members: Vec<u32>,
+        now_unix: i64,
+        zone: &impl TimeZone,
+    ) -> Self {
         let mut header = vec![0; PLAYLIST_HEADER_LEN];
         put(&mut header, 0, b"mhyp");
         put(
@@ -260,7 +279,11 @@ impl RawPlaylist {
             4,
             &mhod::u32_from(PLAYLIST_HEADER_LEN).to_le_bytes(),
         );
-        put(&mut header, 24, &unix_to_mac(now_unix).to_le_bytes());
+        put(
+            &mut header,
+            24,
+            &unix_to_mac_in(now_unix, zone).to_le_bytes(),
+        );
         put(&mut header, 28, &id.to_le_bytes());
         // One string mhod (the title), then the sort order iTunes uses for hand-built playlists.
         put(&mut header, 40, &1u16.to_le_bytes());
@@ -316,6 +339,8 @@ fn view_preferences() -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
     use super::*;
     use crate::bytes::{u8_at, u16_at, u32_at, u64_at};
 
@@ -374,7 +399,7 @@ mod tests {
 
     #[test]
     fn a_new_playlist_has_a_title_and_view_preferences() {
-        let playlist = RawPlaylist::create(0xabc, "Road Trip", vec![3, 1], 1_300_000_000);
+        let playlist = RawPlaylist::create(0xabc, "Road Trip", vec![3, 1], 1_300_000_000, &Utc);
 
         assert_eq!(playlist.id(), 0xabc);
         assert_eq!(playlist.name().unwrap(), "Road Trip");
@@ -397,6 +422,7 @@ mod tests {
             0x248,
             &origin(Codec::Mp3, IpodMediaKind::Music),
             &metadata(),
+            &Utc,
         );
 
         let header = &track.header;
@@ -426,7 +452,12 @@ mod tests {
 
     #[test]
     fn a_short_header_simply_lacks_the_newer_fields() {
-        let track = RawTrack::create(0x9c, &origin(Codec::Aac, IpodMediaKind::Music), &metadata());
+        let track = RawTrack::create(
+            0x9c,
+            &origin(Codec::Aac, IpodMediaKind::Music),
+            &metadata(),
+            &Utc,
+        );
 
         assert_eq!(track.header.len(), 0x9c);
         assert_eq!(u32_at(&track.header, at::BITRATE), Some(256));
@@ -439,6 +470,7 @@ mod tests {
             0x184,
             &origin(Codec::Mp3, IpodMediaKind::Podcast),
             &metadata(),
+            &Utc,
         );
 
         assert_eq!(u8_at(&track.header, at::MARK_UNPLAYED), Some(2));
@@ -452,13 +484,14 @@ mod tests {
             0x184,
             &origin(Codec::Mp3, IpodMediaKind::Music),
             &metadata(),
+            &Utc,
         );
         let mut changed = metadata();
         changed.title = "New".into();
         changed.sort_artist = None;
         changed.year = None;
 
-        track.apply(&changed);
+        track.apply(&changed, &Utc);
 
         assert_eq!(track.text(mhod::TITLE).unwrap().as_deref(), Some("New"));
         assert_eq!(track.text(mhod::SORT_ARTIST).unwrap(), None);

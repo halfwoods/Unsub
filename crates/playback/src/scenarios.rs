@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use crate::host::simulated::{Config, Log, Simulated};
 use crate::{Decoder, PlaybackState, Player, PlayerEvent};
 
-const PATIENCE: Duration = Duration::from_secs(10);
+/// How long to wait for anything to happen. Waits return the moment their condition holds, so this
+/// only has to outlast a machine that is busy with a great deal else.
+const PATIENCE: Duration = Duration::from_secs(20);
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1038,8 +1040,13 @@ mod crossfade {
     #[test]
     fn a_track_queued_too_late_for_the_fade_still_follows_gaplessly() {
         // The one-second fixtures are fully decoded the moment they start, before the second
-        // can be queued, so there is nothing left to fade out.
-        let mut rig = rig(Config::default());
+        // can be queued, so there is nothing left to fade out. At real time the second is still
+        // playing when the queueing arrives, however busy the machine; a faster device could
+        // finish it first.
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
         rig.player.set_crossfade(Some(FADE));
         rig.player.play(1, fixture("sine.flac"));
         rig.until_playing(1);
