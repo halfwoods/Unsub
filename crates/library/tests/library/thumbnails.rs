@@ -253,14 +253,16 @@ fn thumbnails_work_without_a_cache() {
     assert_eq!(first, second, "rendering is deterministic");
 }
 
-/// Makes the file unreadable, as a cloud placeholder is until it is downloaded.
+/// Makes the file unreadable, as a cloud placeholder is until it is downloaded. Windows has no
+/// such permission, so there the dataless check alone keeps the file closed.
+#[cfg(unix)]
 fn make_unreadable(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
-    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
 }
+
+#[cfg(not(unix))]
+fn make_unreadable(_path: &Path) {}
 
 #[test]
 fn a_cloud_only_song_has_no_art_and_is_not_cached_as_bare() {
