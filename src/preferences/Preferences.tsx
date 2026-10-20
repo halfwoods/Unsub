@@ -12,6 +12,7 @@ import {
 } from "../api/commands";
 import type { MediaSettings, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
+import { AutoUpdateSetting } from "../updates/UpdateSheet";
 import { loadBitPerfect, loadCrossfade, loadSoundCheck, saveBitPerfect, saveCrossfade, saveSoundCheck } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
@@ -94,18 +95,21 @@ function GeneralTab() {
   const sizes = useApp((s) => s.textSizes);
   const update = useApp((s) => s.setTextSizes);
   return (
-    <div className="prefs-grid">
-      <span className="prefs-label">Source Text:</span>
-      <select className="smart-popup" value={sizes.source} onChange={(e) => update({ ...sizes, source: e.target.value as TextSizes["source"] })}>
-        <option value="small">Small</option>
-        <option value="large">Large</option>
-      </select>
-      <span className="prefs-label">List Text:</span>
-      <select className="smart-popup" value={sizes.list} onChange={(e) => update({ ...sizes, list: e.target.value as TextSizes["list"] })}>
-        <option value="small">Small</option>
-        <option value="large">Large</option>
-      </select>
-    </div>
+    <>
+      <div className="prefs-grid">
+        <span className="prefs-label">Source Text:</span>
+        <select className="smart-popup" value={sizes.source} onChange={(e) => update({ ...sizes, source: e.target.value as TextSizes["source"] })}>
+          <option value="small">Small</option>
+          <option value="large">Large</option>
+        </select>
+        <span className="prefs-label">List Text:</span>
+        <select className="smart-popup" value={sizes.list} onChange={(e) => update({ ...sizes, list: e.target.value as TextSizes["list"] })}>
+          <option value="small">Small</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
+      <AutoUpdateSetting />
+    </>
   );
 }
 

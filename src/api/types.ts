@@ -548,3 +548,26 @@ export interface StoreLink {
   store: string;
   url: string;
 }
+
+export interface UpdatesStatus {
+  configured: boolean;
+  autoCheck: boolean;
+  currentVersion: string;
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+}
+
+export interface UpdateResult {
+  manual: boolean;
+  update: UpdateInfo | null;
+  error: string | null;
+}
+
+export type InstallEvent =
+  | { event: "started"; data: { contentLength: number | null } }
+  | { event: "progress"; data: { chunkLength: number } }
+  | { event: "finished" };

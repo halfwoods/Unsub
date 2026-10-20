@@ -2,7 +2,7 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{import, library};
+use crate::{import, library, updates};
 
 /// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
 pub const MENU_ACTION_EVENT: &str = "menu://action";
@@ -10,6 +10,7 @@ pub const MENU_ACTION_EVENT: &str = "menu://action";
 const ADD_TO_LIBRARY: &str = "add-to-library";
 const IMPORT_MUSIC: &str = "import-music-library";
 const IMPORT_XML: &str = "import-library-xml";
+const CHECK_FOR_UPDATES: &str = "check-for-updates";
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
 const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
@@ -53,6 +54,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
+    // Without update keys there is nothing to check, so the item is left out rather than disabled.
+    if updates::configured(app) {
+        app_menu.insert(&MenuItem::with_id(app, CHECK_FOR_UPDATES, "Check for Updates…", true, None::<&str>)?, 1)?;
+    }
     let file = Submenu::new(app, "File", true)?;
     for (id, label, accelerator) in FILE_ACTIONS {
         file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
@@ -114,6 +119,8 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
                 library::add_paths(&handle, paths);
             }
         });
+    } else if id == CHECK_FOR_UPDATES {
+        updates::run_check(app, true);
     } else if id == IMPORT_MUSIC {
         import::run(app, None);
     } else if id == IMPORT_XML {

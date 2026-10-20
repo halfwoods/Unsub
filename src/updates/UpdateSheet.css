@@ -1,0 +1,32 @@
+.update-sheet {
+  min-width: 0;
+  width: 480px;
+}
+
+.update-notes-title {
+  margin: 10px 0 4px;
+  font-weight: bold;
+}
+
+/* Release notes are plain text (GitHub's generated ones arrive as Markdown), so keep their line breaks. */
+.update-notes {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border: 1px solid #a8a8a8;
+  background: #fff;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.update-progress progress {
+  flex: 1;
+  height: 12px;
+}

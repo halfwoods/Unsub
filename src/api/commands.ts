@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AlbumSummary,
@@ -43,6 +43,9 @@ import type {
   SmartRules,
   Track,
   TrackQuery,
+  InstallEvent,
+  UpdateResult,
+  UpdatesStatus,
 } from "./types";
 
 export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tracks", { query });
@@ -218,6 +221,15 @@ export const purchasesIgnore = (candidateId: number) => invoke<void>("purchases_
 export const purchasesLinks = (artist: string, album: string) => invoke<StoreLink[]>("purchases_links", { artist, album });
 export const onPurchasesChanged = (handler: () => void): Promise<UnlistenFn> => listen("purchases://changed", () => handler());
 
+export const updatesStatus = () => invoke<UpdatesStatus>("updates_status");
+export const updatesSetAutoCheck = (enabled: boolean) => invoke<void>("updates_set_auto_check", { enabled });
+export const updatesInstall = (onEvent: (event: InstallEvent) => void) => {
+  const channel = new Channel<InstallEvent>();
+  channel.onmessage = onEvent;
+  return invoke<void>("updates_install", { onEvent: channel });
+};
+export const onUpdateResult = (handler: (result: UpdateResult) => void): Promise<UnlistenFn> =>
+  listen<UpdateResult>("updates://result", (e) => handler(e.payload));
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
 

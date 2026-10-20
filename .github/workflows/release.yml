@@ -13,6 +13,9 @@ name: Release
 #            APPLE_TEAM_ID               developer team ID
 #   Windows  WINDOWS_CERTIFICATE         optional: base64 of a .pfx; unsigned installers without it
 #            WINDOWS_CERTIFICATE_PASSWORD
+#   Updates  TAURI_SIGNING_PRIVATE_KEY   optional: the updater key from `tauri signer generate`
+#            TAURI_SIGNING_PRIVATE_KEY_PASSWORD   (without it the release has no latest.json;
+#                                         see scripts/UPDATES.md)
 # These are the variable names of Tauri's code-signing guides
 # (https://v2.tauri.app/distribute/sign/macos/ and .../windows/).
 
@@ -66,13 +69,17 @@ jobs:
           # One native build per architecture: FFmpeg and its libraries are per-architecture, so a
           # universal binary would need two of everything stitched together.
           - arch: arm64
+            updater_arch: aarch64
             os: macos-15
             target: aarch64-apple-darwin
           - arch: x86_64
+            updater_arch: x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      # Only whether the key exists; the key itself is passed to the steps that sign.
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -156,6 +163,25 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: scripts/notarize-macos.sh "$APP"
 
+      # Tauri makes its own update archive during `tauri build`, but that predates the embedded FFmpeg
+      # and the notarization; this one is made from the finished, stapled app and signed by hand.
+      - name: Make and sign the update archive
+        if: env.SIGN == 'true' && env.HAS_UPDATER_KEY == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          archive="$RUNNER_TEMP/AntiStreaming_${version}_${{ matrix.updater_arch }}.app.tar.gz"
+          # The updater unpacks the folder inside the archive over the installed app, so the app
+          # sits in it as AntiStreaming.app; without these flags tar adds files for extended
+          # attributes that would end up inside the bundle.
+          COPYFILE_DISABLE=1 tar --no-xattrs -czf "$archive" -C "$(dirname "$APP")" "$(basename "$APP")"
+          # --app-version records the version in the signature, which the app (requireSignedVersion)
+          # compares with latest.json's, so an old release cannot be passed off as a new one.
+          pnpm exec tauri signer sign --app-version "$version" "$archive"
+          echo "UPDATE_ARCHIVE=$archive" >> "$GITHUB_ENV"
+
       - name: Build the disk image
         id: dmg
         run: |
@@ -189,6 +215,16 @@ jobs:
           path: ${{ steps.dmg.outputs.path }}
           if-no-files-found: error
 
+      - name: Keep the update archive
+        if: env.UPDATE_ARCHIVE != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-${{ matrix.arch }}-update
+          path: |
+            ${{ env.UPDATE_ARCHIVE }}
+            ${{ env.UPDATE_ARCHIVE }}.sig
+          if-no-files-found: error
+
       - name: Remove the keychain
         if: always() && env.CODESIGN_KEYCHAIN != ''
         run: security delete-keychain "$CODESIGN_KEYCHAIN" || true
@@ -198,6 +234,8 @@ jobs:
     needs: verify
     runs-on: windows-latest
     timeout-minutes: 120
+    env:
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -269,12 +307,31 @@ jobs:
             }
           }
 
+      # Signed after the Authenticode step above, so the signature covers the installer as shipped.
+      # The app updates with the kind of installer it came from, hence both.
+      - name: Sign the installers for the updater
+        if: env.SIGN == 'true' && env.HAS_UPDATER_KEY == 'true'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $installers = @(Get-ChildItem target/release/bundle/nsis/*-setup.exe) + @(Get-ChildItem target/release/bundle/msi/*.msi)
+          if ($installers.Count -ne 2) { throw "expected one NSIS and one MSI installer, found $($installers.Count)" }
+          foreach ($installer in $installers) {
+            pnpm exec tauri signer sign --app-version $version $installer.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: |
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
             target/release/bundle/msi/*.msi
+            target/release/bundle/msi/*.msi.sig
           if-no-files-found: error
 
   publish:
@@ -298,6 +355,37 @@ jobs:
             curl --fail --location --silent --show-error --output "artifacts/$name" "$url"
             echo "$sha256  artifacts/$name" | sha256sum --check -
           done
+      # latest.json is what installed apps fetch from releases/latest/download/. GitHub's "latest"
+      # skips drafts, so it only goes live when the draft below is published by hand.
+      - name: Write the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! compgen -G 'artifacts/*.sig' > /dev/null; then
+            echo "::notice::No updater signatures (TAURI_SIGNING_PRIVATE_KEY is not set): releasing without latest.json"
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          # The update notes: the tag's message if it is an annotated tag, else GitHub's generated notes.
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq '.object.type + " " + .object.sha')
+          if [ "${ref%% *}" = tag ]; then
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq .message | sed '/^-----BEGIN PGP SIGNATURE-----/,$d' > "$RUNNER_TEMP/update-notes.txt"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/update-notes.txt"
+          fi
+          nsis=(artifacts/*-setup.exe)
+          msi=(artifacts/*.msi)
+          # The script refuses any entry whose artifact or signature is missing, so a partial
+          # build cannot publish a manifest that skips a platform.
+          scripts/updater-manifest.sh --version "$version" --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --notes-file "$RUNNER_TEMP/update-notes.txt" \
+            "darwin-aarch64=artifacts/AntiStreaming_${version}_aarch64.app.tar.gz" \
+            "darwin-x86_64=artifacts/AntiStreaming_${version}_x86_64.app.tar.gz" \
+            "windows-x86_64-nsis=${nsis[0]}" \
+            "windows-x86_64-msi=${msi[0]}" \
+            "windows-x86_64=${nsis[0]}" > artifacts/latest.json
+          jq . artifacts/latest.json
+
       - name: Create the draft
         env:
           GH_TOKEN: ${{ github.token }}

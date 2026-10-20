@@ -17,6 +17,7 @@ mod sharing;
 mod sync;
 #[cfg(test)]
 mod test_support;
+mod updates;
 
 use antistreaming_playback::Player;
 use tauri::Manager;
@@ -34,6 +35,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(menu::build)
         .on_menu_event(menu::on_event)
         .register_asynchronous_uri_scheme_protocol("artwork", |ctx, request, responder| {
@@ -53,6 +55,7 @@ pub fn run() {
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
+            app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
             app.manage(loudness::LoudnessState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
             let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
@@ -69,6 +72,7 @@ pub fn run() {
             library::check_missing(app.handle());
             remote::browse(app.handle());
             cd::watch(app.handle().clone());
+            updates::check_on_launch(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -166,6 +170,9 @@ pub fn run() {
             sync::device_sync_preview,
             sync::device_sync,
             sync::device_cancel_sync,
+            updates::updates_status,
+            updates::updates_set_auto_check,
+            updates::updates_install,
             sharing::sharing_status,
             sharing::sharing_update,
         ])

@@ -31,6 +31,7 @@ import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
+import { UpdateSheet } from "./updates/UpdateSheet";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
@@ -179,6 +180,7 @@ export default function App() {
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
       {connectingToServer && <ConnectToServer />}
+      <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
     </div>
   );
