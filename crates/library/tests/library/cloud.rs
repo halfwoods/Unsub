@@ -458,6 +458,63 @@ fn ordinary_and_missing_files_are_not_placeholders() {
     assert!(!is_dataless(&dir.path().join("missing.mp3")));
 }
 
+/// A file marked `OFFLINE` from the moment it is created, the one mark of "contents not here"
+/// that a program can set on its own. The recall attributes of the Cloud Files providers are set
+/// by the system alone, so a test cannot make those.
+#[cfg(windows)]
+fn put_offline(root: &Path, relative: &str, contents: &[u8]) -> PathBuf {
+    use std::io::Write;
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ATTRIBUTE_OFFLINE: u32 = 0x0000_1000;
+    let path = root.join(relative);
+    File::options()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_OFFLINE)
+        .open(&path)
+        .unwrap()
+        .write_all(contents)
+        .unwrap();
+    path
+}
+
+#[cfg(windows)]
+#[test]
+fn a_file_marked_offline_is_a_placeholder_and_one_beside_it_is_not() {
+    let dir = TempDir::new().unwrap();
+    let offline = put_offline(dir.path(), "offline.mp3", b"present");
+    let ordinary = put(dir.path(), "ordinary.mp3", b"present");
+
+    assert!(is_dataless(&offline));
+    assert!(!is_dataless(&ordinary));
+}
+
+#[cfg(windows)]
+#[test]
+fn ensure_local_is_done_once_the_file_is_read_though_it_stays_marked() {
+    let dir = TempDir::new().unwrap();
+    let path = put_offline(dir.path(), "song.mp3", b"present");
+    let cancel = AtomicBool::new(false);
+    let mut seen = Vec::new();
+
+    let result = ensure_local(
+        &path,
+        &mut |done, total| {
+            seen.push((done, total));
+            // Waiting for a mark that never clears must fail the test, not hang it.
+            if seen.len() > 10 {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        },
+        &cancel,
+    );
+
+    result.unwrap();
+    assert!(is_dataless(&path), "the mark outlives the read");
+    assert_eq!(seen.first(), Some(&(0, 7)));
+    assert_eq!(seen.last(), Some(&(7, 7)));
+}
+
 /// What Music knows about a song and a placeholder cannot say.
 fn from_music(title: &str, number: u32) -> TrackOverrides {
     TrackOverrides {

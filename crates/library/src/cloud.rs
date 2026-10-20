@@ -25,13 +25,29 @@ pub(crate) fn platform_is_dataless(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.st_flags() & SF_DATALESS != 0)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows marks the placeholders of its Cloud Files providers (OneDrive, iCloud for Windows)
+/// with the recall attributes, and older offline-storage tools with `OFFLINE`. Asking for the
+/// attributes opens the file without data access, which never fetches it; only reading does.
+#[cfg(windows)]
+pub(crate) fn platform_is_dataless(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_OFFLINE: u32 = 0x0000_1000;
+    const FILE_ATTRIBUTE_RECALL_ON_OPEN: u32 = 0x0004_0000;
+    const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x0040_0000;
+    const NOT_HERE: u32 = FILE_ATTRIBUTE_OFFLINE
+        | FILE_ATTRIBUTE_RECALL_ON_OPEN
+        | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+    fs::metadata(path).is_ok_and(|metadata| metadata.file_attributes() & NOT_HERE != 0)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub(crate) fn platform_is_dataless(_path: &Path) -> bool {
     false
 }
 
-/// Whether `path` is an iCloud Drive placeholder whose contents aren't on this machine yet.
-/// Never downloads; callers use it to fetch a file before something blocks on opening it.
+/// Whether `path` is a cloud placeholder (iCloud Drive on macOS, a Cloud Files provider on
+/// Windows) whose contents aren't on this machine yet. Never downloads; callers use it to fetch a
+/// file before something blocks on opening it.
 pub fn is_dataless(path: &Path) -> bool {
     platform_is_dataless(path)
 }
@@ -117,9 +133,13 @@ fn wait_for_local(
         return Err(Error::Cancelled);
     }
     if storage.start_download(path).is_err() {
-        // Not an iCloud Drive item, or no `brctl`: any read makes the system
-        // fetch the file, and reading in pieces at least reports progress.
+        // Not an iCloud Drive item, no `brctl`, or not macOS: any read makes the
+        // system fetch the file, and reading in pieces at least reports progress.
         read_through(path, total, progress, cancel)?;
+        // The flag can outlive the fetch (a provider may keep the file marked, or
+        // mark it for good), so waiting for it to clear could never end.
+        progress(total, total);
+        return Ok(());
     }
     // The fetch finishes on the system's schedule, so watch for the flag to clear.
     while storage.is_dataless(path) {
@@ -354,8 +374,9 @@ mod tests {
         assert_eq!(meta("a.mp3", None).duration_ms, 0);
     }
 
-    /// A cloud that fetches a file after `polls_to_fetch` checks of the flag,
-    /// or never if `start_fails` and nobody reads the file.
+    /// A cloud that fetches a file after `fetched_after` checks of the flag. If
+    /// `start_fails` it cannot be asked to, and the flag stays set even once the
+    /// file has been read, as some providers leave it.
     struct FakeCloud {
         dataless_checks: Cell<u32>,
         fetched_after: u32,
@@ -377,16 +398,10 @@ mod tests {
     }
 
     impl Storage for FakeCloud {
-        fn is_dataless(&self, path: &Path) -> bool {
+        fn is_dataless(&self, _path: &Path) -> bool {
             let checks = self.dataless_checks.get();
             self.dataless_checks.set(checks + 1);
-            // Reading the placeholder (the fallback) is what fetches it.
-            let fetched = if self.start_fails {
-                checks > 0 && path.exists()
-            } else {
-                checks >= self.fetched_after
-            };
-            !fetched
+            self.start_fails || checks < self.fetched_after
         }
 
         fn start_download(&self, _path: &Path) -> io::Result<()> {
@@ -419,7 +434,13 @@ mod tests {
         let mut seen = Vec::new();
         let result = wait_for_local(
             path,
-            &mut |done, total| seen.push((done, total)),
+            &mut |done, total| {
+                seen.push((done, total));
+                // A wait that never ends must fail the test, not hang it.
+                if seen.len() > 1_000 {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            },
             cancel,
             cloud,
             Duration::from_millis(1),
@@ -465,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_way_to_start_the_download_reading_the_file_fetches_it() {
+    fn without_a_way_to_start_the_download_a_complete_read_ends_the_wait() {
         let (_dir, path) = file_of(3 * READ_CHUNK + 5);
         let cloud = FakeCloud::new(0, true);
         let total = (3 * READ_CHUNK + 5) as u64;
@@ -480,6 +501,11 @@ mod tests {
             "{reads:?}"
         );
         assert_eq!(seen.last(), Some(&(total, total)));
+        assert_eq!(
+            cloud.dataless_checks.get(),
+            1,
+            "the flag is not watched after a complete read"
+        );
     }
 
     #[test]
