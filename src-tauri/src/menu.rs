@@ -12,6 +12,7 @@ const ADD_TO_LIBRARY: &str = "add-to-library";
 const IMPORT_MUSIC: &str = "import-music-library";
 const IMPORT_XML: &str = "import-library-xml";
 const CHECK_FOR_UPDATES: &str = "check-for-updates";
+const DELETE: &str = "delete";
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
 const SHOW_VISUALIZER: (&str, &str, Option<&str>) = ("show-visualizer", "Show Visualizer", Some("CmdOrCtrl+T"));
@@ -97,6 +98,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
+            // No accelerator: Backspace would be swallowed in every text field.
+            &MenuItem::with_id(app, DELETE, "Delete", true, None::<&str>)?,
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
@@ -147,6 +150,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == EQUALIZER.0
         || id == IMPORT_MUSIC
         || id == IMPORT_XML
+        || id == DELETE
         || id == SHOW_VISUALIZER.0
         || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {

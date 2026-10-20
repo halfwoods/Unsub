@@ -14,6 +14,7 @@ import {
 } from "../api/commands";
 import type { AlbumGroup, OwnershipReport, OwnStatus, ReportTrack, StoreLink } from "../api/types";
 import { formatClock, pluralize } from "../util/format";
+import { IS_MAC } from "../util/platform";
 import "./OwnershipView.css";
 
 type Filter = OwnStatus | "all";
@@ -44,7 +45,6 @@ const STORES = [
   { name: "iTunes", url: (q: string) => `https://music.apple.com/search?term=${q}` },
 ];
 
-const IS_MAC = navigator.userAgent.includes("Mac");
 const HEADER_HEIGHT = 30;
 
 type Row = { type: "album"; album: AlbumGroup; count: number } | { type: "track"; track: ReportTrack; album: AlbumGroup };

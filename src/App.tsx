@@ -57,7 +57,7 @@ async function importLibraryXml() {
 }
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, setVisualizer, openLibrarySheet, openImportSheet, showDuplicates, showNotice } =
+  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, setVisualizer, openLibrarySheet, openImportSheet, showDuplicates, showNotice, deleteSelection } =
     useApp.getState();
   const { source, selection, tracks, chapters } = useApp.getState();
   // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
@@ -73,6 +73,12 @@ function runMenuAction(action: MenuAction) {
       if (!inLibrary || !track) return;
       if (track.missing) return showNotice("The file for this song can't be found");
       return void revealItemInDir(track.path);
+    }
+    case "delete": {
+      // Delete belongs to a focused text field, and a sheet in front (Get Info with unsaved edits) must not be replaced.
+      const typing = document.activeElement?.matches("input, textarea, [contenteditable]:not([contenteditable=false])");
+      if (!typing && !document.querySelector(".sheet-backdrop")) void deleteSelection();
+      return;
     }
     case "show-duplicates":
       return void showDuplicates(false);

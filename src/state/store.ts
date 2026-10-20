@@ -270,6 +270,11 @@ interface AppState {
   refreshCds: () => Promise<void>;
   refreshShared: () => Promise<void>;
   openLibrarySheet: (sheet: LibrarySheet | null) => void;
+  /**
+   * Delete for the selected songs: in a regular playlist it removes them from the playlist only; elsewhere in
+   * the library it asks before deleting them. `fromLibrary` asks even in a playlist.
+   */
+  deleteSelection: (fromLibrary?: boolean) => Promise<void>;
   /** Reads the Music app (or the exported library at `xml`), then opens the import sheet. */
   openImportSheet: (xml: string | null) => Promise<void>;
   showDuplicates: (exact: boolean) => Promise<void>;
@@ -516,6 +521,24 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   openLibrarySheet: (librarySheet) => set({ librarySheet }),
+
+  deleteSelection: async (fromLibrary = false) => {
+    const { source, selection, query, playlists, viewMode } = get();
+    // The album grid doesn't show which songs are selected, so Delete there must not act on them.
+    if (selection.size === 0 || viewMode === "grid") return;
+    const playlistId = playlistIdOf(source);
+    if (!fromLibrary && playlistId !== null && playlists.some((p) => p.id === playlistId && p.kind === "regular")) {
+      // A playlist may repeat a song, so its rows go by position in its stored order, which the list may be sorted or filtered away from.
+      const stored = await api.libraryTracks({ ...query, sort: "playlistOrder", descending: false, search: null });
+      await api.libraryRemoveFromPlaylist(
+        playlistId,
+        stored.flatMap((t, i) => (selection.has(t.id) ? [i] : [])),
+      );
+      await Promise.all([get().refresh(), get().refreshPlaylists()]);
+    } else if (isLibrarySource(source) || isPlaylistSource(source)) {
+      set({ librarySheet: { type: "delete", trackIds: [...selection] } });
+    }
+  },
 
   openImportSheet: async (xml) => {
     try {

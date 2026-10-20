@@ -122,12 +122,18 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
   );
 }
 
+/** Each folder's playlists, in list order; the top level is under `null`. */
+export function playlistsByParent(playlists: Playlist[]) {
+  const byParent = new Map<number | null, Playlist[]>();
+  for (const playlist of playlists) byParent.set(playlist.parentId, [...(byParent.get(playlist.parentId) ?? []), playlist]);
+  return byParent;
+}
+
 /** The library's playlists as iTunes' source-list tree; dropping songs on empty space makes a new one. */
 export function PlaylistRows() {
   const playlists = useApp((s) => s.playlists);
   const refreshPlaylists = useApp((s) => s.refreshPlaylists);
-  const byParent = new Map<number | null, Playlist[]>();
-  for (const playlist of playlists) byParent.set(playlist.parentId, [...(byParent.get(playlist.parentId) ?? []), playlist]);
+  const byParent = playlistsByParent(playlists);
 
   const onDropNew = (e: DragEvent) => {
     const tracks = e.dataTransfer.getData(TRACKS_MIME);

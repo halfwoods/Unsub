@@ -1,10 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
-import { libraryAddToPlaylist, libraryMoveInPlaylist, libraryRemoveFromPlaylist } from "../api/commands";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { libraryAddToPlaylist, libraryMoveInPlaylist } from "../api/commands";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
-import { cdIdOf, isLibrarySource, playlistIdOf, playSourceOf, sameSource, sharedIdOf, useApp } from "../state/store";
+import { cdIdOf, isLibrarySource, isPlaylistSource, playlistIdOf, playSourceOf, sameSource, sharedIdOf, useApp } from "../state/store";
+import { IS_MAC } from "../util/platform";
 import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN, SHARED_COLUMNS } from "./columns";
+import { showSongMenu } from "./songMenu";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
@@ -39,12 +41,13 @@ export function SongList() {
   const playing = useApp((s) => s.playback.state === "playing");
   const playlistId = useApp((s) => playlistIdOf(s.source));
   const isRegularPlaylist = useApp((s) => s.playlists.some((p) => p.id === playlistIdOf(s.source) && p.kind === "regular"));
-  const { sortBy, selectRow, playRow, refresh, refreshPlaylists } = useApp.getState();
+  const { sortBy, selectRow, playRow, deleteSelection, refresh, refreshPlaylists } = useApp.getState();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const rowHeight = useApp((s) => s.rowHeight);
 
   const isCd = useApp((s) => cdIdOf(s.source) !== null);
-  const isLibrary = useApp((s) => isLibrarySource(s.source));
+  // Only the library's songs can be edited; a CD's, iPod's or shared library's are read-only.
+  const isEditable = useApp((s) => isLibrarySource(s.source) || isPlaylistSource(s.source));
   const isShared = useApp((s) => sharedIdOf(s.source) !== null);
   const columns = useMemo(
     () => (isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS),
@@ -84,14 +87,17 @@ export function SongList() {
     } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       useApp.setState({ selection: new Set(tracks.map((t) => t.id)) });
-    } else if ((e.key === "Backspace" || e.key === "Delete") && isRegularPlaylist && playlistId !== null && selection.size > 0) {
-      // In a playlist, Delete removes songs from the playlist only, never from the library.
+    } else if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
-      void libraryRemoveFromPlaylist(playlistId, selectedPositions()).then(afterPlaylistEdit);
-    } else if ((e.key === "Backspace" || e.key === "Delete") && isLibrary && selection.size > 0) {
-      e.preventDefault();
-      useApp.getState().openLibrarySheet({ type: "delete", trackIds: [...selection] });
+      void deleteSelection();
     }
+  };
+
+  const onContextMenu = (e: MouseEvent, index: number) => {
+    if (!isEditable) return;
+    e.preventDefault();
+    if (!selection.has(tracks[index].id)) selectRow(index, { extend: false, toggle: false });
+    void showSongMenu(tracks[index], isRegularPlaylist);
   };
 
   const onDragStart = (e: DragEvent, index: number) => {
@@ -169,7 +175,12 @@ export function SongList() {
                 draggable
                 onDragStart={(e) => onDragStart(e, row.index)}
                 onDragOver={(e) => onDragOver(e, row.index)}
-                onMouseDown={(e) => selectRow(row.index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
+                onMouseDown={(e) => {
+                  // An editable list settles a context click (a right-click, or Ctrl-click on a Mac) in onContextMenu, so it can keep a multi-selection.
+                  const contextClick = e.button === 2 || (IS_MAC && e.ctrlKey);
+                  if (!(isEditable && contextClick)) selectRow(row.index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
+                }}
+                onContextMenu={(e) => onContextMenu(e, row.index)}
                 onDoubleClick={() => void playRow(row.index)}
               >
                 <div className="song-cell song-cell--status">

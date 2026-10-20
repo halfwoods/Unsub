@@ -310,6 +310,7 @@ export type MenuAction =
   | "new-playlist-folder"
   | "get-info"
   | "show-in-finder"
+  | "delete"
   | "show-duplicates"
   | "show-exact-duplicates"
   | "organize-library"

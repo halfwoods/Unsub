@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use antistreaming_library::{
     AlbumSummary, ArtistSummary, Chapter, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, Lyrics, MediaSettings, Mix,
-    OrganizeReport, Playlist, PlaylistKind, SmartRules, Track, TrackEdits, TrackQuery,
+    OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits, TrackQuery,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -331,6 +331,19 @@ pub async fn library_delete(app: AppHandle, track_ids: Vec<i64>, move_files_to_t
     result
 }
 
+/// What a finished import tells the user. One that simply added songs says nothing, as in iTunes.
+fn scan_notice(result: &Result<ScanSummary, impl std::fmt::Display>) -> Option<String> {
+    match result {
+        Ok(summary) if !summary.failed.is_empty() => {
+            let count = summary.failed.len();
+            Some(format!("{count} {} couldn't be added", if count == 1 { "file" } else { "files" }))
+        }
+        Ok(summary) if summary.scanned == 0 => Some("No music files were found".to_owned()),
+        Ok(_) => None,
+        Err(error) => Some(format!("Couldn't add to the library: {error}")),
+    }
+}
+
 /// Imports on a background thread with its own connection, reporting progress to the LCD.
 pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
     let state = app.state::<LibraryState>();
@@ -343,13 +356,46 @@ pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
                 let _ = app.emit(SCAN_PROGRESS_EVENT, progress);
             })
         });
-        match result {
+        match &result {
             Ok(summary) if !summary.failed.is_empty() => {
                 eprintln!("[library] {} files could not be read: {:?}", summary.failed.len(), summary.failed)
             }
             Ok(_) => {}
             Err(error) => eprintln!("[library] import failed: {error}"),
         }
+        if let Some(message) = scan_notice(&result) {
+            let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+        }
         let _ = app.emit(CHANGED_EVENT, ());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary(scanned: u64, failed: usize) -> ScanSummary {
+        ScanSummary { scanned, failed: vec![(String::new(), String::new()); failed], ..ScanSummary::default() }
+    }
+
+    #[test]
+    fn an_import_that_found_songs_says_nothing() {
+        assert_eq!(scan_notice(&Ok::<_, String>(summary(12, 0))), None);
+    }
+
+    #[test]
+    fn an_import_that_found_no_audio_says_so() {
+        assert_eq!(scan_notice(&Ok::<_, String>(summary(0, 0))).as_deref(), Some("No music files were found"));
+    }
+
+    #[test]
+    fn files_that_could_not_be_read_are_counted() {
+        assert_eq!(scan_notice(&Ok::<_, String>(summary(5, 1))).as_deref(), Some("1 file couldn't be added"));
+        assert_eq!(scan_notice(&Ok::<_, String>(summary(5, 3))).as_deref(), Some("3 files couldn't be added"));
+    }
+
+    #[test]
+    fn an_import_that_failed_shows_the_error() {
+        assert_eq!(scan_notice(&Err::<ScanSummary, _>("disk full")).as_deref(), Some("Couldn't add to the library: disk full"));
+    }
 }
