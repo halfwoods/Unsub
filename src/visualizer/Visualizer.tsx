@@ -1,0 +1,180 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Clock } from "./clock";
+import type { VisualizerFeed } from "./feed";
+import { VisualizerRuntime, type RenderMode, type RuntimeStats } from "./runtime";
+import { STYLE_LABELS, nextStyle, type Palette, type ScopeMode, type VisualizerStyle } from "./styles";
+import "./Visualizer.css";
+
+export interface NowPlaying {
+  title: string;
+  artist: string;
+  /** Anything an `<img>` can load. Without it, a stand-in made from the title is shown. */
+  artworkUrl?: string | null;
+}
+
+export interface VisualizerProps {
+  /** Where analysis frames come from, about 60 a second. `null` while nothing is playing. */
+  feed: VisualizerFeed | null;
+  nowPlaying: NowPlaying | null;
+  style: VisualizerStyle;
+  onStyleChange: (style: VisualizerStyle) => void;
+  /**
+   * Keeps the picture from flashing more than three times a second (WCAG 2.3.1), by clamping
+   * how fast its overall brightness can swing. See `flash.ts`. On unless set to `false`.
+   */
+  limitFlashing?: boolean;
+  /** Called for the F key. The app does the real full screen. */
+  onToggleFullscreen?: () => void;
+  /** Spectrum's colours: the LCD's cream (the default) or a dark variant. */
+  palette?: Palette;
+  /** What Scope draws; both channels' traces beside the stereo figure by default. */
+  scopeMode?: ScopeMode;
+  /** For tests and benchmarks: supply the clock and force a size. */
+  clock?: Clock;
+  forceSize?: { width: number; height: number };
+  /** Lets a benchmark reach the running renderer. */
+  onRuntime?: (runtime: VisualizerRuntime | null) => void;
+  /** Shows the info corner from the start. */
+  showInfo?: boolean;
+}
+
+/**
+ * The visualizer. It fills its container, draws at the display's refresh rate, and listens for
+ * the left and right arrow keys (change style), F (full screen) and M (an info corner).
+ */
+export function Visualizer({
+  feed,
+  nowPlaying,
+  style,
+  onStyleChange,
+  limitFlashing = true,
+  onToggleFullscreen,
+  palette = "cream",
+  scopeMode = "both",
+  clock,
+  forceSize,
+  onRuntime,
+  showInfo = false,
+}: VisualizerProps) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [runtime, setRuntime] = useState<VisualizerRuntime | null>(null);
+  const [mode, setMode] = useState<RenderMode>("webgl2");
+  const [info, setInfo] = useState(showInfo);
+
+  // The key handler is attached once and reads the latest of these.
+  const latest = useRef({ style, onStyleChange, onToggleFullscreen });
+  latest.current = { style, onStyleChange, onToggleFullscreen };
+
+  useEffect(() => {
+    const host = hostRef.current;
+    const canvas = canvasRef.current;
+    if (!host || !canvas) return;
+    const created = new VisualizerRuntime(canvas, host, clock, setMode);
+    if (forceSize) created.forceSize(forceSize.width, forceSize.height);
+    created.start();
+    setRuntime(created);
+    onRuntime?.(created);
+    return () => {
+      created.dispose();
+      setRuntime(null);
+      onRuntime?.(null);
+    };
+    // The runtime is made once; everything else reaches it through the effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => runtime?.setFeed(feed), [runtime, feed]);
+  useEffect(
+    () => runtime?.setOptions({ style, palette, scopeMode, limitFlashing }),
+    [runtime, style, palette, scopeMode, limitFlashing],
+  );
+
+  const songKey = nowPlaying ? `${nowPlaying.title}\u0000${nowPlaying.artist}` : "";
+  const artworkUrl = nowPlaying?.artworkUrl ?? null;
+  useEffect(() => runtime?.setNowPlaying(artworkUrl, songKey), [runtime, artworkUrl, songKey]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+      if (isTyping(event.target)) return;
+      const { style: current, onStyleChange: change, onToggleFullscreen: fullscreen } = latest.current;
+      switch (event.key) {
+        case "ArrowLeft":
+          change(nextStyle(current, -1));
+          break;
+        case "ArrowRight":
+          change(nextStyle(current, 1));
+          break;
+        case "f":
+        case "F":
+          fullscreen?.();
+          break;
+        case "m":
+        case "M":
+          setInfo((shown) => !shown);
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const onLight = style === "spectrum" && palette === "cream";
+  const plainCanvas = mode === "canvas2d";
+  const label = useMemo(() => `Music visualizer, ${STYLE_LABELS[style]}`, [style]);
+
+  return (
+    <div ref={hostRef} className="visualizer" role="img" aria-label={label}>
+      <canvas ref={canvasRef} className="visualizer-canvas" />
+      {nowPlaying ? (
+        <div key={songKey} className={`visualizer-overlay${onLight || plainCanvas ? " is-on-light" : ""}`}>
+          <div className="visualizer-overlay-title">{nowPlaying.title}</div>
+          {nowPlaying.artist ? <div className="visualizer-overlay-artist">{nowPlaying.artist}</div> : null}
+        </div>
+      ) : null}
+      {plainCanvas ? (
+        <div className="visualizer-note">
+          This display can&rsquo;t draw the full visualizer, so it is showing Spectrum.
+        </div>
+      ) : null}
+      {mode === "lost" ? (
+        <div className="visualizer-note">The graphics were interrupted. Waiting for them to come back&hellip;</div>
+      ) : null}
+      {info && runtime ? <InfoCorner runtime={runtime} style={style} /> : null}
+    </div>
+  );
+}
+
+/** Style, frame rate and the like, refreshed twice a second. */
+function InfoCorner({ runtime, style }: { runtime: VisualizerRuntime; style: VisualizerStyle }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const update = () => setText(describe(style, runtime.stats));
+    update();
+    const timer = setInterval(update, 500);
+    return () => clearInterval(timer);
+  }, [runtime, style]);
+  return <div className="visualizer-info">{text}</div>;
+}
+
+function describe(style: VisualizerStyle, stats: RuntimeStats): string {
+  const lines = [
+    `${STYLE_LABELS[style]}${stats.mode === "canvas2d" ? " (2D fallback)" : ""}`,
+    `${stats.fps.toFixed(0)} fps${stats.idle ? " (idle)" : ""}   feed ${stats.feedHz.toFixed(0)} Hz`,
+    `${stats.width} × ${stats.height}`,
+  ];
+  if (stats.gpuTiming) lines.push(`GPU ${stats.gpuMs.toFixed(2)} ms`);
+  if (stats.limiterGain !== 1 || stats.limiterVeil !== 0) {
+    lines.push(`flash limit  gain ${stats.limiterGain.toFixed(2)}  veil ${stats.limiterVeil.toFixed(2)}`);
+  }
+  return lines.join("\n");
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}

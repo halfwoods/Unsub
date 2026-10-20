@@ -1,0 +1,122 @@
+/* The visualizer fills whatever contains it. */
+.visualizer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  /* Lets the text below size itself against the visualizer rather than the window. */
+  container-type: size;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.visualizer-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.visualizer-overlay {
+  position: absolute;
+  left: 3.2%;
+  bottom: 6%;
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  pointer-events: none;
+  font-family: var(--font-ui, "Lucida Grande", "Lucida Sans Unicode", "Lucida Sans", Tahoma, sans-serif);
+  color: #fff;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.7),
+    0 0 22px rgba(0, 0, 0, 0.55);
+  animation: visualizer-overlay 4s ease both;
+}
+
+/* On the cream spectrum, light text would vanish. */
+.visualizer-overlay.is-on-light {
+  color: #2a2b24;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.visualizer-overlay-title {
+  font-size: clamp(16px, 2.6cqw, 40px);
+  font-weight: bold;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visualizer-overlay-artist {
+  font-size: clamp(13px, 1.9cqw, 28px);
+  opacity: 0.82;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes visualizer-overlay {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visualizer-overlay {
+    animation-name: visualizer-overlay-still;
+  }
+  @keyframes visualizer-overlay-still {
+    0%,
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}
+
+.visualizer-info {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #e8ecd8;
+  font: 11px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.visualizer-note {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-family: var(--font-ui, "Lucida Grande", sans-serif);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+}
