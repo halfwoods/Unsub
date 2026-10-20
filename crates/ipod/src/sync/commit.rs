@@ -100,7 +100,8 @@ pub(super) fn keep_backups(database: &Path) -> Result<()> {
 }
 
 fn copy_and_flush(from: &Path, to: &Path) -> Result<()> {
-    let copied = fs::copy(from, to).and_then(|_| File::open(to)?.sync_all());
+    // Windows refuses to flush a handle that cannot write.
+    let copied = fs::copy(from, to).and_then(|_| File::options().write(true).open(to)?.sync_all());
     copied.map_err(|source| Error::io(to, source))
 }
 

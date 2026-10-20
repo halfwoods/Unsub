@@ -37,36 +37,30 @@ fn copy_fixture(fixture: &str, to: &Path) -> PathBuf {
     fs::canonicalize(to).unwrap()
 }
 
-fn paths_in(library: &Library, media: &Path) -> Vec<String> {
+fn paths_in(library: &Library, media: &Path) -> Vec<PathBuf> {
     let media = fs::canonicalize(media).unwrap();
-    let mut paths: Vec<String> = library
+    let mut paths: Vec<PathBuf> = library
         .tracks(&all_kinds())
         .unwrap()
         .into_iter()
         .map(|t| {
             Path::new(&t.path)
                 .strip_prefix(&media)
-                .map_or(t.path.clone(), |p| p.to_str().unwrap().to_owned())
+                .map_or_else(|_| PathBuf::from(&t.path), Path::to_path_buf)
         })
         .collect();
     paths.sort();
     paths
 }
 
-fn files_under(dir: &Path) -> Vec<String> {
-    fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, base: &Path, out: &mut Vec<PathBuf>) {
         for entry in fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 walk(&path, base, out);
             } else {
-                out.push(
-                    path.strip_prefix(base)
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_owned(),
-                );
+                out.push(path.strip_prefix(base).unwrap().to_path_buf());
             }
         }
     }
@@ -148,14 +142,14 @@ fn organize_now_files_every_track_in_the_media_folder_by_its_tags() {
     assert_eq!(
         paths_in(&library, &s.media),
         [
-            "Compilations/I Am... Sasha Fierce/2-03 Halo.mp3",
-            "Jane Austen/Pride and Prejudice/Chapter 1.m4b",
-            "Queen/A Night at the Opera/11 Bohemian Rhapsody.m4a",
-            "Radiolab/Radiolab/Episode 12.mp3",
-            "The Beatles/Abbey Road/01 Come Together.flac",
-            "The Beatles/Abbey Road/02 Something.m4a",
-            "The Cranberries/No Need to Argue/02 Zombie.ogg",
-            "Unknown Artist/Unknown Album/untagged.wav",
+            Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo.mp3"),
+            Path::new("Jane Austen/Pride and Prejudice/Chapter 1.m4b"),
+            Path::new("Queen/A Night at the Opera/11 Bohemian Rhapsody.m4a"),
+            Path::new("Radiolab/Radiolab/Episode 12.mp3"),
+            Path::new("The Beatles/Abbey Road/01 Come Together.flac"),
+            Path::new("The Beatles/Abbey Road/02 Something.m4a"),
+            Path::new("The Cranberries/No Need to Argue/02 Zombie.ogg"),
+            Path::new("Unknown Artist/Unknown Album/untagged.wav"),
         ]
     );
     assert_eq!(
@@ -237,9 +231,9 @@ fn clashing_names_get_numbers_and_never_overwrite() {
     assert_eq!(
         paths_in(&library, &s.media),
         [
-            "Compilations/I Am... Sasha Fierce/2-03 Halo 2.mp3",
-            "Compilations/I Am... Sasha Fierce/2-03 Halo 3.mp3",
-            "Compilations/I Am... Sasha Fierce/2-03 Halo 4.mp3",
+            Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo 2.mp3"),
+            Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo 3.mp3"),
+            Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo 4.mp3"),
         ]
     );
     assert_eq!(
@@ -297,8 +291,8 @@ fn copy_on_add_copies_files_in_and_leaves_the_originals() {
     assert_eq!(
         paths_in(&library, &s.media),
         [
-            "Compilations/I Am... Sasha Fierce/2-03 Halo.mp3",
-            "The Cranberries/No Need to Argue/02 Zombie.ogg",
+            Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo.mp3"),
+            Path::new("The Cranberries/No Need to Argue/02 Zombie.ogg"),
         ]
     );
     // The recorded size and time are the copy's, so scanning the media folder finds nothing new.
@@ -348,11 +342,11 @@ fn keeping_organized_tidies_files_already_in_the_media_folder_as_they_are_added(
 
     assert_eq!(
         paths_in(&library, &s.media),
-        ["Compilations/I Am... Sasha Fierce/2-03 Halo.mp3"]
+        [Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo.mp3")]
     );
     assert_eq!(
         files_under(&s.media),
-        ["Compilations/I Am... Sasha Fierce/2-03 Halo.mp3"]
+        [Path::new("Compilations/I Am... Sasha Fierce/2-03 Halo.mp3")]
     );
 }
 
@@ -372,7 +366,10 @@ fn add_files_copies_in_once_per_file() {
     );
 
     assert_eq!(ids[0], ids[1]);
-    assert_eq!(files_under(&s.media), ["Radiolab/Radiolab/Episode 12.mp3"]);
+    assert_eq!(
+        files_under(&s.media),
+        [Path::new("Radiolab/Radiolab/Episode 12.mp3")]
+    );
     assert!(download.exists());
 }
 
@@ -395,11 +392,11 @@ fn adding_in_place_never_copies_moves_or_renames_a_file() {
         assert!(summary.failed.is_empty(), "{:?}", summary.failed);
     }
 
-    assert_eq!(files_under(&s.incoming), ["dump/halo.mp3"]);
-    assert_eq!(files_under(&s.media), ["loose/x.m4a"]);
+    assert_eq!(files_under(&s.incoming), [Path::new("dump/halo.mp3")]);
+    assert_eq!(files_under(&s.media), [Path::new("loose/x.m4a")]);
     let mut paths = paths_in(&library, &s.media);
     paths.sort();
-    assert_eq!(paths, [outside.to_str().unwrap(), "loose/x.m4a"]);
+    assert_eq!(paths, [outside.as_path(), Path::new("loose/x.m4a")]);
 }
 
 #[test]
@@ -439,8 +436,7 @@ fn editing_moves_the_file_to_follow_its_new_details() {
     assert!(report.move_failed.is_empty());
     let row = library.track(halo).unwrap().unwrap();
     assert!(
-        row.path
-            .ends_with("Compilations/Fierce/2-03 Halo (Reprise).mp3"),
+        Path::new(&row.path).ends_with("Compilations/Fierce/2-03 Halo (Reprise).mp3"),
         "{}",
         row.path
     );
@@ -449,10 +445,12 @@ fn editing_moves_the_file_to_follow_its_new_details() {
     assert!(
         files_under(&s.media)
             .iter()
-            .any(|f| f == "Compilations/Fierce/2-03 Halo (Reprise).mp3")
+            .any(|f| f == Path::new("Compilations/Fierce/2-03 Halo (Reprise).mp3"))
     );
     assert!(
-        !files_under(&s.media).iter().any(|f| f.contains("I Am")),
+        !files_under(&s.media)
+            .iter()
+            .any(|f| f.to_str().unwrap().contains("I Am")),
         "the old album folder is gone"
     );
     // The move is recorded, so a rescan changes nothing.
@@ -509,14 +507,7 @@ fn editing_does_not_move_files_when_organizing_is_off() {
         .unwrap();
 
     assert!(report.moved.is_empty());
-    assert!(
-        library
-            .track(id)
-            .unwrap()
-            .unwrap()
-            .path
-            .ends_with("dump/halo.mp3")
-    );
+    assert!(Path::new(&library.track(id).unwrap().unwrap().path).ends_with("dump/halo.mp3"));
 }
 
 #[test]
@@ -551,7 +542,11 @@ fn a_move_that_fails_is_reported_and_the_edit_still_applies() {
     assert_eq!(report.written, [id]);
     let row = library.track(id).unwrap().unwrap();
     assert_eq!(row.album, "Blocked");
-    assert!(row.path.ends_with("I Am... Sasha Fierce/2-03 Halo.mp3"));
+    assert!(
+        Path::new(&row.path).ends_with("I Am... Sasha Fierce/2-03 Halo.mp3"),
+        "{}",
+        row.path
+    );
     assert!(Path::new(&row.path).exists());
 }
 

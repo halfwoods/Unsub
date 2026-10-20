@@ -1,6 +1,6 @@
 //! Scenarios built from how Music names things, run over an in-memory folder.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::tree::fake::Fake;
 use super::*;
@@ -81,18 +81,18 @@ fn locate(fake: &Fake, items: &[MusicLibraryItem]) -> Located {
 }
 
 /// The file found for an item, relative to the folder, and how sure.
-fn found(located: &Located, id: &str) -> Option<(String, Confidence)> {
+fn found(located: &Located, id: &str) -> Option<(PathBuf, Confidence)> {
     let file = located.matched.get(id)?;
     let relative = file.path.strip_prefix(ROOT).unwrap();
-    Some((relative.to_string_lossy().into_owned(), file.confidence))
+    Some((relative.to_path_buf(), file.confidence))
 }
 
-fn exact(path: &str) -> Option<(String, Confidence)> {
-    Some((path.to_owned(), Confidence::Exact))
+fn exact(path: &str) -> Option<(PathBuf, Confidence)> {
+    Some((PathBuf::from(path), Confidence::Exact))
 }
 
-fn folder_match(path: &str) -> Option<(String, Confidence)> {
-    Some((path.to_owned(), Confidence::Folder))
+fn folder_match(path: &str) -> Option<(PathBuf, Confidence)> {
+    Some((PathBuf::from(path), Confidence::Folder))
 }
 
 #[test]
@@ -623,7 +623,7 @@ fn a_song_whose_album_is_missing_is_found_by_a_title_only_it_has() {
     assert_eq!(
         found(&located, "a"),
         Some((
-            "Wherever/Elsewhere/03 Unmistakable Title.mp3".to_owned(),
+            PathBuf::from("Wherever/Elsewhere/03 Unmistakable Title.mp3"),
             Confidence::Fuzzy
         ))
     );
@@ -749,22 +749,17 @@ fn only_directory_listings_are_ever_asked_for() {
 
     // The tree offers nothing else to ask for; each folder is listed once, the root twice (once
     // to see whether it is a media folder).
-    let mut listed: Vec<String> = fake
-        .listed
-        .borrow()
-        .iter()
-        .map(|dir| dir.to_string_lossy().into_owned())
-        .collect();
+    let mut listed = fake.listed.borrow().clone();
     listed.sort();
     assert_eq!(
         listed,
         [
-            "/music",
-            "/music",
-            "/music/A",
-            "/music/A/B",
-            "/music/C",
-            "/music/C/D"
+            Path::new("/music"),
+            Path::new("/music"),
+            Path::new("/music/A"),
+            Path::new("/music/A/B"),
+            Path::new("/music/C"),
+            Path::new("/music/C/D"),
         ]
     );
 }

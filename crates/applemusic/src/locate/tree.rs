@@ -258,11 +258,8 @@ mod tests {
 
     const ROOT: &str = "/music";
 
-    fn names(found: &[Found]) -> Vec<String> {
-        found
-            .iter()
-            .map(|file| file.path.to_string_lossy().into_owned())
-            .collect()
+    fn names(found: &[Found]) -> Vec<&Path> {
+        found.iter().map(|file| file.path.as_path()).collect()
     }
 
     #[test]
@@ -279,10 +276,10 @@ mod tests {
         assert_eq!(
             names(&found),
             [
-                "/music/Artist/Album/01 Song.mp3",
-                "/music/Artist/Album/Disc 2/01 Song.m4a",
-                "/music/Artist/loose.flac",
-                "/music/stray.wav",
+                Path::new("/music/Artist/Album/01 Song.mp3"),
+                Path::new("/music/Artist/Album/Disc 2/01 Song.m4a"),
+                Path::new("/music/Artist/loose.flac"),
+                Path::new("/music/stray.wav"),
             ]
         );
         assert_eq!(found[0].folders, ["Artist", "Album"]);
@@ -327,7 +324,7 @@ mod tests {
 
         let found = walk(&fake, root, &mut |_| {}).unwrap();
 
-        assert_eq!(names(&found), ["/music/Good/Album/01 Song.mp3"]);
+        assert_eq!(names(&found), [Path::new("/music/Good/Album/01 Song.mp3")]);
         assert!(walk(&fake, Path::new("/elsewhere"), &mut |_| {}).is_err());
     }
 
@@ -354,7 +351,7 @@ mod tests {
 
         assert_eq!(
             names(&walk(&fake, root, &mut |_| {}).unwrap()),
-            ["/music/Music/A/B/01 Song.mp3"]
+            [Path::new("/music/Music/A/B/01 Song.mp3")]
         );
     }
 }

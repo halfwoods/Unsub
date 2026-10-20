@@ -15,6 +15,45 @@ use crate::{classic_7g, opened, sample_database, sample_playlists, sample_tracks
 
 pub const DB_FILE: &str = "iPod_Control/iTunes/iTunesDB";
 
+/// More than any disk has free, so a file claiming it cannot fit. NTFS caps a file at 16 TiB less
+/// 64 KiB, so on Windows it is smaller, and twice it still has to be allowed.
+pub const HUGE: u64 = if cfg!(windows) { 1 << 42 } else { 1 << 50 };
+
+/// A sparse file claiming `len` bytes: it has a real size to the sync but uses no disk, so
+/// "the iPod is nearly full" can be staged on a machine with plenty of room.
+pub fn claim_size(path: &Path, len: u64) {
+    let file = fs::File::options().write(true).open(path).unwrap();
+    // NTFS allocates every byte of a lengthened file unless it is marked sparse first.
+    #[cfg(windows)]
+    mark_sparse(&file);
+    file.set_len(len).unwrap();
+}
+
+#[cfg(windows)]
+fn mark_sparse(file: &fs::File) {
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr::{null, null_mut};
+
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+
+    let mut returned = 0u32;
+    // SAFETY: the handle is open for writing, and FSCTL_SET_SPARSE takes no buffers.
+    let marked = unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            FSCTL_SET_SPARSE,
+            null(),
+            0,
+            null_mut(),
+            0,
+            &mut returned,
+            null_mut(),
+        )
+    };
+    assert_ne!(marked, 0, "{}", io::Error::last_os_error());
+}
+
 pub fn itunes_file(fake: &FakeIpod, name: &str) -> PathBuf {
     fake.mount.join("iPod_Control/iTunes").join(name)
 }

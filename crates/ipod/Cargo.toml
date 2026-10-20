@@ -18,3 +18,7 @@ unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# Windows only: marking a test file sparse so it can claim more bytes than the disk has.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl"] }

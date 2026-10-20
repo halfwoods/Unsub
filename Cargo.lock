@@ -169,6 +169,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

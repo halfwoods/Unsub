@@ -1,19 +1,8 @@
-use std::fs::{self, File};
+use std::fs;
 
 use antistreaming_ipod::{Error, SyncTrack, apply_sync, read_database};
 
 use super::*;
-
-/// A sparse file claiming `len` bytes: it has a real size to the sync but uses no disk, so
-/// "the iPod is nearly full" can be staged on a machine with plenty of room.
-fn claim_size(path: &Path, len: u64) {
-    File::options()
-        .write(true)
-        .open(path)
-        .unwrap()
-        .set_len(len)
-        .unwrap();
-}
 
 struct Swap {
     fake: FakeIpod,
@@ -23,15 +12,15 @@ struct Swap {
     tiny: PathBuf,
 }
 
-/// An iPod holding one track of this app's that "occupies a petabyte", and a library that wants it
-/// replaced by another track of the same claimed size.
+/// An iPod holding one track of this app's that occupies `HUGE` bytes, and a library that wants it
+/// replaced by another track of `new_claims`.
 fn nearly_full(new_claims: u64) -> Swap {
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();
     let old = library_track(library.path(), 1, "Old");
     sync(&fake, std::slice::from_ref(&old), &[]);
     let old_file = track_path(&fake, "Old");
-    claim_size(&old_file, 1 << 50);
+    claim_size(&old_file, HUGE);
     let new = library_track(library.path(), 2, "New");
     claim_size(&new.source_path, new_claims);
     let tiny = library.path().join("tiny.mp3");
@@ -47,7 +36,7 @@ fn nearly_full(new_claims: u64) -> Swap {
 
 #[test]
 fn a_swap_that_only_fits_once_the_old_track_is_gone_removes_it_first() {
-    let swap = nearly_full(1 << 50);
+    let swap = nearly_full(HUGE);
     let before = db_bytes(&swap.fake);
     let wanted = [swap.new.clone()];
 
@@ -101,7 +90,7 @@ fn a_swap_that_fits_without_removals_is_not_split() {
 
 #[test]
 fn a_failure_after_the_removal_leaves_the_ipod_with_fewer_tracks_never_more() {
-    let swap = nearly_full(1 << 50);
+    let swap = nearly_full(HUGE);
     let wanted = [swap.new.clone()];
     let plan = plan(&swap.fake, &wanted, &[]);
     let before = db_bytes(&swap.fake);
@@ -164,7 +153,7 @@ fn a_failure_after_the_removal_leaves_the_ipod_with_fewer_tracks_never_more() {
 
 #[test]
 fn a_swap_too_big_even_after_removals_is_refused_with_nothing_changed() {
-    let swap = nearly_full(1 << 51);
+    let swap = nearly_full(2 * HUGE);
     let wanted = [swap.new.clone()];
     let before = db_bytes(&swap.fake);
     let files = music_files(&swap.fake);

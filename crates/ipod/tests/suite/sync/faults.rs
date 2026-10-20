@@ -206,13 +206,7 @@ fn a_sync_that_does_not_fit_is_refused_before_anything_is_copied() {
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();
     let huge = library_track(library.path(), 1, "Enormous");
-    // A sparse file claiming a petabyte: no disk is used, but the size is real.
-    fs::File::options()
-        .write(true)
-        .open(&huge.source_path)
-        .unwrap()
-        .set_len(1 << 50)
-        .unwrap();
+    claim_size(&huge.source_path, HUGE);
     let tracks = [huge];
     let untouched = Untouched::capture(&fake);
 
@@ -227,7 +221,7 @@ fn a_sync_that_does_not_fit_is_refused_before_anything_is_copied() {
         &mut |_| {},
     );
 
-    assert_eq!(plan.bytes_needed, 1 << 50);
+    assert_eq!(plan.bytes_needed, HUGE);
     assert!(!plan.fits);
     assert!(
         matches!(result, Err(Error::InsufficientSpace { .. })),

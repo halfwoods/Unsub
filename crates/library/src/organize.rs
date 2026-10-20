@@ -378,11 +378,9 @@ mod tests {
         }
     }
 
-    fn organized(track: &Track) -> String {
+    fn organized(track: &Track) -> PathBuf {
         organized_path(Path::new("/media"), track)
             .strip_prefix("/media")
-            .unwrap()
-            .to_str()
             .unwrap()
             .to_owned()
     }
@@ -390,24 +388,24 @@ mod tests {
     #[test]
     fn files_are_named_artist_album_number_title() {
         let mut halo = track("/old/x.MP3");
-        assert_eq!(organized(&halo), "Beyonc\u{e9}/I Am/03 Halo.MP3");
+        assert_eq!(organized(&halo), Path::new("Beyonc\u{e9}/I Am/03 Halo.MP3"));
 
         halo.album_artist = "Various".into();
         assert_eq!(
             organized(&halo),
-            "Various/I Am/03 Halo.MP3",
+            Path::new("Various/I Am/03 Halo.MP3"),
             "the album artist wins"
         );
 
         halo.compilation = true;
-        assert_eq!(organized(&halo), "Compilations/I Am/03 Halo.MP3");
+        assert_eq!(organized(&halo), Path::new("Compilations/I Am/03 Halo.MP3"));
 
         halo.compilation = false;
         halo.disc_number = Some(2);
         halo.disc_count = Some(2);
         assert_eq!(
             organized(&halo),
-            "Various/I Am/2-03 Halo.MP3",
+            Path::new("Various/I Am/2-03 Halo.MP3"),
             "multi-disc albums name the disc"
         );
 
@@ -415,12 +413,12 @@ mod tests {
         halo.disc_count = Some(1);
         assert_eq!(
             organized(&halo),
-            "Various/I Am/03 Halo.MP3",
+            Path::new("Various/I Am/03 Halo.MP3"),
             "a single disc does not"
         );
 
         halo.track_number = None;
-        assert_eq!(organized(&halo), "Various/I Am/Halo.MP3");
+        assert_eq!(organized(&halo), Path::new("Various/I Am/Halo.MP3"));
     }
 
     #[test]
@@ -433,10 +431,13 @@ mod tests {
 
         assert_eq!(
             organized(&bare),
-            "Unknown Artist/Unknown Album/Untitled.flac"
+            Path::new("Unknown Artist/Unknown Album/Untitled.flac")
         );
         bare.path = "/old/noextension".into();
-        assert_eq!(organized(&bare), "Unknown Artist/Unknown Album/Untitled");
+        assert_eq!(
+            organized(&bare),
+            Path::new("Unknown Artist/Unknown Album/Untitled")
+        );
     }
 
     #[test]
