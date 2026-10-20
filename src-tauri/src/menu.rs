@@ -29,10 +29,12 @@ const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("set-up-player", "Set Up Music Player…", None),
     ("connect-to-server", "Connect to Server…", Some("CmdOrCtrl+K")),
 ];
-const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 5] = [
+const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("play-pause", "Play/Pause", None),
     ("next", "Next", Some("CmdOrCtrl+Right")),
     ("previous", "Previous", Some("CmdOrCtrl+Left")),
+    ("next-chapter", "Next Chapter", Some("Shift+CmdOrCtrl+Right")),
+    ("previous-chapter", "Previous Chapter", Some("Shift+CmdOrCtrl+Left")),
     ("volume-up", "Increase Volume", Some("CmdOrCtrl+Up")),
     ("volume-down", "Decrease Volume", Some("CmdOrCtrl+Down")),
 ];
@@ -90,7 +92,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     )?;
     let controls = Submenu::new(app, "Controls", true)?;
     for (index, (id, label, accelerator)) in CONTROL_ACTIONS.into_iter().enumerate() {
-        if index == 3 {
+        if index == 5 {
             controls.append(&PredefinedMenuItem::separator(app)?)?;
         }
         controls.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;

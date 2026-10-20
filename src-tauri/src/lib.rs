@@ -78,6 +78,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             library::library_tracks,
             library::library_track,
+            library::library_lyrics,
+            library::library_chapters,
             library::library_stats,
             library::library_set_rating,
             library::library_albums,

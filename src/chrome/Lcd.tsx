@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { cdStopImport, deviceCancelSync, libraryMixFor, playerSeek } from "../api/commands";
-import { useApp } from "../state/store";
+import type { Chapter } from "../api/types";
+import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { VinylMark } from "./VinylMark";
 import "./Lcd.css";
@@ -60,6 +61,63 @@ function Progress({ positionMs, durationMs }: { positionMs: number; durationMs: 
   );
 }
 
+/** iTunes 10's "≡" chapter menu: lists the chapters with their start times, and seeks to the one chosen. */
+function ChapterMenu({ chapters, positionMs }: { chapters: Chapter[]; positionMs: number }) {
+  // The chapter playing when the menu opened is the one marked and scrolled to, not a moving target.
+  const [open, setOpen] = useState<{ top: number; left: number; current: number } | null>(null);
+  const seekTo = useApp((s) => s.seekTo);
+  const scrollToCurrent = useCallback((el: HTMLButtonElement | null) => el?.scrollIntoView({ block: "center" }), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        className="lcd-chapters-button"
+        aria-label="Chapters"
+        title="Chapters"
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setOpen({ top: rect.bottom + 2, left: rect.left, current: chapterIndexAt(chapters, positionMs) });
+        }}
+      >
+        <svg width={12} height={10} viewBox="0 0 12 10" aria-hidden="true">
+          <path d="M0.5 1.5h11M0.5 5h11M0.5 8.5h11" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <div className="lcd-chapters-backdrop" onPointerDown={() => setOpen(null)} />
+          <ul className="lcd-chapters" role="menu" style={{ top: open.top, left: open.left }}>
+            {chapters.map((chapter, index) => (
+              <li key={index} role="none">
+                <button
+                  role="menuitem"
+                  ref={index === open.current ? scrollToCurrent : undefined}
+                  onClick={() => {
+                    seekTo(chapter.startMs);
+                    setOpen(null);
+                  }}
+                >
+                  <span className="lcd-chapters-mark">{index === open.current ? "✓" : ""}</span>
+                  <span className="lcd-chapters-title">{chapter.title}</span>
+                  <span className="lcd-chapters-time">{formatClock(chapter.startMs)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar.
  * `onCancel` adds iTunes' ⓧ at the end of the bar.
@@ -105,6 +163,7 @@ export function Lcd() {
   );
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
+  const chapters = useApp((s) => s.chapters?.list);
   const playTrackIds = useApp((s) => s.playTrackIds);
   const [showTotal, setShowTotal] = useState(false);
   const flip = useAlternating(nowPlaying !== null);
@@ -114,6 +173,7 @@ export function Lcd() {
     return (
       <div className="lcd lcd--playing">
         <div className="lcd-title">{nowPlaying.title}</div>
+        {fromLibrary && chapters && chapters.length > 0 && <ChapterMenu chapters={chapters} positionMs={positionMs} />}
         {fromLibrary && (
           // iTunes 10 put its Genius button here; ours starts an on-device mix from this song.
           <button

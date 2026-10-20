@@ -36,16 +36,16 @@ import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
-import { isLibrarySource, isPlaylistSource, useApp } from "./state/store";
+import { chapterSeekTarget, isLibrarySource, isPlaylistSource, useApp } from "./state/store";
 import "./theme/base.css";
 import "./App.css";
 
 const VOLUME_STEP = 0.1;
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, showDuplicates, showNotice } =
+  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, openLibrarySheet, showDuplicates, showNotice } =
     useApp.getState();
-  const { source, selection, tracks } = useApp.getState();
+  const { source, selection, tracks, chapters } = useApp.getState();
   // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
   const inLibrary = isLibrarySource(source) || isPlaylistSource(source);
   switch (action) {
@@ -91,6 +91,12 @@ function runMenuAction(action: MenuAction) {
       return void playerNext();
     case "previous":
       return void playerPrevious();
+    case "next-chapter":
+    case "previous-chapter": {
+      const target = chapterSeekTarget(chapters?.list ?? [], playback.positionMs, action === "next-chapter" ? "next" : "previous");
+      if (target !== null) seekTo(target);
+      return;
+    }
     case "volume-up":
       return setVolume(Math.min(1, playback.volume + VOLUME_STEP));
     case "volume-down":

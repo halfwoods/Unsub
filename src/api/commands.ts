@@ -5,6 +5,7 @@ import type {
   ArtistSummary,
   AudioCd,
   CdRipStatus,
+  Chapter,
   ComposerSummary,
   Device,
   ArtworkChange,
@@ -14,6 +15,7 @@ import type {
   GenreSummary,
   ImportFormat,
   LibraryStats,
+  Lyrics,
   MediaSettings,
   OrganizeProgress,
   Mix,
@@ -73,6 +75,8 @@ export const librarySetSmartRules = (id: number, rules: SmartRules) => invoke<vo
 export const librarySetEnabled = (trackIds: number[], enabled: boolean) =>
   invoke<void>("library_set_enabled", { trackIds, enabled });
 export const libraryTrack = (trackId: number) => invoke<Track | null>("library_track", { trackId });
+export const libraryLyrics = (trackId: number) => invoke<Lyrics | null>("library_lyrics", { trackId });
+export const libraryChapters = (trackId: number) => invoke<Chapter[]>("library_chapters", { trackId });
 export const libraryStats = (query: TrackQuery) => invoke<LibraryStats>("library_stats", { query });
 export const libraryAddPaths = (paths: string[]) => invoke<void>("library_add_paths", { paths });
 export const librarySetRating = (trackId: number, rating: number) =>
@@ -245,6 +249,8 @@ export type MenuAction =
   | "play-pause"
   | "next"
   | "previous"
+  | "next-chapter"
+  | "previous-chapter"
   | "volume-up"
   | "volume-down"
   | "new-playlist"

@@ -187,3 +187,84 @@
 .lcd-cancel:active circle {
   fill: #50523f;
 }
+
+.lcd-chapters-button {
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 16px;
+  border-radius: 8px;
+}
+
+.lcd-chapters-button svg {
+  fill: none;
+  stroke: var(--lcd-ink-soft);
+  stroke-width: 1.2;
+}
+
+.lcd-chapters-button:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.lcd-chapters-button:active svg {
+  stroke: var(--lcd-ink);
+}
+
+/* Fixed, because the LCD clips whatever hangs below it. */
+.lcd-chapters-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.lcd-chapters {
+  position: fixed;
+  z-index: 30;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 320px;
+  margin: 0;
+  padding: 3px 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 5px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  font-size: var(--font-size);
+}
+
+.lcd-chapters button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 10px 2px 6px;
+  text-align: left;
+}
+
+.lcd-chapters button:hover {
+  background: linear-gradient(to bottom, var(--select-top), var(--select-bottom));
+  color: #ffffff;
+}
+
+.lcd-chapters-mark {
+  flex: none;
+  width: 10px;
+}
+
+.lcd-chapters-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lcd-chapters-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}

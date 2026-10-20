@@ -6,6 +6,7 @@ import type {
   ArtistSummary,
   AudioCd,
   CdRipStatus,
+  Chapter,
   ComposerSummary,
   Device,
   DeviceSyncStatus,
@@ -132,6 +133,24 @@ export function playSourceOf(source: SourceId): PlaySource {
   return library === null ? { type: "library" } : { type: "shared", library };
 }
 
+/** iTunes restarts the current chapter instead of going back once you're this far in. */
+const PREVIOUS_RESTARTS_AFTER_MS = 3000;
+
+/** The chapter playing at `positionMs`, or -1 before the first one starts. */
+export function chapterIndexAt(chapters: readonly Chapter[], positionMs: number): number {
+  const after = chapters.findIndex((c) => c.startMs > positionMs);
+  return (after === -1 ? chapters.length : after) - 1;
+}
+
+/** Where Next or Previous Chapter seeks to from `positionMs`, or null when there is no such chapter. */
+export function chapterSeekTarget(chapters: readonly Chapter[], positionMs: number, direction: "next" | "previous"): number | null {
+  const current = chapterIndexAt(chapters, positionMs);
+  if (direction === "next") return chapters[current + 1]?.startMs ?? null;
+  if (current < 0) return null;
+  const restart = positionMs - chapters[current].startMs > PREVIOUS_RESTARTS_AFTER_MS;
+  return chapters[restart ? current : Math.max(0, current - 1)].startMs;
+}
+
 /** Totals for lists the backend doesn't count: CDs and shared libraries. */
 function totals(tracks: Track[]): LibraryStats {
   return {
@@ -172,6 +191,8 @@ interface AppState {
   selectionAnchor: number | null;
   playback: PlaybackStatus;
   nowPlaying: Track | null;
+  /** The playing library song's chapters, tagged with the song so a slow read can't land on the next one. */
+  chapters: { trackId: number; list: Chapter[] } | null;
   shuffle: boolean;
   repeat: RepeatMode;
   scan: ScanProgress | null;
@@ -221,6 +242,7 @@ interface AppState {
   playRow: (index: number) => Promise<void>;
   togglePlay: () => Promise<void>;
   setVolume: (volume: number) => void;
+  seekTo: (positionMs: number) => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   setScan: (scan: ScanProgress | null) => void;
@@ -260,6 +282,7 @@ export const useApp = create<AppState>((set, get) => ({
   selectionAnchor: null,
   playback: IDLE_PLAYBACK,
   nowPlaying: null,
+  chapters: null,
   shuffle: false,
   repeat: "off",
   scan: null,
@@ -429,6 +452,12 @@ export const useApp = create<AppState>((set, get) => ({
     void api.playerSetVolume(volume);
   },
 
+  // The engine reports no position while paused, so the LCD and the next chapter step start from here.
+  seekTo: (positionMs) => {
+    set((s) => ({ playback: { ...s.playback, positionMs } }));
+    void api.playerSeek(positionMs);
+  },
+
   toggleShuffle: () => {
     const shuffle = !get().shuffle;
     set({ shuffle });
@@ -563,13 +592,20 @@ export const useApp = create<AppState>((set, get) => ({
       case "stateChanged": {
         const { type: _type, ...status } = event;
         set({ playback: status });
-        if (status.trackId === null) set({ nowPlaying: null });
+        if (status.trackId === null) set({ nowPlaying: null, chapters: null });
         break;
       }
       case "trackStarted": {
         const known = get().playingTracks.find((t) => t.id === event.trackId);
         if (known) set({ nowPlaying: known });
         else void api.libraryTrack(event.trackId).then((t) => set({ nowPlaying: t }));
+        set({ chapters: { trackId: event.trackId, list: [] } });
+        if (get().playingSource.type === "library") {
+          void api.libraryChapters(event.trackId).then((list) => {
+            // A CTOC keeps the file's own order, which needn't be time order.
+            if (get().chapters?.trackId === event.trackId) set({ chapters: { trackId: event.trackId, list: [...list].sort((a, b) => a.startMs - b.startMs) } });
+          });
+        }
         break;
       }
       case "trackEnded":

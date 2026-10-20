@@ -1,17 +1,17 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
-import { libraryEditTracks, libraryTrack } from "../api/commands";
-import type { ArtworkChange, MediaKind, Track, TrackEdits } from "../api/types";
+import { libraryEditTracks, libraryLyrics, libraryTrack } from "../api/commands";
+import type { ArtworkChange, LyricsSource, MediaKind, Track, TrackEdits } from "../api/types";
 import { Artwork } from "../browser/Artwork";
 import { useApp } from "../state/store";
 import { formatBytes, formatClock } from "../util/format";
 import "./GetInfo.css";
 
-type Tab = "summary" | "info" | "sorting" | "options" | "artwork";
+type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics";
 
 type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "sortTitle" | "sortArtist" | "sortAlbum" | "sortAlbumArtist";
 type NumberField = "year" | "trackNumber" | "trackCount" | "discNumber" | "discCount";
-type Field = TextField | NumberField | "compilation" | "kind" | "rating";
+type Field = TextField | NumberField | "compilation" | "kind" | "rating" | "rememberPosition";
 
 const NUMBER_FIELDS: readonly NumberField[] = ["year", "trackNumber", "trackCount", "discNumber", "discCount"];
 
@@ -26,6 +26,7 @@ function editsFrom(values: Record<Field, string>, applied: ReadonlySet<Field>): 
   for (const field of applied) {
     const value = values[field];
     if (field === "compilation") edits.compilation = value === "true";
+    else if (field === "rememberPosition") edits.rememberPosition = value === "true";
     else if (field === "kind") edits.kind = value as MediaKind;
     else if (field === "rating") edits.rating = Number(value);
     else if ((NUMBER_FIELDS as readonly string[]).includes(field)) edits[field as NumberField] = value === "" ? null : Number(value);
@@ -99,13 +100,22 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
   const openLibrarySheet = useApp((s) => s.openLibrarySheet);
   const [tab, setTab] = useState<Tab>(single ? "summary" : "info");
   const initial = useMemo(() => {
-    const fields: Field[] = ["title", "artist", "albumArtist", "album", "genre", "composer", "sortTitle", "sortArtist", "sortAlbum", "sortAlbumArtist", ...NUMBER_FIELDS, "compilation", "kind", "rating"];
+    const fields: Field[] = ["title", "artist", "albumArtist", "album", "genre", "composer", "sortTitle", "sortArtist", "sortAlbum", "sortAlbumArtist", ...NUMBER_FIELDS, "compilation", "kind", "rating", "rememberPosition"];
     return Object.fromEntries(fields.map((f) => [f, displayed(tracks, f)])) as Record<Field, string>;
   }, [tracks]);
   const [values, setValues] = useState(initial);
   const [applied, setApplied] = useState<ReadonlySet<Field>>(new Set());
   const [artwork, setArtwork] = useState<ArtworkChange | null>(null);
+  // Read when the tab is first shown, since a sidecar or big tag isn't worth loading for every Get Info.
+  const [lyrics, setLyrics] = useState<{ text: string; source: LyricsSource | null; edited: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "lyrics" || !single || lyrics) return;
+    libraryLyrics(single.id)
+      .then((found) => setLyrics({ text: found?.text ?? "", source: found?.source ?? null, edited: false }))
+      .catch((e: unknown) => showNotice(String(e)));
+  }, [tab, single, lyrics, showNotice]);
 
   const set = (field: Field, value: string) => {
     setValues((v) => ({ ...v, [field]: value }));
@@ -120,12 +130,14 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
     });
 
   const save = async () => {
-    if (applied.size === 0 && !artwork) return true;
+    if (applied.size === 0 && !artwork && !lyrics?.edited) return true;
     setSaving(true);
     try {
+      const edits = editsFrom(values, applied);
+      if (lyrics?.edited) edits.lyrics = lyrics.text;
       const report = await libraryEditTracks(
         tracks.map((t) => t.id),
-        editsFrom(values, applied),
+        edits,
         artwork,
       );
       if (report.dbOnly.length > 0) {
@@ -209,6 +221,7 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
     { id: "sorting", label: "Sorting" },
     { id: "options", label: "Options" },
     { id: "artwork", label: "Artwork" },
+    ...(single ? [{ id: "lyrics" as const, label: "Lyrics" }] : []),
   ];
 
   return (
@@ -292,6 +305,29 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
                   ))}
                 </select>
               </span>
+              <span />
+              <span className="info-field">
+                {!single && (
+                  <input
+                    type="checkbox"
+                    className="info-apply"
+                    aria-label="Change Remember playback position for all"
+                    checked={applied.has("rememberPosition")}
+                    onChange={(e) => toggleApplied("rememberPosition", e.target.checked)}
+                  />
+                )}
+                <label className="prefs-check info-check">
+                  <input
+                    type="checkbox"
+                    checked={values.rememberPosition === "true"}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !single && values.rememberPosition === "" && !applied.has("rememberPosition");
+                    }}
+                    onChange={(e) => set("rememberPosition", String(e.target.checked))}
+                  />
+                  Remember playback position
+                </label>
+              </span>
             </div>
           )}
           {tab === "artwork" && (
@@ -313,6 +349,20 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
                   Delete
                 </button>
               </div>
+            </div>
+          )}
+          {tab === "lyrics" && single && (
+            <div className="info-lyrics">
+              <textarea
+                className="info-lyrics-text"
+                aria-label="Lyrics"
+                value={lyrics?.text ?? ""}
+                disabled={!lyrics}
+                onChange={(e) => setLyrics((l) => l && { ...l, text: e.target.value, edited: true })}
+              />
+              {lyrics?.source === "sidecar" && (
+                <p className="info-lyrics-note">Synced lyrics from a .lrc file; edits here change the song's own lyrics.</p>
+              )}
             </div>
           )}
         </div>

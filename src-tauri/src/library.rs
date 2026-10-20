@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use antistreaming_library::{
-    AlbumSummary, ArtistSummary, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, MediaSettings, Mix, OrganizeReport,
-    Playlist, PlaylistKind, SmartRules, Track, TrackEdits, TrackQuery,
+    AlbumSummary, ArtistSummary, Chapter, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, Lyrics, MediaSettings, Mix,
+    OrganizeReport, Playlist, PlaylistKind, SmartRules, Track, TrackEdits, TrackQuery,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -21,6 +21,9 @@ pub struct LibraryState {
     db_path: PathBuf,
     queries: Mutex<Library>,
     artwork_reader: Mutex<Library>,
+    /// Lyrics and chapters read the audio file, which can be slow (a big M4B's movie box), so they
+    /// get a connection of their own rather than holding up `queries`.
+    file_reader: Mutex<Library>,
     /// Serializes imports; a second drop waits for the first instead of racing it.
     scan_lock: Arc<Mutex<()>>,
 }
@@ -32,6 +35,7 @@ impl LibraryState {
         Ok(Self {
             queries: Mutex::new(Library::open(&db_path)?),
             artwork_reader: Mutex::new(artwork_reader),
+            file_reader: Mutex::new(Library::open(&db_path)?),
             db_path,
             scan_lock: Arc::new(Mutex::new(())),
         })
@@ -68,6 +72,10 @@ impl LibraryState {
         self.queries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn file_reader(&self) -> MutexGuard<'_, Library> {
+        self.file_reader.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// The original art, or a cached JPEG thumbnail when the view only needs `size` pixels.
     pub fn artwork(&self, track_id: i64, size: Option<u32>) -> Option<antistreaming_library::Artwork> {
         let library = self.artwork_reader.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -95,6 +103,18 @@ pub fn library_tracks(state: State<'_, LibraryState>, query: TrackQuery) -> Comm
 #[tauri::command]
 pub fn library_track(state: State<'_, LibraryState>, track_id: i64) -> CommandResult<Option<Track>> {
     Ok(state.queries().track(track_id)?)
+}
+
+/// Get Info › Lyrics. Async so reading the file stays off the main thread.
+#[tauri::command]
+pub async fn library_lyrics(state: State<'_, LibraryState>, track_id: i64) -> CommandResult<Option<Lyrics>> {
+    Ok(state.file_reader().lyrics(track_id)?)
+}
+
+/// The playing song's chapters for the LCD; an audiobook's file can be large, so async as well.
+#[tauri::command]
+pub async fn library_chapters(state: State<'_, LibraryState>, track_id: i64) -> CommandResult<Vec<Chapter>> {
+    Ok(state.file_reader().chapters(track_id)?)
 }
 
 #[tauri::command]

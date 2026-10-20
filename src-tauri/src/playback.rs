@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_library::GainMode;
+use antistreaming_library::{GainMode, MediaKind};
 use antistreaming_playback::{Equalizer, Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent, TrackOptions};
 use antistreaming_remote::Client;
 use serde::Deserialize;
@@ -40,6 +40,11 @@ struct Downloading {
 const PREVIOUS_RESTARTS_AFTER_MS: u64 = 3_000;
 /// iTunes counts a skip only when you bail early, but not instantly.
 const SKIP_WINDOW_MS: std::ops::Range<u64> = 2_000..20_000;
+/// How far playback goes before a remembered song's place is written again.
+const PLACE_SAVED_EVERY_MS: u64 = 10_000;
+/// A resumed song reports positions near its start until the engine has done the seek; ones this
+/// much short of the resume point or more are those, not the listener's place.
+const RESUME_SLACK_MS: u64 = 1_000;
 
 /// Where queued track ids live. Library and iPod ids overlap, so the queue must remember.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -73,6 +78,30 @@ struct Modes {
     repeat: RepeatMode,
 }
 
+/// The library song whose place is being kept as its bookmark.
+struct Place {
+    track_id: i64,
+    /// The latest position seen, which a skip or stop, unlike a pause, doesn't carry.
+    position_ms: u64,
+    /// Where the bookmark was last written, so `Position` events, four a second, don't each write it.
+    saved_ms: u64,
+    /// Where the song was resumed to, until playback is seen there; zero once it has been. Letting go
+    /// of the song before then leaves the bookmark be rather than saving a position short of it.
+    resume_ms: u64,
+}
+
+impl Place {
+    /// Whether `position_ms` is the listener's place rather than the start the engine reports before
+    /// the resume seek lands, which saved would erase the bookmark.
+    fn reached(&mut self, position_ms: u64) -> bool {
+        if position_ms + RESUME_SLACK_MS < self.resume_ms {
+            return false;
+        }
+        self.resume_ms = 0;
+        true
+    }
+}
+
 /// Resolves queued ids to files, whichever source they came from.
 pub(crate) struct Tracks<'a> {
     pub(crate) library: &'a LibraryState,
@@ -97,6 +126,8 @@ pub struct PlaybackState {
     playing: Mutex<Option<Playing>>,
     modes: Mutex<Modes>,
     party: Mutex<PartyShuffle>,
+    /// Only the event worker touches it. Taken after `playing`, and before the library's lock when both are held.
+    place: Mutex<Option<Place>>,
     /// Bumped on every start, so a slow iCloud download can't play a song the user skipped.
     starts: AtomicU64,
     /// Bumped on every queue_following, so a slow prefetch can't queue a stale next song.
@@ -115,6 +146,7 @@ impl PlaybackState {
             playing: Mutex::new(None),
             modes: Mutex::new(Modes { shuffle: false, repeat: RepeatMode::Off }),
             party: Mutex::new(PartyShuffle::default()),
+            place: Mutex::new(None),
         }
     }
 
@@ -128,6 +160,73 @@ impl PlaybackState {
 
     fn modes(&self) -> MutexGuard<'_, Modes> {
         self.modes.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn place(&self) -> MutexGuard<'_, Option<Place>> {
+        self.place.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Starts keeping the place of a library song that remembers it, and says where it was left.
+    /// Podcasts are left to `PodcastsState`, which has its own.
+    fn begin_place(&self, library: &LibraryState, track_id: i64) -> Option<u64> {
+        let resume = {
+            let library = library.queries();
+            let track = library.track(track_id).ok().flatten().filter(|t| t.kind != MediaKind::Podcast && t.remember_position)?;
+            library.bookmark(track.id).ok().flatten()
+        };
+        let at = resume.unwrap_or(0);
+        *self.place() = Some(Place { track_id, position_ms: at, saved_ms: at, resume_ms: at });
+        resume
+    }
+
+    /// Writes the bookmark of the song being kept: every `PLACE_SAVED_EVERY_MS` of playback, and
+    /// when it pauses, stops or gives way to another song. Finishing a song forgets it.
+    fn remember_place(&self, library: &LibraryState, event: &PlayerEvent) -> antistreaming_library::Result<()> {
+        let mut slot = self.place();
+        match event {
+            PlayerEvent::Position { track_id, position_ms, .. } => {
+                if let Some(place) = slot.as_mut().filter(|p| p.track_id == *track_id)
+                    && place.reached(*position_ms)
+                {
+                    place.position_ms = *position_ms;
+                    if position_ms.abs_diff(place.saved_ms) >= PLACE_SAVED_EVERY_MS {
+                        place.saved_ms = *position_ms;
+                        library.queries().set_bookmark(place.track_id, *position_ms)?;
+                    }
+                }
+            }
+            PlayerEvent::StateChanged(status) if status.state == EngineState::Paused => {
+                if let Some(place) = slot.as_mut().filter(|p| status.track_id == Some(p.track_id))
+                    && place.reached(status.position_ms)
+                {
+                    place.position_ms = status.position_ms;
+                    place.saved_ms = status.position_ms;
+                    library.queries().set_bookmark(place.track_id, status.position_ms)?;
+                }
+            }
+            PlayerEvent::StateChanged(status) if status.state == EngineState::Stopped => {
+                if let Some(place) = slot.take()
+                    && place.resume_ms == 0
+                {
+                    library.queries().set_bookmark(place.track_id, place.position_ms)?;
+                }
+            }
+            PlayerEvent::TrackStarted { .. } => {
+                if let Some(place) = slot.take()
+                    && place.resume_ms == 0
+                {
+                    library.queries().set_bookmark(place.track_id, place.position_ms)?;
+                }
+            }
+            PlayerEvent::TrackEnded { track_id } => {
+                if slot.as_ref().is_some_and(|p| p.track_id == *track_id) {
+                    *slot = None;
+                    library.queries().clear_bookmark(*track_id)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Sound Check's adjustment for a library song; songs on iPods and CDs play as they are.
@@ -333,12 +432,18 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
     };
     let tracks = Tracks { library: &library, devices: &devices };
     let mut slot = playback.playing();
+    // Before the queue check: a stop that cleared the queue still has a place to save.
+    if let Err(error) = playback.remember_place(&library, &event) {
+        eprintln!("[playback] {error:?}");
+    }
     let Some(playing) = slot.as_mut() else { return };
     let result = match event {
         PlayerEvent::TrackStarted { track_id } if playing.party => party::on_track_started(app, &playback, &tracks, playing, track_id),
         PlayerEvent::TrackStarted { track_id } if playing.queue.sync_to(track_id) => {
             // Podcasts and audiobooks pick up where the listener stopped, as in iTunes.
-            if let Some(position) = app.try_state::<PodcastsState>().and_then(|p| p.resume_position(track_id)) {
+            let bookmark = (playing.source == PlaySource::Library).then(|| playback.begin_place(&library, track_id)).flatten();
+            let resume = bookmark.or_else(|| app.try_state::<PodcastsState>().and_then(|p| p.resume_position(track_id)));
+            if let Some(position) = resume {
                 playback.player.seek(position);
             }
             playback.queue_following(&tracks, playing)

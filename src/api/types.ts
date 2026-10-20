@@ -69,6 +69,8 @@ export interface Track {
   sortAlbum: string | null;
   sortAlbumArtist: string | null;
   compilation: boolean;
+  /** "Remember playback position" as it applies to this song: on for audiobooks and podcasts unless Get Info says otherwise. */
+  rememberPosition: boolean;
 }
 
 /**
@@ -95,6 +97,24 @@ export interface TrackEdits {
   rating?: number;
   enabled?: boolean;
   kind?: MediaKind;
+  rememberPosition?: boolean;
+  /** The plain lyrics; "" clears them. */
+  lyrics?: string;
+}
+
+export type LyricsSource = "tag" | "sidecar" | "library";
+
+export interface Lyrics {
+  text: string;
+  /** Lines with their start in milliseconds, when the lyrics are timed. */
+  synced: [number, string][] | null;
+  source: LyricsSource;
+}
+
+export interface Chapter {
+  title: string;
+  startMs: number;
+  endMs: number | null;
 }
 
 export type ArtworkChange = { type: "file"; path: string } | { type: "remove" };

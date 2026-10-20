@@ -163,3 +163,27 @@
 .info-spacer {
   flex: 1;
 }
+
+.info-lyrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-lyrics-text {
+  width: 100%;
+  height: 200px;
+  padding: 4px;
+  border: 1px solid #9a9a9a;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.15);
+  font: inherit;
+  resize: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.info-lyrics-note {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: #555555;
+}
