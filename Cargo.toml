@@ -38,6 +38,10 @@ strip = true
 [profile.dev.package.unsub-visualize]
 opt-level = 3
 
-# Windows: bindgen overflows the stack of an unoptimised ffmpeg-sys-next build script.
+# Windows: bindgen overflows the stack of an unoptimised ffmpeg-sys-next build script. Release
+# builds leave build scripts unoptimised too unless told otherwise.
 [profile.dev.build-override]
+opt-level = 3
+
+[profile.release.build-override]
 opt-level = 3
