@@ -44,7 +44,7 @@ impl Inbox {
         // Inside the library so the final rename stays on one filesystem. Dropping it on any
         // error path removes whatever was half-written.
         let staging = tempfile::Builder::new()
-            .prefix(".antistreaming-import-")
+            .prefix(".unsub-import-")
             .tempdir_in(&self.library_dir)?;
         let written = match source.kind {
             Kind::Zip => extract_zip(&source.path, staging.path(), Limits::DEFAULT, progress)?,

@@ -2,9 +2,9 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Library, Track};
 use image::{ImageFormat, Rgb, RgbImage};
 use tempfile::TempDir;
+use unsub_library::{Library, Track};
 
 use crate::common::{library_of, scanned_library, track, track_titled};
 

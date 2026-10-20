@@ -125,7 +125,7 @@ function Intro({ error, onLoadXml, onLoadMusic }: { error: string | null; onLoad
       <div className="placard-card ownership-intro">
         <h1>Own Your Streaming</h1>
         <p>
-          Compare your Apple Music library with this one. AntiStreaming sorts every song into what's already here, files
+          Compare your Apple Music library with this one. Unsub sorts every song into what's already here, files
           you own that it can import, purchases you can re-download, and what you'd need to buy.
         </p>
         <div className="ownership-intro-actions">
@@ -140,7 +140,7 @@ function Intro({ error, onLoadXml, onLoadMusic }: { error: string | null; onLoad
         </div>
         <p className="ownership-note">
           {IS_MAC
-            ? "macOS will ask before AntiStreaming can read your Music library. Nothing in it is changed."
+            ? "macOS will ask before Unsub can read your Music library. Nothing in it is changed."
             : "In iTunes, choose File › Library › Export Library…, then pick the file here."}
         </p>
         {error && <p className="ownership-error">{error}</p>}
@@ -154,7 +154,7 @@ function Progress({ report }: { report: OwnershipReport }) {
   const { locate } = report.totals;
   const owned = inLibrary + toImport + locate + redownload;
   const parts = [
-    { key: "in-library", value: inLibrary, label: "In AntiStreaming" },
+    { key: "in-library", value: inLibrary, label: "In Unsub" },
     { key: "owned", value: toImport + locate + redownload, label: "Owned elsewhere" },
     { key: "buy", value: buy, label: "Streaming only" },
     { key: "unknown", value: unknown, label: "Unknown" },

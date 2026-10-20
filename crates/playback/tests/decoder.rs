@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use antistreaming_playback::{Decoder, Error};
+use unsub_playback::{Decoder, Error};
 
 struct Fixture {
     file: &'static str,
@@ -217,7 +217,7 @@ fn a_missing_file_is_an_io_error() {
 #[test]
 fn a_file_cut_short_plays_what_is_there_and_ends_cleanly() {
     let bytes = std::fs::read(fixture_path("sine.flac")).unwrap();
-    let path = std::env::temp_dir().join("antistreaming-truncated.flac");
+    let path = std::env::temp_dir().join("unsub-truncated.flac");
     std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
 
     let frames = decode_to_end(&mut Decoder::open(&path).unwrap()).len() / 2;
@@ -229,7 +229,7 @@ fn a_file_cut_short_plays_what_is_there_and_ends_cleanly() {
 #[test]
 fn a_file_with_headers_but_no_decodable_audio_is_an_error() {
     let bytes = std::fs::read(fixture_path("sine.flac")).unwrap();
-    let path = std::env::temp_dir().join("antistreaming-garbage.flac");
+    let path = std::env::temp_dir().join("unsub-garbage.flac");
     // Keep the metadata blocks, replace the audio frames with noise.
     let audio_start = bytes
         .windows(2)

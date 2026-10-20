@@ -1,4 +1,4 @@
-use antistreaming_library::{Library, Track};
+use unsub_library::{Library, Track};
 
 use crate::common::{copy_fixtures, fixtures_dir, library_of, scan, track};
 

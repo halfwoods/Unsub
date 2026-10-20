@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{MediaKind, SortKey, Track, TrackQuery};
-use antistreaming_remote::{Browser, Client, Peer, Song};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_library::{MediaKind, SortKey, Track, TrackQuery};
+use unsub_remote::{Browser, Client, Peer, Song};
 
 use crate::error::{CommandError, CommandResult};
 
@@ -56,7 +56,7 @@ struct Connected {
     loading: bool,
 }
 
-/// iTunes' SHARED section: other AntiStreaming libraries on the network and Subsonic servers.
+/// iTunes' SHARED section: other Unsub libraries on the network and Subsonic servers.
 pub struct RemoteState {
     path: PathBuf,
     cache_dir: PathBuf,
@@ -119,10 +119,10 @@ impl RemoteState {
     }
 }
 
-/// Looks for other AntiStreaming libraries for the life of the app, leaving out this Mac's own.
+/// Looks for other Unsub libraries for the life of the app, leaving out this Mac's own.
 pub fn browse(app: &AppHandle) {
     let handle = app.clone();
-    let browser = antistreaming_remote::browse(move |peers| {
+    let browser = unsub_remote::browse(move |peers| {
         let own = handle.state::<crate::sharing::SharingState>().shared_name();
         *lock(&handle.state::<RemoteState>().peers) = peers.into_iter().filter(|p| own.as_deref() != Some(p.name.as_str())).collect();
         let _ = handle.emit(CHANGED_EVENT, ());
@@ -265,7 +265,7 @@ fn start_loading(app: &AppHandle, library: &str, client: Client) {
                 connected.remove(&library);
                 drop(connected);
                 let message = format!("Couldn't open “{}”: {error}", state.name_of(&library));
-                let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+                let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
             }
         }
         let _ = app.emit(CHANGED_EVENT, ());

@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use antistreaming_playback::TapBlock;
-use antistreaming_visualize::{Analyzer, Frame, MicDevice, MicListener};
 use serde::Deserialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
+use unsub_playback::TapBlock;
+use unsub_visualize::{Analyzer, Frame, MicDevice, MicListener};
 
 use crate::error::CommandResult;
 use crate::playback::PlaybackState;
@@ -89,7 +89,7 @@ impl Worker {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let thread = thread::Builder::new()
-            .name("antistreaming-visualizer".into())
+            .name("unsub-visualizer".into())
             .spawn(move || pump(&flag, next, send))
             .expect("the OS can start a thread");
         Worker { stop, thread: Some(thread) }
@@ -281,7 +281,7 @@ mod permission {
             macos::AUTHORIZED => Ok(()),
             macos::NOT_DETERMINED if macos::request_access() => Ok(()),
             _ => Err(CommandError::from(
-                "Microphone access is off for AntiStreaming in System Settings › Privacy & Security › Microphone".to_owned(),
+                "Microphone access is off for Unsub in System Settings › Privacy & Security › Microphone".to_owned(),
             )),
         }
     }
@@ -356,7 +356,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::mpsc;
 
-    use antistreaming_visualize::{BANDS, SCOPE_POINTS};
+    use unsub_visualize::{BANDS, SCOPE_POINTS};
 
     use super::*;
 

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Installs the FFmpeg that AntiStreaming links on Windows, from a pinned vcpkg commit.
+  Installs the FFmpeg that Unsub links on Windows, from a pinned vcpkg commit.
 
 .DESCRIPTION
   vcpkg's ffmpeg port with only avcodec, avformat, swresample and the two external encoders the

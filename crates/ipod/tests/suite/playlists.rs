@@ -1,4 +1,4 @@
-use antistreaming_ipod::{IpodPlaylist, read_database};
+use unsub_ipod::{IpodPlaylist, read_database};
 
 use crate::common::db::{Database, Playlist};
 use crate::common::mount::FakeIpod;

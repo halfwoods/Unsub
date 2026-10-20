@@ -42,7 +42,7 @@ const DATABASE_TAG_AT: usize = 0x24;
 /// Order, chosen so that a failure leaves the iPod usable: all music is copied first and cover
 /// thumbnails appended (a failure here removes what was copied and nothing else has changed), then
 /// the bookkeeping file, the ArtworkDB and the iTunesDB are each written beside the old one and
-/// flushed, the old ones are kept as `*.antistreaming-backup`, and the new ones are renamed into
+/// flushed, the old ones are kept as `*.unsub-backup`, and the new ones are renamed into
 /// place, the iTunesDB last. Only then are the files of removed tracks deleted.
 ///
 /// If the plan has `removals_first`, there is not room to copy before deleting. Then the removal
@@ -994,7 +994,7 @@ fn ipod_path(mount: &Path, file: &Path) -> String {
 /// Fails early, before any music is copied, if the iPod is mounted read-only (HFS+ iPods usually
 /// are when connected to Windows or Linux).
 pub(super) fn probe_writable(mount: &Path) -> Result<()> {
-    let probe = itunes_dir(mount).join(".antistreaming-write-probe");
+    let probe = itunes_dir(mount).join(".unsub-write-probe");
     File::create(&probe)
         .and_then(|_| fs::remove_file(&probe))
         .map_err(|source| {

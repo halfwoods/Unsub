@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use antistreaming_purchases::{Candidate, Inbox, Purchase, StoreLink, WatchHandle};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_purchases::{Candidate, Inbox, Purchase, StoreLink, WatchHandle};
 
 use crate::error::{CommandError, CommandResult};
 use crate::library;
 
 pub const CHANGED_EVENT: &str = "purchases://changed";
 
-fn to_error(error: antistreaming_purchases::Error) -> CommandError {
+fn to_error(error: unsub_purchases::Error) -> CommandError {
     CommandError::from(error.to_string())
 }
 
@@ -33,7 +33,7 @@ pub struct PurchasesState {
 }
 
 impl PurchasesState {
-    pub fn open(data_dir: &std::path::Path, library_dir: PathBuf, downloads: PathBuf) -> antistreaming_purchases::Result<Self> {
+    pub fn open(data_dir: &std::path::Path, library_dir: PathBuf, downloads: PathBuf) -> unsub_purchases::Result<Self> {
         Ok(Self {
             inbox: Mutex::new(Inbox::open(&data_dir.join("Purchases.sqlite"), &library_dir)?),
             downloads,
@@ -54,7 +54,7 @@ impl PurchasesState {
             return;
         }
         let handle = app.clone();
-        *watcher = antistreaming_purchases::watch(vec![self.downloads.clone()], move || scan(&handle))
+        *watcher = unsub_purchases::watch(vec![self.downloads.clone()], move || scan(&handle))
             .map_err(|error| eprintln!("[purchases] can't watch Downloads: {error}"))
             .ok();
         drop(watcher);
@@ -127,5 +127,5 @@ pub fn purchases_ignore(app: AppHandle, state: State<'_, PurchasesState>, candid
 #[tauri::command]
 pub async fn purchases_links(state: State<'_, PurchasesState>, artist: String, album: String) -> CommandResult<Vec<StoreLink>> {
     let inbox = lock(&state.inbox);
-    antistreaming_purchases::purchase_links(&artist, &album, &inbox).map_err(to_error)
+    unsub_purchases::purchase_links(&artist, &album, &inbox).map_err(to_error)
 }

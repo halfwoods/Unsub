@@ -53,10 +53,10 @@ const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let app_menu = Submenu::with_items(
         app,
-        "AntiStreaming",
+        "Unsub",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About AntiStreaming"), None)?,
+            &PredefinedMenuItem::about(app, Some("About Unsub"), None)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, PREFERENCES.0, PREFERENCES.1, true, PREFERENCES.2)?,
             &PredefinedMenuItem::separator(app)?,

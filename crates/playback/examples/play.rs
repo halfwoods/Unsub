@@ -1,4 +1,4 @@
-//! Manual smoke test: `cargo run -p antistreaming-playback --example play -- <file> [seconds] [volume]`
+//! Manual smoke test: `cargo run -p unsub-playback --example play -- <file> [seconds] [volume]`
 //!
 //! Plays through the default output device and prints every event as the UI would receive it,
 //! prefixed with the time since launch. Pass volume 0 to run silently.
@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use antistreaming_playback::{PlaybackState, Player, PlayerEvent};
+use unsub_playback::{PlaybackState, Player, PlayerEvent};
 
 const POLL: Duration = Duration::from_millis(50);
 

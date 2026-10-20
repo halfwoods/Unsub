@@ -6,8 +6,8 @@ mod support;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use antistreaming_visualize::Analyzer;
 use support::*;
+use unsub_visualize::Analyzer;
 
 struct Counting;
 

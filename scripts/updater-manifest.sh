@@ -4,10 +4,10 @@
 #
 #   scripts/updater-manifest.sh --version 0.1.0 --tag v0.1.0 --repo OWNER/REPO \
 #       [--notes-file notes.txt] [--date 2026-01-31T12:00:00Z] \
-#       darwin-aarch64=AntiStreaming_0.1.0_aarch64.app.tar.gz \
-#       darwin-x86_64=AntiStreaming_0.1.0_x86_64.app.tar.gz \
-#       windows-x86_64-nsis=AntiStreaming_0.1.0_x64-setup.exe \
-#       windows-x86_64-msi=AntiStreaming_0.1.0_x64_en-US.msi > latest.json
+#       darwin-aarch64=Unsub_0.1.0_aarch64.app.tar.gz \
+#       darwin-x86_64=Unsub_0.1.0_x86_64.app.tar.gz \
+#       windows-x86_64-nsis=Unsub_0.1.0_x64-setup.exe \
+#       windows-x86_64-msi=Unsub_0.1.0_x64_en-US.msi > latest.json
 #
 # Each artifact must sit next to its `.sig`, made by `tauri signer sign --app-version <version>`.
 # The updater checks that signed version against the manifest's (requireSignedVersion), so the

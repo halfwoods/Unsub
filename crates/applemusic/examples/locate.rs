@@ -1,7 +1,7 @@
 //! Runs `locate_in_folder` against a saved snapshot of a library and a folder, and prints how
 //! many songs were found and how. Only lists the folder; no file in it is opened.
 //!
-//! `cargo run --release -p antistreaming-applemusic --example locate --
+//! `cargo run --release -p unsub-applemusic --example locate --
 //!   <snapshot.json> <folder> [unmatched-samples] [matched-samples-per-tier] [located.json]`
 
 use std::collections::BTreeMap;
@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use antistreaming_applemusic::{Confidence, LocateStage, MusicLibraryItem, locate_in_folder};
 use serde::Deserialize;
+use unsub_applemusic::{Confidence, LocateStage, MusicLibraryItem, locate_in_folder};
 
 #[derive(Deserialize)]
 struct Snapshot {

@@ -1,7 +1,7 @@
 use std::fs;
 
-use antistreaming_library::Library;
 use tempfile::TempDir;
+use unsub_library::Library;
 
 use crate::common::{all_kinds, fixtures_dir, scan, scanned_library, track_titled};
 

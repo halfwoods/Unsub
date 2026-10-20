@@ -4,7 +4,7 @@
 //! The rules this module keeps, because the device holds music that cannot be replaced:
 //! * only iPods whose database this crate can write correctly are touched (see [`checksum_key`]),
 //!   and a shuffle's iTunesSD is written with its iTunesDB;
-//! * only tracks and playlists this app added (recorded in `AntiStreaming.json`) are ever removed
+//! * only tracks and playlists this app added (recorded in `Unsub.json`) are ever removed
 //!   or edited, everything else is carried over byte for byte;
 //! * music is copied before the database that references it is committed, and removed files are
 //!   deleted only after it;

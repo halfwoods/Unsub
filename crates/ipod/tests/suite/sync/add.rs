@@ -1,6 +1,6 @@
 use std::fs;
 
-use antistreaming_ipod::{IpodMediaKind, SyncPlaylist, read_database};
+use unsub_ipod::{IpodMediaKind, SyncPlaylist, read_database};
 
 use super::*;
 
@@ -338,8 +338,7 @@ fn the_bookkeeping_file_records_what_was_added() {
     sync(&fake, &tracks, &playlists);
 
     let json: serde_json::Value =
-        serde_json::from_slice(&fs::read(itunes_file(&fake, "AntiStreaming.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&fs::read(itunes_file(&fake, "Unsub.json")).unwrap()).unwrap();
     assert_eq!(json["version"], 1);
     let mapped: Vec<_> = json["tracks"]
         .as_array()

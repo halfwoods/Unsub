@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use antistreaming_playback::{ChannelLayout, Decoder};
+use unsub_playback::{ChannelLayout, Decoder};
 
 /// Each channel of the fixtures is a different constant, so a swapped pair shows up directly.
 const FIVE_ONE: [f32; 6] = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30];

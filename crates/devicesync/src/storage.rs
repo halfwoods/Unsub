@@ -303,21 +303,14 @@ mod tests {
     #[test]
     fn write_replaces_atomically_and_read_reports_absence() {
         let (_dir, storage, _) = dir_with_sources();
-        assert_eq!(storage.read(".antistreaming/manifest.json").unwrap(), None);
-        storage
-            .write(".antistreaming/manifest.json", b"one")
-            .unwrap();
-        storage
-            .write(".antistreaming/manifest.json", b"two")
-            .unwrap();
+        assert_eq!(storage.read(".unsub/manifest.json").unwrap(), None);
+        storage.write(".unsub/manifest.json", b"one").unwrap();
+        storage.write(".unsub/manifest.json", b"two").unwrap();
         assert_eq!(
-            storage
-                .read(".antistreaming/manifest.json")
-                .unwrap()
-                .unwrap(),
+            storage.read(".unsub/manifest.json").unwrap().unwrap(),
             b"two"
         );
-        assert_eq!(storage.list(".antistreaming").unwrap().len(), 1);
+        assert_eq!(storage.list(".unsub").unwrap().len(), 1);
     }
 
     #[test]

@@ -2,12 +2,12 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Library, MediaKind, TrackOverrides, TrackQuery};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::{Accessor, ItemKey};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{Library, MediaKind, TrackOverrides, TrackQuery};
 
 use crate::common::{added_ids, all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 

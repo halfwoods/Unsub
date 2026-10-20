@@ -35,7 +35,7 @@ pub fn open(request: &Request, controls: Controls, on_failure: Failure) -> Resul
     let thread = {
         let (control, depth) = (Arc::clone(&control), request.bit_depth);
         thread::Builder::new()
-            .name("antistreaming-wasapi".into())
+            .name("unsub-wasapi".into())
             .spawn(move || render_thread(source, depth, callback, &control, ready, on_failure))?
     };
     let stream = WasapiStream {

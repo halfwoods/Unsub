@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-playback"
+name = "unsub-playback"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

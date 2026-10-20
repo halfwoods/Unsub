@@ -1,4 +1,4 @@
-use antistreaming_podcasts::{Error, KeepRule, Podcasts};
+use unsub_podcasts::{Error, KeepRule, Podcasts};
 
 use crate::common::{Env, fixture};
 
@@ -41,7 +41,7 @@ fn requests_identify_the_app() {
     let (env, _) = Env::subscribed();
     let requests = env.server.requests_for("/feed.xml");
     let agent = requests[0].user_agent.as_deref().unwrap();
-    assert!(agent.starts_with("AntiStreaming/"), "{agent}");
+    assert!(agent.starts_with("Unsub/"), "{agent}");
 }
 
 #[test]

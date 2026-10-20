@@ -1,7 +1,7 @@
-/** The AntiStreaming mark: a record seen from above, inked like iTunes' idle LCD logo. */
+/** The Unsub mark: a record seen from above, inked like iTunes' idle LCD logo. */
 export function VinylMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="AntiStreaming">
+    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="Unsub">
       <defs>
         <linearGradient id="vinyl-ink" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="var(--lcd-mark-a)" />

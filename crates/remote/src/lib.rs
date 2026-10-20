@@ -1,5 +1,5 @@
-//! The "client mode" half of owning your own cloud: finding other AntiStreaming libraries on the
-//! network, talking to any Subsonic-compatible server (another AntiStreaming, Navidrome), and
+//! The "client mode" half of owning your own cloud: finding other Unsub libraries on the
+//! network, talking to any Subsonic-compatible server (another Unsub, Navidrome), and
 //! fetching songs into a cache so the local player can play them.
 
 mod cache;

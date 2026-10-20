@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-cdrip"
+name = "unsub-cdrip"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

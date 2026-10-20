@@ -1,7 +1,7 @@
 //! Checks that this crate can rewrite a real iPod's database losslessly, without writing anything.
 //!
 //! ```text
-//! cargo run -p antistreaming-ipod --example verify -- /Volumes/IPOD
+//! cargo run -p unsub-ipod --example verify -- /Volumes/IPOD
 //! ```
 //!
 //! Safe to run on a real iPod: the device is only read.
@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use antistreaming_ipod::{ArtworkCheck, ChecksumCheck, RecordDifference, open, verify_roundtrip};
+use unsub_ipod::{ArtworkCheck, ChecksumCheck, RecordDifference, open, verify_roundtrip};
 
 /// Differences listed per kind before the rest are summarised.
 const SHOWN: usize = 10;

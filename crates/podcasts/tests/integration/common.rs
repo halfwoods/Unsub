@@ -5,9 +5,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use antistreaming_podcasts::{Feed, Podcasts};
 use tempfile::TempDir;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
+use unsub_podcasts::{Feed, Podcasts};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 

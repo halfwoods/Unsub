@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
-use antistreaming_podcasts::Error;
+use unsub_podcasts::Error;
 
 use crate::common::{Env, audio_bytes};
 

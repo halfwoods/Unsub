@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_library::{Library, SortKey, TrackQuery};
 use tempfile::TempDir;
+use unsub_library::{Library, SortKey, TrackQuery};
 
 use crate::common::{copy_fixtures, rewind_schema, scan, scanned_library, track_titled};
 

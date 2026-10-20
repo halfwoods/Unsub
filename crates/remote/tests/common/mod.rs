@@ -51,7 +51,7 @@ pub struct Mode {
     pub stall_after: Option<usize>,
     /// Take requests and never answer them.
     pub silent: bool,
-    /// Report a missing song as a bare HTTP 404 (as AntiStreaming does) rather than as a Subsonic
+    /// Report a missing song as a bare HTTP 404 (as Unsub does) rather than as a Subsonic
     /// error document (as Navidrome does).
     pub missing_as_404: bool,
 }

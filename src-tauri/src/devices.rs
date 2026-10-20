@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use antistreaming_ipod::{Ipod, IpodMediaKind, IpodModel, IpodPlaylist, IpodTrack, SyncSupport, Usage};
-use antistreaming_library::{Library, LibraryStats, MediaKind, Track, TrackQuery};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_ipod::{Ipod, IpodMediaKind, IpodModel, IpodPlaylist, IpodTrack, SyncSupport, Usage};
+use unsub_library::{Library, LibraryStats, MediaKind, Track, TrackQuery};
 
 use crate::cd::Cds;
 use crate::error::{CommandError, CommandResult};
@@ -46,7 +46,7 @@ pub struct DevicesState {
     connected: Mutex<HashMap<PathBuf, Arc<Connected>>>,
     pub cds: Cds,
     /// Non-Apple players: Rockbox, marked USB players and phones.
-    players: Mutex<Vec<antistreaming_devicesync::Device>>,
+    players: Mutex<Vec<unsub_devicesync::Device>>,
 }
 
 impl DevicesState {
@@ -62,17 +62,17 @@ impl DevicesState {
             .ok_or_else(|| CommandError::from(format!("device {device_id} is not connected")))
     }
 
-    fn players(&self) -> MutexGuard<'_, Vec<antistreaming_devicesync::Device>> {
+    fn players(&self) -> MutexGuard<'_, Vec<unsub_devicesync::Device>> {
         self.players.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub(crate) fn player(&self, device_id: &str) -> Option<antistreaming_devicesync::Device> {
+    pub(crate) fn player(&self, device_id: &str) -> Option<unsub_devicesync::Device> {
         self.players().iter().find(|p| p.id == device_id).cloned()
     }
 
     /// Looks for players again, e.g. after a sync changed one's free space.
     pub(crate) fn rediscover_players(&self) {
-        *self.players() = antistreaming_devicesync::discover();
+        *self.players() = unsub_devicesync::discover();
     }
 
     /// The iPod behind a device id, for syncing.
@@ -95,7 +95,7 @@ impl DevicesState {
             .ok_or_else(|| CommandError::from(format!("track {track_id} is not on device {device_id}")))
     }
 
-    pub fn artwork(&self, device_id: &str, track_id: i64) -> Option<antistreaming_library::Artwork> {
+    pub fn artwork(&self, device_id: &str, track_id: i64) -> Option<unsub_library::Artwork> {
         self.find(device_id).ok()?.tracks().artwork(track_id).ok().flatten()
     }
 }
@@ -143,7 +143,7 @@ fn media_kind(kind: &IpodMediaKind) -> Option<MediaKind> {
         IpodMediaKind::Music => Some(MediaKind::Music),
         IpodMediaKind::Podcast => Some(MediaKind::Podcast),
         IpodMediaKind::Audiobook => Some(MediaKind::Audiobook),
-        // AntiStreaming is audio-only; video still counts toward the capacity bar.
+        // Unsub is audio-only; video still counts toward the capacity bar.
         IpodMediaKind::Video | IpodMediaKind::Other => None,
     }
 }
@@ -194,8 +194,8 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
 }
 
 fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Error>> {
-    let ipod = antistreaming_ipod::open(mount)?;
-    let database = antistreaming_ipod::read_database(&ipod)?;
+    let ipod = unsub_ipod::open(mount)?;
+    let database = unsub_ipod::read_database(&ipod)?;
     let mut counts = KindCounts::default();
     let tracks: Vec<Track> = database
         .tracks
@@ -221,16 +221,16 @@ fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Err
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         loop {
-            let players = antistreaming_devicesync::discover();
+            let players = unsub_devicesync::discover();
             let player_mounts: Vec<PathBuf> = players
                 .iter()
                 .filter_map(|p| match &p.root {
-                    antistreaming_devicesync::DeviceRoot::Path(path) => Some(path.clone()),
-                    antistreaming_devicesync::DeviceRoot::Mtp { .. } => None,
+                    unsub_devicesync::DeviceRoot::Path(path) => Some(path.clone()),
+                    unsub_devicesync::DeviceRoot::Mtp { .. } => None,
                 })
                 .collect();
             // A Rockbox-flashed iPod still has iPod_Control; it syncs as the player it now is.
-            let mounts: Vec<PathBuf> = antistreaming_ipod::discover().into_iter().filter(|m| !player_mounts.contains(m)).collect();
+            let mounts: Vec<PathBuf> = unsub_ipod::discover().into_iter().filter(|m| !player_mounts.contains(m)).collect();
             let state = app.state::<DevicesState>();
             let mut changed = {
                 let mut known = state.players();
@@ -268,7 +268,7 @@ pub fn watch(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn players_list(state: State<'_, DevicesState>) -> Vec<antistreaming_devicesync::Device> {
+pub fn players_list(state: State<'_, DevicesState>) -> Vec<unsub_devicesync::Device> {
     state.players().clone()
 }
 
@@ -283,7 +283,7 @@ pub enum PlayerPreset {
 #[tauri::command]
 pub fn player_eject(app: AppHandle, state: State<'_, DevicesState>, device_id: String) -> CommandResult<()> {
     let player = state.player(&device_id).ok_or_else(|| CommandError::from("that player is no longer connected".to_owned()))?;
-    antistreaming_devicesync::eject(&player).map_err(|error| CommandError::from(error.to_string()))?;
+    unsub_devicesync::eject(&player).map_err(|error| CommandError::from(error.to_string()))?;
     state.rediscover_players();
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())
@@ -300,11 +300,11 @@ pub fn player_set_up(
     preset: PlayerPreset,
 ) -> CommandResult<()> {
     let profile = match preset {
-        PlayerPreset::MassStorage => antistreaming_devicesync::Profile::mass_storage(),
-        PlayerPreset::Android => antistreaming_devicesync::Profile::android(),
-        PlayerPreset::Rockbox => antistreaming_devicesync::Profile::rockbox(),
+        PlayerPreset::MassStorage => unsub_devicesync::Profile::mass_storage(),
+        PlayerPreset::Android => unsub_devicesync::Profile::android(),
+        PlayerPreset::Rockbox => unsub_devicesync::Profile::rockbox(),
     };
-    antistreaming_devicesync::mark_device(&path, &name, &profile).map_err(|error| CommandError::from(error.to_string()))?;
+    unsub_devicesync::mark_device(&path, &name, &profile).map_err(|error| CommandError::from(error.to_string()))?;
     state.rediscover_players();
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())
@@ -379,7 +379,7 @@ pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, device_id: S
     let device = state.find(&device_id)?;
     // Release our open files first, or the OS refuses to unmount.
     app.state::<PlaybackState>().stop_if_playing(&PlaySource::Device { device_id: device_id.clone() });
-    antistreaming_ipod::eject(&device.ipod).map_err(|error| CommandError::from(error.to_string()))?;
+    unsub_ipod::eject(&device.ipod).map_err(|error| CommandError::from(error.to_string()))?;
     state.connected().retain(|_, connected| connected.ipod.id != device_id);
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())

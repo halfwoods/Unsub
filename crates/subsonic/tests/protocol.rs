@@ -4,9 +4,9 @@ mod common;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_subsonic::{AlbumListKind, Capabilities};
 use common::*;
 use serde_json::json;
+use unsub_subsonic::{AlbumListKind, Capabilities};
 
 #[test]
 fn ping_xml_has_namespace_and_envelope_attributes() {
@@ -17,7 +17,7 @@ fn ping_xml_has_namespace_and_envelope_attributes() {
     let root = doc.root_element();
     assert_eq!(root.tag_name().namespace(), Some(NS));
     assert_eq!(root.attribute("version"), Some("1.16.1"));
-    assert_eq!(root.attribute("type"), Some("AntiStreaming"));
+    assert_eq!(root.attribute("type"), Some("Unsub"));
     assert_eq!(
         root.attribute("serverVersion"),
         Some(env!("CARGO_PKG_VERSION"))
@@ -35,7 +35,7 @@ fn ping_json_has_envelope_fields() {
     let h = Harness::start();
     let body = h.json("ping", "");
     assert_eq!(body["version"], "1.16.1");
-    assert_eq!(body["type"], "AntiStreaming");
+    assert_eq!(body["type"], "Unsub");
     assert_eq!(body["serverVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(body["openSubsonic"], true);
 }

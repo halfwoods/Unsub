@@ -1,11 +1,9 @@
 mod common;
 
-use antistreaming_remote::{
-    Album, AlbumListKind, Artist, Client, Error, Playlist, Song, SongListing,
-};
 use common::{FakeServer, PASSWORD, USER};
 use md5::{Digest, Md5};
 use serde_json::json;
+use unsub_remote::{Album, AlbumListKind, Artist, Client, Error, Playlist, Song, SongListing};
 
 fn connect(server: &FakeServer) -> Client {
     Client::new(&server.url, USER, PASSWORD)
@@ -38,7 +36,7 @@ fn signs_every_request_with_a_fresh_token_and_never_sends_the_password() {
         assert_eq!(params["u"], USER);
         assert_eq!(params["f"], "json");
         assert_eq!(params["v"], "1.16.1");
-        assert_eq!(params["c"], "AntiStreaming");
+        assert_eq!(params["c"], "Unsub");
         assert!(!params.contains_key("p"));
         assert!(!request.raw_url.contains(PASSWORD));
         let expected = hex::encode(Md5::digest(format!("{PASSWORD}{}", params["s"])));
@@ -478,8 +476,8 @@ fn the_server_name_comes_from_its_ping() {
     );
     assert_eq!(client.server_name().unwrap(), "navidrome 0.52.5 (735e16b)");
 
-    server.respond("ping", json!({ "type": "AntiStreaming" }));
-    assert_eq!(client.server_name().unwrap(), "AntiStreaming");
+    server.respond("ping", json!({ "type": "Unsub" }));
+    assert_eq!(client.server_name().unwrap(), "Unsub");
 
     // A classic Subsonic server says neither.
     server.respond("ping", json!({ "version": "1.16.1" }));

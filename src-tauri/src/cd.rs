@@ -4,11 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use antistreaming_cdrip::{AccurateRip, Disc, Format, Release, RipProgress, RipSettings, UreqClient};
-use antistreaming_library::{MediaKind, Track};
-use antistreaming_playback::PlayerEvent;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_cdrip::{AccurateRip, Disc, Format, Release, RipProgress, RipSettings, UreqClient};
+use unsub_library::{MediaKind, Track};
+use unsub_playback::PlayerEvent;
 
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
@@ -29,7 +29,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn to_error(error: antistreaming_cdrip::Error) -> CommandError {
+fn to_error(error: unsub_cdrip::Error) -> CommandError {
     CommandError::from(error.to_string())
 }
 
@@ -203,7 +203,7 @@ fn summary(cd: &Inserted, rip: Option<&Rip>) -> CdSummary {
 }
 
 fn tracks(cd: &Inserted) -> Vec<Track> {
-    let tags = antistreaming_cdrip::describe_tracks(&cd.disc, cd.release());
+    let tags = unsub_cdrip::describe_tracks(&cd.disc, cd.release());
     cd.disc
         .tracks
         .iter()
@@ -263,7 +263,7 @@ fn changed(app: &AppHandle) {
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         loop {
-            let discs = antistreaming_cdrip::discs();
+            let discs = unsub_cdrip::discs();
             let devices = app.state::<DevicesState>();
             let cds = &devices.cds;
             let gone: Vec<String> =
@@ -300,7 +300,7 @@ pub fn watch(app: AppHandle) {
 
 fn look_up(app: AppHandle, disc: Disc) {
     std::thread::spawn(move || {
-        let found = antistreaming_cdrip::lookup(&disc, &UreqClient::new()).map_err(|e| e.to_string());
+        let found = unsub_cdrip::lookup(&disc, &UreqClient::new()).map_err(|e| e.to_string());
         let devices = app.state::<DevicesState>();
         if let Some(cd) = devices.cds.inserted().iter_mut().find(|cd| cd.disc.id == disc.id) {
             cd.lookup = Some(found);
@@ -376,7 +376,7 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
     let titles: Vec<(u8, String)> = disc
         .tracks
         .iter()
-        .zip(antistreaming_cdrip::describe_tracks(&disc, release.as_ref()))
+        .zip(unsub_cdrip::describe_tracks(&disc, release.as_ref()))
         .map(|(track, tags)| (track.number, tags.title))
         .collect();
     numbers.sort_unstable();
@@ -408,7 +408,7 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
         format: format.into(),
         dest_dir: app
             .state::<LibraryState>()
-            .media_folder(&app.path().audio_dir().map_err(|e| CommandError::from(e.to_string()))?.join("AntiStreaming"))?,
+            .media_folder(&app.path().audio_dir().map_err(|e| CommandError::from(e.to_string()))?.join("Unsub"))?,
         verify_accuraterip: verify,
         tracks: Some(numbers),
     };
@@ -445,16 +445,16 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
             }
             let _ = app.emit(RIP_EVENT, Some(status));
         };
-        let result = antistreaming_cdrip::rip(&disc, release.as_ref(), &settings, &UreqClient::new(), &mut on_progress, &cancel);
+        let result = unsub_cdrip::rip(&disc, release.as_ref(), &settings, &UreqClient::new(), &mut on_progress, &cancel);
         let eject_after = cds.rip().take().is_some_and(|rip| rip.eject_after);
         let _ = app.emit(RIP_EVENT, None::<RipStatus>);
         match result {
-            Ok(_) | Err(antistreaming_cdrip::Error::Cancelled) => {}
+            Ok(_) | Err(unsub_cdrip::Error::Cancelled) => {}
             Err(error) => {
                 let _ = app.emit(PLAYER_EVENT, PlayerEvent::Notice { message: format!("Import stopped: {error}") });
             }
         }
-        if eject_after && let Err(error) = antistreaming_cdrip::eject(&disc) {
+        if eject_after && let Err(error) = unsub_cdrip::eject(&disc) {
             let _ = app.emit(PLAYER_EVENT, PlayerEvent::Notice { message: error.to_string() });
         }
         changed(&app);
@@ -482,5 +482,5 @@ pub fn cd_eject(app: AppHandle, state: State<'_, DevicesState>, disc_id: String)
         }
     }
     let disc = state.cds.with_cd(&disc_id, |cd| cd.disc.clone())?;
-    antistreaming_cdrip::eject(&disc).map_err(to_error)
+    unsub_cdrip::eject(&disc).map_err(to_error)
 }

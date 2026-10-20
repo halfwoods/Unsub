@@ -1,6 +1,6 @@
 //! Fixtures shared by the app's tests.
 
-use antistreaming_library::{MediaKind, Track};
+use unsub_library::{MediaKind, Track};
 
 /// A complete library track with plain defaults, for tests to adjust with struct update syntax.
 pub fn track(id: i64, codec: &str, kind: MediaKind) -> Track {

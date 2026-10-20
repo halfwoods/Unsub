@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-podcasts"
+name = "unsub-podcasts"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

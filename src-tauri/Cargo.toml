@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming"
+name = "unsub"
 description = "A music player for people who own their music"
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 
 [lib]
 # The `_lib` suffix keeps the lib name distinct from the bin name (cargo#8519 on Windows).
-name = "antistreaming_lib"
+name = "unsub_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -19,18 +19,18 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 fastrand = "2"
 if-addrs = "0.15"
-antistreaming-library.workspace = true
-antistreaming-playback.workspace = true
-antistreaming-ipod.workspace = true
-antistreaming-applemusic.workspace = true
-antistreaming-subsonic.workspace = true
-antistreaming-podcasts.workspace = true
-antistreaming-purchases.workspace = true
-antistreaming-cdrip.workspace = true
-antistreaming-devicesync.workspace = true
-antistreaming-remote.workspace = true
-antistreaming-radio.workspace = true
-antistreaming-visualize.workspace = true
+unsub-library.workspace = true
+unsub-playback.workspace = true
+unsub-ipod.workspace = true
+unsub-applemusic.workspace = true
+unsub-subsonic.workspace = true
+unsub-podcasts.workspace = true
+unsub-purchases.workspace = true
+unsub-cdrip.workspace = true
+unsub-devicesync.workspace = true
+unsub-remote.workspace = true
+unsub-radio.workspace = true
+unsub-visualize.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

@@ -21,8 +21,10 @@ mod test_support;
 mod updates;
 mod visualizer;
 
-use antistreaming_playback::Player;
+use std::path::Path;
+
 use tauri::Manager;
+use unsub_playback::Player;
 
 use collection::CollectionState;
 use devices::DevicesState;
@@ -49,10 +51,11 @@ pub fn run() {
         })
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json")));
-            app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("AntiStreaming"))?;
+            app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("Unsub"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
@@ -62,9 +65,9 @@ pub fn run() {
             app.manage(loudness::LoudnessState::default());
             app.manage(visualizer::VisualizerState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
-            let episodes_dir = app.path().audio_dir()?.join("AntiStreaming").join("Podcasts");
+            let episodes_dir = app.path().audio_dir()?.join("Unsub").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
-            let purchases_dir = app.path().audio_dir()?.join("AntiStreaming").join("Purchases");
+            let purchases_dir = app.path().audio_dir()?.join("Unsub").join("Purchases");
             app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
             app.state::<PurchasesState>().apply(app.handle());
             let radio_cache = app.path().app_cache_dir()?;
@@ -203,5 +206,94 @@ pub fn run() {
             visualizer::visualizer_mic_devices,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running AntiStreaming");
+        .expect("error while running Unsub");
+}
+
+/// The bundle identifier from before the rename. The data folder is named after the identifier and
+/// lives beside the new one in every OS's app data root (Application Support, Roaming AppData,
+/// `$XDG_DATA_HOME`), so the old folder is the new one with its last component swapped.
+const OLD_IDENTIFIER: &str = "org.antistreaming.app";
+
+/// Brings the library along from the data folder the app had under its old identifier. The folder
+/// is renamed whole, which is atomic on one volume, so there is never a half-moved library; if the
+/// rename fails the old folder stays as it was and the app starts with a fresh one.
+fn migrate_data_dir(old: &Path, new: &Path) {
+    if new.exists() || !old.is_dir() {
+        return;
+    }
+    if let Err(error) = std::fs::rename(old, new) {
+        eprintln!("[migrate] couldn't move {} to {}: {error}", old.display(), new.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FILES: [&str; 3] = ["Library.sqlite", "Library.sqlite-shm", "Library.sqlite-wal"];
+
+    fn write_library(dir: &Path, contents: &str) {
+        std::fs::create_dir(dir).unwrap();
+        for name in FILES {
+            std::fs::write(dir.join(name), format!("{contents} {name}")).unwrap();
+        }
+    }
+
+    fn library_files(contents: &str) -> Vec<String> {
+        FILES.iter().map(|name| format!("{contents} {name}")).collect()
+    }
+
+    fn read_library(dir: &Path) -> Vec<String> {
+        let mut files: Vec<String> =
+            std::fs::read_dir(dir).unwrap().map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap()).collect();
+        files.sort();
+        files
+    }
+
+    #[test]
+    fn the_old_folder_moves_whole_when_only_it_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let (old, new) = (root.path().join(OLD_IDENTIFIER), root.path().join("new"));
+        write_library(&old, "old");
+
+        migrate_data_dir(&old, &new);
+
+        assert!(!old.exists());
+        assert_eq!(read_library(&new), library_files("old"));
+    }
+
+    #[test]
+    fn both_folders_are_left_alone_when_the_new_one_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let (old, new) = (root.path().join(OLD_IDENTIFIER), root.path().join("new"));
+        write_library(&old, "old");
+        write_library(&new, "new");
+
+        migrate_data_dir(&old, &new);
+
+        assert_eq!(read_library(&old), library_files("old"));
+        assert_eq!(read_library(&new), library_files("new"));
+    }
+
+    #[test]
+    fn nothing_happens_when_neither_folder_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let (old, new) = (root.path().join(OLD_IDENTIFIER), root.path().join("new"));
+
+        migrate_data_dir(&old, &new);
+
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_failed_move_leaves_the_old_folder_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let (old, new) = (root.path().join(OLD_IDENTIFIER), root.path().join("no such parent").join("new"));
+        write_library(&old, "old");
+
+        migrate_data_dir(&old, &new);
+
+        assert!(!new.exists());
+        assert_eq!(read_library(&old), library_files("old"));
+    }
 }

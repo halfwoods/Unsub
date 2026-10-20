@@ -1,15 +1,15 @@
-use antistreaming_ipod::{Error, Ipod, read_database};
+use unsub_ipod::{Error, Ipod, read_database};
 
 use crate::common::mount::FakeIpod;
 use crate::{classic_7g, opened, sample_database};
 
-fn corrupt(bytes: &[u8]) -> Result<antistreaming_ipod::Database, Error> {
+fn corrupt(bytes: &[u8]) -> Result<unsub_ipod::Database, Error> {
     let fake = FakeIpod::new("IPOD");
     fake.write_itunesdb(bytes);
     read_database(&opened(&fake))
 }
 
-fn is_corrupt(result: Result<antistreaming_ipod::Database, Error>) -> bool {
+fn is_corrupt(result: Result<unsub_ipod::Database, Error>) -> bool {
     matches!(result, Err(Error::Corrupt { .. }))
 }
 
@@ -29,11 +29,7 @@ impl Rng {
     }
 }
 
-fn read_bytes(
-    ipod: &Ipod,
-    fake: &FakeIpod,
-    bytes: &[u8],
-) -> Result<antistreaming_ipod::Database, Error> {
+fn read_bytes(ipod: &Ipod, fake: &FakeIpod, bytes: &[u8]) -> Result<unsub_ipod::Database, Error> {
     fake.write_itunesdb(bytes);
     read_database(ipod)
 }

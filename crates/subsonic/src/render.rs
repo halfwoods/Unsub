@@ -56,7 +56,7 @@ fn envelope(status: &str) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert("status".to_owned(), status.into());
     map.insert("version".to_owned(), API_VERSION.into());
-    map.insert("type".to_owned(), "AntiStreaming".into());
+    map.insert("type".to_owned(), "Unsub".into());
     map.insert("serverVersion".to_owned(), env!("CARGO_PKG_VERSION").into());
     map.insert("openSubsonic".to_owned(), true.into());
     map

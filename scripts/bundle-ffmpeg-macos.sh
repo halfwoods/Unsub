@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Embeds the FFmpeg dylibs an AntiStreaming.app links (those built by scripts/build-ffmpeg-macos.sh)
+# Embeds the FFmpeg dylibs an Unsub.app links (those built by scripts/build-ffmpeg-macos.sh)
 # and their dependencies into Contents/Frameworks, so the app runs on a Mac without Homebrew, then
 # re-signs the bundle.
 #
-#   scripts/bundle-ffmpeg-macos.sh path/to/AntiStreaming.app
+#   scripts/bundle-ffmpeg-macos.sh path/to/Unsub.app
 #
 # Libraries built for a newer macOS than the app's LSMinimumSystemVersion are refused.
 #

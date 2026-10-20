@@ -3,7 +3,6 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Error, Library, MediaKind, TrackEdits, TrackOverrides, TrackQuery};
 use image::{ImageFormat, Rgb, RgbImage};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -11,6 +10,7 @@ use lofty::id3::v2::{BinaryFrame, Frame, FrameId};
 use lofty::mpeg::MpegFile;
 use lofty::tag::{Accessor, ItemKey, Tag};
 use tempfile::TempDir;
+use unsub_library::{Error, Library, MediaKind, TrackEdits, TrackOverrides, TrackQuery};
 
 use crate::common::{
     added_ids, all_kinds, copy_fixtures, fixtures_dir, library_of, scan, scanned_library, track,

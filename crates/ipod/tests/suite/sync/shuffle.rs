@@ -1,6 +1,6 @@
 use std::fs;
 
-use antistreaming_ipod::{SyncPlaylist, read_database};
+use unsub_ipod::{SyncPlaylist, read_database};
 
 use super::*;
 use crate::common::db::{Database as DbSpec, Playlist};
@@ -188,19 +188,19 @@ fn the_previous_itunessd_is_kept_aside_and_nothing_is_left_beside_it() {
     assert_ne!(first, from_itunes);
     assert_ne!(itunessd(&fake), first);
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesSD.antistreaming-backup")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesSD.unsub-backup")).unwrap(),
         first,
         "the backup is the file as it was before the latest sync"
     );
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesSD.antistreaming-original")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesSD.unsub-original")).unwrap(),
         from_itunes,
         "the original is from before the first sync and is never overwritten"
     );
     assert!(
         itunes_dir_listing(&fake)
             .iter()
-            .all(|name| !name.ends_with(".antistreaming-tmp"))
+            .all(|name| !name.ends_with(".unsub-tmp"))
     );
 }
 
@@ -230,7 +230,7 @@ fn a_removed_track_leaves_the_itunessd_too() {
 #[test]
 fn a_failure_staging_the_itunessd_stops_before_anything_is_replaced() {
     let fake = fake_shuffle("xB518", &sample_database());
-    fs::create_dir(itunes_file(&fake, "iTunesSD.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesSD.unsub-tmp")).unwrap();
     let library = tempfile::tempdir().unwrap();
     let tracks = [library_track(library.path(), 1, "Alpha")];
     let database = db_bytes(&fake);
@@ -258,7 +258,7 @@ fn a_failure_staging_the_itunessd_stops_before_anything_is_replaced() {
 fn a_failure_keeping_the_itunessd_backup_stops_before_anything_is_replaced() {
     let fake = fake_shuffle("xB518", &sample_database());
     fs::write(itunes_file(&fake, "iTunesSD"), b"from iTunes").unwrap();
-    fs::create_dir(itunes_file(&fake, "iTunesSD.antistreaming-backup")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesSD.unsub-backup")).unwrap();
     let library = tempfile::tempdir().unwrap();
     let tracks = [library_track(library.path(), 1, "Alpha")];
     let database = db_bytes(&fake);

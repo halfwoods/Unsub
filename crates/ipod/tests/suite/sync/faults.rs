@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 
-use antistreaming_ipod::{Error, SyncTrack, apply_sync, read_database};
+use unsub_ipod::{Error, SyncTrack, apply_sync, read_database};
 
 use super::*;
 
@@ -114,7 +114,7 @@ fn a_failure_writing_the_new_database_keeps_the_old_one_and_removes_copied_music
     let tracks = three_tracks(library.path());
     // A directory where the temporary database must go makes writing it fail, after the music has
     // already been copied.
-    fs::create_dir(itunes_file(&fake, "iTunesDB.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesDB.unsub-tmp")).unwrap();
     let untouched = Untouched::capture(&fake);
 
     let result = apply_with(&fake, &tracks, &mut copy_as_is);
@@ -128,7 +128,7 @@ fn a_failure_keeping_the_backup_stops_before_the_database_is_replaced() {
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();
     let tracks = three_tracks(library.path());
-    fs::create_dir(itunes_file(&fake, "iTunesDB.antistreaming-backup")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesDB.unsub-backup")).unwrap();
     let untouched = Untouched::capture(&fake);
 
     let result = apply_with(&fake, &tracks, &mut copy_as_is);
@@ -142,7 +142,7 @@ fn a_failure_staging_the_bookkeeping_file_stops_before_the_database_is_replaced(
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();
     let tracks = three_tracks(library.path());
-    fs::create_dir(itunes_file(&fake, "AntiStreaming.json.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "Unsub.json.unsub-tmp")).unwrap();
     let untouched = Untouched::capture(&fake);
 
     let result = apply_with(&fake, &tracks, &mut copy_as_is);
@@ -155,22 +155,14 @@ fn a_failure_staging_the_bookkeeping_file_stops_before_the_database_is_replaced(
 fn leftovers_from_an_interrupted_sync_do_not_get_in_the_way() {
     let fake = fake_classic();
     let library = tempfile::tempdir().unwrap();
-    fs::write(
-        itunes_file(&fake, "iTunesDB.antistreaming-tmp"),
-        b"half a database",
-    )
-    .unwrap();
-    fs::write(
-        itunes_file(&fake, "AntiStreaming.json.antistreaming-tmp"),
-        b"{",
-    )
-    .unwrap();
+    fs::write(itunes_file(&fake, "iTunesDB.unsub-tmp"), b"half a database").unwrap();
+    fs::write(itunes_file(&fake, "Unsub.json.unsub-tmp"), b"{").unwrap();
 
     sync(&fake, &three_tracks(library.path()), &[]);
 
     let listing = itunes_dir_listing(&fake);
-    assert!(!listing.contains("iTunesDB.antistreaming-tmp"));
-    assert!(!listing.contains("AntiStreaming.json.antistreaming-tmp"));
+    assert!(!listing.contains("iTunesDB.unsub-tmp"));
+    assert!(!listing.contains("Unsub.json.unsub-tmp"));
     assert_eq!(read_database(&opened(&fake)).unwrap().tracks.len(), 8);
 }
 
@@ -244,7 +236,7 @@ fn the_files_of_removed_tracks_survive_a_sync_that_fails() {
         .unwrap()
         .path
         .clone();
-    fs::create_dir(itunes_file(&fake, "iTunesDB.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesDB.unsub-tmp")).unwrap();
     let database = db_bytes(&fake);
     let wanted = [library_track(library.path(), 2, "New")];
 
@@ -328,7 +320,7 @@ fn a_damaged_database_is_either_refused_untouched_or_rewritten_validly() {
             }
         }
         fake.write_itunesdb(&damaged);
-        let Ok(ipod) = antistreaming_ipod::open(&fake.mount) else {
+        let Ok(ipod) = unsub_ipod::open(&fake.mount) else {
             continue;
         };
         let empty = SyncPlan {

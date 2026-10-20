@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the FFmpeg that AntiStreaming ships on macOS, with the two encoder libraries it uses, all
+# Builds the FFmpeg that Unsub ships on macOS, with the two encoder libraries it uses, all
 # from pinned upstream sources and for the same minimum macOS.
 #
 #   scripts/build-ffmpeg-macos.sh <install-prefix>
@@ -94,7 +94,7 @@ fetch() {
 CFLAGS_COMMON="-O2 -mmacosx-version-min=$MIN_OS"
 
 # The prefix is rebuilt from scratch, so only a directory this script made may be reused.
-MARKER="$PREFIX/.antistreaming-ffmpeg-prefix"
+MARKER="$PREFIX/.unsub-ffmpeg-prefix"
 if [ ! -f "$MARKER" ] && [ -n "$(ls -A "$PREFIX")" ]; then
   die "$PREFIX is not empty and was not created by this script"
 fi

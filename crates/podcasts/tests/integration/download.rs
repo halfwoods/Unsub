@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use antistreaming_podcasts::Error;
+use unsub_podcasts::Error;
 
 use crate::common::{Env, audio_bytes, fixture};
 

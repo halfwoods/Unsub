@@ -1,7 +1,7 @@
 mod support;
 
-use antistreaming_visualize::{Analyzer, BANDS};
 use support::*;
+use unsub_visualize::{Analyzer, BANDS};
 
 #[test]
 fn a_sine_lights_the_band_at_its_frequency_at_every_common_rate() {

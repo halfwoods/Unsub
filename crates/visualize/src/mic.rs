@@ -91,7 +91,7 @@ impl MicListener {
         let thread = {
             let failed = Arc::clone(&failed);
             thread::Builder::new()
-                .name("antistreaming-mic".to_owned())
+                .name("unsub-mic".to_owned())
                 .spawn(
                     move || match open(device.as_deref(), analyzer, started, failed) {
                         Ok((stream, opened)) => {

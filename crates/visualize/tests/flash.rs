@@ -3,9 +3,7 @@
 
 use std::time::Duration;
 
-use antistreaming_visualize::{
-    FLASH_THRESHOLD, FlashLimiter, MAX_FLASHES_PER_SECOND, limit_flashes,
-};
+use unsub_visualize::{FLASH_THRESHOLD, FlashLimiter, MAX_FLASHES_PER_SECOND, limit_flashes};
 
 /// Where the series turns round, as `(time, value)`, with its first and last sample as bookends.
 /// A turn is the highest or lowest value of a run that moved by at least the threshold.

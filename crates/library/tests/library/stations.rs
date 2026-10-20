@@ -2,13 +2,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use antistreaming_library::{
+use rusqlite::Connection;
+use tempfile::TempDir;
+use unsub_library::{
     Error, ExternalTrack, Library, MediaKind, NewStation, PlaylistKind, SmartField, SmartOp,
     SmartRule, SmartRules, SmartValue, SortKey, Station, Track, TrackEdits, TrackOverrides,
     TrackQuery,
 };
-use rusqlite::Connection;
-use tempfile::TempDir;
 
 use crate::common::{added_ids, all_kinds, fixtures_dir, library_of, rewind_schema, track};
 
@@ -805,10 +805,10 @@ fn smart_playlists_ignore_stations_unless_a_rule_names_radio() {
         ["Zulu Jazz"]
     );
     let limited = SmartRules {
-        limit: Some(antistreaming_library::SmartLimit {
+        limit: Some(unsub_library::SmartLimit {
             amount: 1,
-            unit: antistreaming_library::LimitUnit::Items,
-            selected_by: antistreaming_library::LimitOrder::Name,
+            unit: unsub_library::LimitUnit::Items,
+            selected_by: unsub_library::LimitOrder::Name,
         }),
         ..all(vec![])
     };
@@ -965,13 +965,13 @@ fn nothing_that_works_on_files_touches_stations() {
     assert_eq!(needing, [song_id]);
     assert!(
         library
-            .sound_check_gain(a, antistreaming_library::GainMode::Track, -16.0)
+            .sound_check_gain(a, unsub_library::GainMode::Track, -16.0)
             .unwrap()
             .is_none()
     );
     assert!(
         library
-            .sound_check_gain(a, antistreaming_library::GainMode::Album, -16.0)
+            .sound_check_gain(a, unsub_library::GainMode::Album, -16.0)
             .unwrap()
             .is_none()
     );

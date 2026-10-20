@@ -37,7 +37,7 @@ pub(crate) struct FeedResponse {
 /// as long as bytes keep arriving, so no global or body timeout is configured.
 pub(crate) fn agent(stall_timeout: Duration) -> ureq::Agent {
     let config = ureq::Agent::config_builder()
-        .user_agent(concat!("AntiStreaming/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Unsub/", env!("CARGO_PKG_VERSION")))
         .timeout_connect(Some(Duration::from_secs(15)))
         .timeout_recv_response(Some(stall_timeout))
         .max_redirects(10)

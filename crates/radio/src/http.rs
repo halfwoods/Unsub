@@ -80,7 +80,7 @@ pub struct HttpConfig {
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
-            user_agent: concat!("AntiStreaming/", env!("CARGO_PKG_VERSION")).to_owned(),
+            user_agent: concat!("Unsub/", env!("CARGO_PKG_VERSION")).to_owned(),
             connect_timeout: Duration::from_secs(10),
             stall_timeout: Duration::from_secs(15),
         }
@@ -596,7 +596,7 @@ mod tests {
         assert!(
             request
                 .header("user-agent")
-                .is_some_and(|agent| agent.starts_with("AntiStreaming/"))
+                .is_some_and(|agent| agent.starts_with("Unsub/"))
         );
         assert_eq!(
             request

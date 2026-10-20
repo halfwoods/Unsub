@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-const TEMP_SUFFIX: &str = ".antistreaming-tmp";
-const BACKUP_SUFFIX: &str = ".antistreaming-backup";
-const ORIGINAL_SUFFIX: &str = ".antistreaming-original";
+const TEMP_SUFFIX: &str = ".unsub-tmp";
+const BACKUP_SUFFIX: &str = ".unsub-backup";
+const ORIGINAL_SUFFIX: &str = ".unsub-original";
 
 fn beside(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
@@ -87,8 +87,8 @@ pub(super) fn commit_all(staged: Vec<Staged>) -> Result<()> {
     Ok(())
 }
 
-/// Copies the current database aside before it is replaced. The `.antistreaming-backup` copy is the
-/// database as it was before the latest sync; `.antistreaming-original` is kept once, from before
+/// Copies the current database aside before it is replaced. The `.unsub-backup` copy is the
+/// database as it was before the latest sync; `.unsub-original` is kept once, from before
 /// the first sync, so a bad sync can never overwrite the only good copy.
 pub(super) fn keep_backups(database: &Path) -> Result<()> {
     copy_and_flush(database, &backup_of(database))?;

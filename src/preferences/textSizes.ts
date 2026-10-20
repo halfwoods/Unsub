@@ -4,7 +4,7 @@ export interface TextSizes {
   list: "small" | "large";
 }
 
-const KEY = "antistreaming.textSizes";
+const KEY = "unsub.textSizes";
 const DEFAULTS: TextSizes = { source: "small", list: "small" };
 
 export function loadTextSizes(): TextSizes {

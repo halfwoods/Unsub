@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Library, MediaKind, Track, TrackOverrides, TrackQuery};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{Library, MediaKind, Track, TrackOverrides, TrackQuery};
 
 pub const FIXTURE_COUNT: u64 = 8;
 pub const MUSIC_COUNT: usize = 6;

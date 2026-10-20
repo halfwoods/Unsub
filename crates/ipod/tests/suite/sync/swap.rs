@@ -1,6 +1,6 @@
 use std::fs;
 
-use antistreaming_ipod::{Error, SyncTrack, apply_sync, read_database};
+use unsub_ipod::{Error, SyncTrack, apply_sync, read_database};
 
 use super::*;
 
@@ -72,7 +72,7 @@ fn a_swap_that_only_fits_once_the_old_track_is_gone_removes_it_first() {
     );
     // ...and the backup is still the database from before the sync, not the intermediate one.
     assert_eq!(
-        fs::read(itunes_file(&swap.fake, "iTunesDB.antistreaming-backup")).unwrap(),
+        fs::read(itunes_file(&swap.fake, "iTunesDB.unsub-backup")).unwrap(),
         before
     );
 }
@@ -124,7 +124,7 @@ fn a_failure_after_the_removal_leaves_the_ipod_with_fewer_tracks_never_more() {
         "one file fewer, none extra"
     );
     assert_eq!(
-        fs::read(itunes_file(&swap.fake, "iTunesDB.antistreaming-backup")).unwrap(),
+        fs::read(itunes_file(&swap.fake, "iTunesDB.unsub-backup")).unwrap(),
         before
     );
     // The next sync picks up where this one stopped (here the library's file has shrunk to its

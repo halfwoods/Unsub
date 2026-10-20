@@ -17,11 +17,11 @@ use crate::itunesdb::{self, shuffle};
 use crate::play_counts;
 
 /// Puts back the database the latest [`super::apply_sync`] replaced, which it kept as
-/// `iTunesDB.antistreaming-backup`. The backup is the database as it was before that sync, so
+/// `iTunesDB.unsub-backup`. The backup is the database as it was before that sync, so
 /// whatever iTunes or anything else did to the iPod since is undone with it.
 ///
 /// What goes with it, so the next sync starts from the truth:
-/// * `AntiStreaming.json` forgets the tracks and playlists that are not in the restored database,
+/// * `Unsub.json` forgets the tracks and playlists that are not in the restored database,
 ///   and forgets the cover of any track whose artwork link the restored database does not share
 ///   with the one it replaces, so the next sync looks at that cover again;
 /// * music files that the database being replaced lists for tracks this app added, and the

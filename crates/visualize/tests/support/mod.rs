@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::f32::consts::TAU;
 use std::time::Duration;
 
-use antistreaming_visualize::{Analyzer, BANDS, Frame};
+use unsub_visualize::{Analyzer, BANDS, Frame};
 
 pub const RATE: u32 = 44_100;
 

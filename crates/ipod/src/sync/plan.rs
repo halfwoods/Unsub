@@ -68,7 +68,7 @@ pub(super) fn artwork_bytes<'a>(
 
 /// Works out what a sync would change. Nothing on the iPod is touched.
 ///
-/// Only tracks recorded in the iPod's `AntiStreaming.json` are candidates for update or removal;
+/// Only tracks recorded in the iPod's `Unsub.json` are candidates for update or removal;
 /// music that iTunes put on the iPod is never listed.
 pub fn plan_sync(
     ipod: &Ipod,

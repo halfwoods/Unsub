@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
-use antistreaming_library::{Library, MediaKind, SortKey, Track, TrackQuery};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+use unsub_library::{Library, MediaKind, SortKey, Track, TrackQuery};
 
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
@@ -63,7 +63,7 @@ fn weight(rating: u8, favor_rated: bool) -> u32 {
 }
 
 impl PartyShuffle {
-    fn candidates(&self, library: &Library) -> antistreaming_library::Result<Vec<Track>> {
+    fn candidates(&self, library: &Library) -> unsub_library::Result<Vec<Track>> {
         let (kind, playlist) = match self.settings.source {
             PartySource::Library => (Some(MediaKind::Music), None),
             PartySource::Playlist { id } => (None, Some(id)),
@@ -74,7 +74,7 @@ impl PartyShuffle {
     }
 
     /// Tops up the upcoming list with weighted random picks, never repeating what's queued or just played.
-    pub fn refill(&mut self, library: &Library) -> antistreaming_library::Result<()> {
+    pub fn refill(&mut self, library: &Library) -> unsub_library::Result<()> {
         let missing = self.settings.upcoming.saturating_sub(self.upcoming.len());
         if missing == 0 {
             return Ok(());
@@ -120,13 +120,13 @@ impl PartyShuffle {
     }
 
     /// Clears the upcoming list and draws a fresh one, as iTunes' Refresh button did.
-    pub fn reshuffle(&mut self, library: &Library) -> antistreaming_library::Result<()> {
+    pub fn reshuffle(&mut self, library: &Library) -> unsub_library::Result<()> {
         self.upcoming.clear();
         self.refill(library)
     }
 
-    pub fn view(&self, library: &Library) -> antistreaming_library::Result<PartyView> {
-        let load = |ids: &mut dyn Iterator<Item = &i64>| -> antistreaming_library::Result<Vec<Track>> {
+    pub fn view(&self, library: &Library) -> unsub_library::Result<PartyView> {
+        let load = |ids: &mut dyn Iterator<Item = &i64>| -> unsub_library::Result<Vec<Track>> {
             ids.filter_map(|&id| library.track(id).transpose()).collect()
         };
         Ok(PartyView {
@@ -227,7 +227,7 @@ fn edit(
     playback: &PlaybackState,
     library: &LibraryState,
     devices: &DevicesState,
-    change: impl FnOnce(&mut PartyShuffle, &Library) -> antistreaming_library::Result<()>,
+    change: impl FnOnce(&mut PartyShuffle, &Library) -> unsub_library::Result<()>,
 ) -> CommandResult<PartyView> {
     let tracks = Tracks { library, devices };
     let mut slot = playback.playing();

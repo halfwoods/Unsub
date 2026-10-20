@@ -1,7 +1,7 @@
 use std::fs;
 
-use antistreaming_library::{Error, Library, MediaKind, Track, TrackEdits};
 use tempfile::TempDir;
+use unsub_library::{Error, Library, MediaKind, Track, TrackEdits};
 
 use crate::common::{all_kinds, library_of, scan, track};
 

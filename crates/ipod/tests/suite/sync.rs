@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use antistreaming_ipod::{
+use unsub_ipod::{
     Database, Error, IpodMediaKind, SyncPlan, SyncPlaylist, SyncTrack, apply_sync, plan_sync,
     read_database,
 };

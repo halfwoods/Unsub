@@ -11,12 +11,12 @@ mod sync;
 mod tracks;
 mod verify;
 
-use antistreaming_ipod::{Ipod, open as open_ipod};
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use common::db::{
     Database, Encoding, MEDIA_AUDIOBOOK, MEDIA_PODCAST, MEDIA_VIDEO, Playlist, Track,
 };
 use common::mount::FakeIpod;
+use unsub_ipod::{Ipod, open as open_ipod};
 
 const MAC_EPOCH_OFFSET: i64 = 2_082_844_800;
 

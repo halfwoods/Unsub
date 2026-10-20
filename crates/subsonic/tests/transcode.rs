@@ -13,8 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use antistreaming_subsonic::StreamFormat;
 use common::*;
+use unsub_subsonic::StreamFormat;
 
 /// What the server asked the source to convert, in order.
 fn asked(h: &Harness) -> Vec<(String, StreamFormat, Option<u32>)> {

@@ -3,7 +3,7 @@
 Installed copies update themselves from GitHub releases:
 
 - On launch (at most once a day, if *Preferences › General › Check for updates automatically* is on)
-  and from *AntiStreaming › Check for Updates…*, the app fetches
+  and from *Unsub › Check for Updates…*, the app fetches
   `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`.
 - GitHub's "latest" skips drafts and pre-releases, so an update goes live only when you publish the
   draft that `release.yml` creates.
@@ -17,17 +17,17 @@ Installed copies update themselves from GitHub releases:
 1. Generate the key pair. Pick a password when asked:
 
    ```sh
-   pnpm tauri signer generate -w ~/.tauri/antistreaming.key
+   pnpm tauri signer generate -w ~/.tauri/unsub.key
    ```
 
-   This writes `antistreaming.key` (private) and `antistreaming.key.pub` (public). Keep the private
+   This writes `unsub.key` (private) and `unsub.key.pub` (public). Keep the private
    key and its password in a password manager. **If either is lost, installed copies can never be
    updated again**; people would have to download a new build by hand.
 2. Add two repository secrets (Settings › Secrets and variables › Actions):
-   - `TAURI_SIGNING_PRIVATE_KEY`: the *contents* of `antistreaming.key` (one line of base64), not a path.
+   - `TAURI_SIGNING_PRIVATE_KEY`: the *contents* of `unsub.key` (one line of base64), not a path.
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password.
 3. In `src-tauri/tauri.conf.json`, under `plugins.updater`:
-   - `pubkey`: the contents of `antistreaming.key.pub` (one line starting `dW50cnVzdGVk`).
+   - `pubkey`: the contents of `unsub.key.pub` (one line starting `dW50cnVzdGVk`).
    - `endpoints`: replace `REPLACE_OWNER/REPLACE_REPO` with the GitHub repository.
 4. Commit that. The first release carrying it must be installed by hand; earlier builds have no
    updater.
@@ -50,8 +50,8 @@ Without the two secrets `release.yml` still works: it just attaches no `latest.j
    The tag message is what the update sheet shows. A lightweight tag falls back to GitHub's generated
    notes, which are Markdown and read less well in the sheet.
 3. `release.yml` builds, signs and notarizes, and opens a **draft** release with the DMGs
-   (`AntiStreaming_<v>_arm64.dmg`, `_x86_64.dmg`), the Windows installers, the update archives
-   (`AntiStreaming_<v>_aarch64.app.tar.gz`, `_x86_64.app.tar.gz`, the NSIS `-setup.exe` and the MSI,
+   (`Unsub_<v>_arm64.dmg`, `_x86_64.dmg`), the Windows installers, the update archives
+   (`Unsub_<v>_aarch64.app.tar.gz`, `_x86_64.app.tar.gz`, the NSIS `-setup.exe` and the MSI,
    each with a `.sig`), the library sources, and `latest.json`.
 4. Look the draft over: the five `platforms` in `latest.json`, the notes, a smoke test of a DMG on a
    Mac that has never run the app. Publish it. Installed apps offer it from then on.

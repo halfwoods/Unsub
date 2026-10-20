@@ -1,5 +1,5 @@
-use antistreaming_library::{Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
 use tempfile::TempDir;
+use unsub_library::{Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
 
 use crate::common::{
     all_kinds, copy_fixtures, library_of, rewind_schema, scan, scanned_library, track,

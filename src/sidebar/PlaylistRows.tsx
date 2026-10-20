@@ -6,8 +6,8 @@ import { playlistSource, useApp } from "../state/store";
 import { SourceIcon } from "./icons";
 
 /** Song rows put their ids here when dragged; playlist rows put their own id. */
-export const TRACKS_MIME = "application/x-antistreaming-tracks";
-const PLAYLIST_MIME = "application/x-antistreaming-playlist";
+export const TRACKS_MIME = "application/x-unsub-tracks";
+const PLAYLIST_MIME = "application/x-unsub-playlist";
 
 function RenameField({ playlist }: { playlist: Playlist }) {
   const [name, setName] = useState(playlist.name);
@@ -70,7 +70,7 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
   const onKeyDown = async (e: KeyboardEvent) => {
     if (e.key !== "Backspace" && e.key !== "Delete") return;
     const confirmed = await ask(`Are you sure you want to delete the ${folder ? "folder" : "playlist"} “${playlist.name}”?`, {
-      title: "AntiStreaming",
+      title: "Unsub",
       kind: "warning",
     });
     if (!confirmed) return;

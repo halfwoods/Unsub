@@ -24,6 +24,6 @@ pub enum Error {
     Cancelled,
     #[error("download stalled: the server stopped sending data")]
     Stalled,
-    #[error("database schema version {0} was written by a newer version of AntiStreaming")]
+    #[error("database schema version {0} was written by a newer version of Unsub")]
     UnsupportedSchema(usize),
 }

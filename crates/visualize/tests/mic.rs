@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use antistreaming_visualize::{Analyzer, Error, MicDevice, MicListener};
+use unsub_visualize::{Analyzer, Error, MicDevice, MicListener};
 
 #[test]
 fn the_listener_can_be_kept_in_shared_application_state() {

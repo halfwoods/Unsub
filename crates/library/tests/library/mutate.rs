@@ -1,6 +1,6 @@
-use antistreaming_library::{Error, ExternalStats, Library};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{Error, ExternalStats, Library};
 
 use crate::common::{all_kinds, copy_fixtures, scan, scanned_library, track_titled};
 

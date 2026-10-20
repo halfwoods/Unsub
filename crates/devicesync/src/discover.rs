@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Written to the root of a volume to make it a sync target.
-pub const MARKER_FILE: &str = ".antistreaming-device.json";
+pub const MARKER_FILE: &str = ".unsub-device.json";
 const MARKER_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

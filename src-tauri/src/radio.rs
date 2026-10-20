@@ -3,13 +3,11 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use antistreaming_library::{NewStation, Station as SavedStation};
-use antistreaming_playback::{LiveFormat, PlayerEvent, TrackOptions};
-use antistreaming_radio::{
-    CancelHandle, Directory, Event, Format, GENRES, NowPlaying, Station as DirectoryStation, StationInfo, Tag, genres_of,
-};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_library::{NewStation, Station as SavedStation};
+use unsub_playback::{LiveFormat, PlayerEvent, TrackOptions};
+use unsub_radio::{CancelHandle, Directory, Event, Format, GENRES, NowPlaying, Station as DirectoryStation, StationInfo, Tag, genres_of};
 
 use crate::error::{CommandError, CommandResult};
 use crate::library::{self, LibraryState};
@@ -30,7 +28,7 @@ pub const LINK_EVENT: &str = "radio://link";
 /// moment it arrives would lead what is heard by that long.
 const PRE_ROLL: Duration = Duration::from_secs(2);
 
-fn to_error(error: antistreaming_radio::Error) -> CommandError {
+fn to_error(error: unsub_radio::Error) -> CommandError {
     CommandError::from(error.to_string())
 }
 
@@ -298,7 +296,7 @@ fn start(app: &AppHandle, station: SavedStation) {
 
 fn connect(app: &AppHandle, ticket: Ticket, station: &SavedStation) {
     let radio = app.state::<RadioState>();
-    let mut stream = match antistreaming_radio::open(&station.url) {
+    let mut stream = match unsub_radio::open(&station.url) {
         Ok(stream) => stream,
         Err(error) => {
             if radio.session().open_failed(ticket) {
@@ -493,7 +491,7 @@ pub async fn radio_genres(radio: State<'_, RadioState>) -> CommandResult<Vec<Gen
 
 #[tauri::command]
 pub async fn radio_stations(radio: State<'_, RadioState>, genre: String, offset: u32, limit: u32) -> CommandResult<Vec<DirectoryStation>> {
-    let found = antistreaming_radio::genre(&genre).ok_or_else(|| CommandError::from(format!("there is no genre called {genre}")))?;
+    let found = unsub_radio::genre(&genre).ok_or_else(|| CommandError::from(format!("there is no genre called {genre}")))?;
     radio.directory.stations_by_genre(found, offset, limit).map_err(to_error)
 }
 

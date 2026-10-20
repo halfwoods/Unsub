@@ -3,8 +3,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use antistreaming_library::{Error, Library, PlaylistKind, TrackQuery};
 use tempfile::TempDir;
+use unsub_library::{Error, Library, PlaylistKind, TrackQuery};
 
 use crate::common::{all_kinds, copy_fixtures, scan, track_titled};
 

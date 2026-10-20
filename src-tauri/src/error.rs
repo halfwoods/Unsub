@@ -18,8 +18,8 @@ impl Serialize for CommandError {
     }
 }
 
-impl From<antistreaming_library::Error> for CommandError {
-    fn from(error: antistreaming_library::Error) -> Self {
+impl From<unsub_library::Error> for CommandError {
+    fn from(error: unsub_library::Error) -> Self {
         Self(error.to_string())
     }
 }
@@ -30,8 +30,8 @@ impl From<String> for CommandError {
     }
 }
 
-impl From<antistreaming_visualize::Error> for CommandError {
-    fn from(error: antistreaming_visualize::Error) -> Self {
+impl From<unsub_visualize::Error> for CommandError {
+    fn from(error: unsub_visualize::Error) -> Self {
         Self(error.to_string())
     }
 }

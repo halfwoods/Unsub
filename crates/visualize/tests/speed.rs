@@ -1,10 +1,10 @@
 mod support;
 
-use antistreaming_visualize::Analyzer;
 use support::*;
+use unsub_visualize::Analyzer;
 
 /// Alone in its own test binary, so no other test competes for the processor. Relies on the
-/// workspace's `[profile.dev.package.antistreaming-visualize]`; unoptimized it manages about 30.
+/// workspace's `[profile.dev.package.unsub-visualize]`; unoptimized it manages about 30.
 #[test]
 fn analysis_runs_at_least_fifty_times_faster_than_real_time() {
     let seconds = 20.0;

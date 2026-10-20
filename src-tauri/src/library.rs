@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{
+use serde::Deserialize;
+use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_library::{
     AlbumSummary, ArtistSummary, Chapter, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, Lyrics, MediaSettings, Mix,
     OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits, TrackQuery,
 };
-use serde::Deserialize;
-use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{CommandError, CommandResult};
 
@@ -29,7 +29,7 @@ pub struct LibraryState {
 }
 
 impl LibraryState {
-    pub fn open(db_path: PathBuf, artwork_cache: PathBuf) -> antistreaming_library::Result<Self> {
+    pub fn open(db_path: PathBuf, artwork_cache: PathBuf) -> unsub_library::Result<Self> {
         let mut artwork_reader = Library::open(&db_path)?;
         artwork_reader.set_artwork_cache(artwork_cache);
         Ok(Self {
@@ -48,7 +48,7 @@ impl LibraryState {
 
     /// Runs a change that touches files (tag writes, moves, the Trash) on its own connection,
     /// taking turns with imports, so the song list stays responsive meanwhile.
-    pub(crate) fn with_writer<T>(&self, change: impl FnOnce(&mut Library) -> antistreaming_library::Result<T>) -> CommandResult<T> {
+    pub(crate) fn with_writer<T>(&self, change: impl FnOnce(&mut Library) -> unsub_library::Result<T>) -> CommandResult<T> {
         let _turn = self.scan_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut library = Library::open(&self.db_path)?;
         Ok(change(&mut library)?)
@@ -56,7 +56,7 @@ impl LibraryState {
 
     /// Where the library keeps its files, defaulting to the folder rips, podcasts and purchases
     /// already go to.
-    pub fn media_folder(&self, default: &Path) -> antistreaming_library::Result<PathBuf> {
+    pub fn media_folder(&self, default: &Path) -> unsub_library::Result<PathBuf> {
         let mut library = self.queries();
         match library.media_settings()?.folder {
             Some(folder) => Ok(folder),
@@ -77,7 +77,7 @@ impl LibraryState {
     }
 
     /// The original art, or a cached JPEG thumbnail when the view only needs `size` pixels.
-    pub fn artwork(&self, track_id: i64, size: Option<u32>) -> Option<antistreaming_library::Artwork> {
+    pub fn artwork(&self, track_id: i64, size: Option<u32>) -> Option<unsub_library::Artwork> {
         let library = self.artwork_reader.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match size {
             Some(size) => library.artwork_thumbnail(track_id, size),
@@ -285,7 +285,7 @@ pub fn library_organize(app: AppHandle) {
             Ok(report) => format!("Organized {} files; {} couldn't be moved", report.moved, report.failed.len()),
             Err(error) => format!("Couldn't organize the library: {error}"),
         };
-        let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+        let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
         let _ = app.emit(CHANGED_EVENT, ());
     });
 }
@@ -364,7 +364,7 @@ pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
             Err(error) => eprintln!("[library] import failed: {error}"),
         }
         if let Some(message) = scan_notice(&result) {
-            let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+            let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
         }
         let _ = app.emit(CHANGED_EVENT, ());
     });

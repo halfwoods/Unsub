@@ -68,12 +68,9 @@ impl MetadataClient for UreqClient {
     }
 }
 
-/// `AntiStreaming/<version> ( local music player )`, the shape MusicBrainz asks for.
+/// `Unsub/<version> ( local music player )`, the shape MusicBrainz asks for.
 pub(crate) fn user_agent() -> String {
-    format!(
-        "AntiStreaming/{} ( local music player )",
-        env!("CARGO_PKG_VERSION")
-    )
+    format!("Unsub/{} ( local music player )", env!("CARGO_PKG_VERSION"))
 }
 
 fn is_musicbrainz(url: &str) -> bool {
@@ -139,10 +136,7 @@ mod tests {
     fn user_agent_names_the_app_and_version() {
         assert_eq!(
             user_agent(),
-            format!(
-                "AntiStreaming/{} ( local music player )",
-                env!("CARGO_PKG_VERSION")
-            )
+            format!("Unsub/{} ( local music player )", env!("CARGO_PKG_VERSION"))
         );
     }
 

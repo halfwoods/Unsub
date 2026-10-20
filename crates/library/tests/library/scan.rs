@@ -1,7 +1,6 @@
 use std::fs::{self, File};
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Library, MediaKind};
 use lofty::TextEncoding;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -10,6 +9,7 @@ use lofty::mpeg::MpegFile;
 use lofty::tag::{Accessor, ItemKey};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{Library, MediaKind};
 
 use crate::common::{
     FIXTURE_COUNT, MUSIC_COUNT, all_kinds, copy_fixtures, fixtures_dir, scan, scanned_library,

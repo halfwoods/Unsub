@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use antistreaming_library::{Library, Loudness};
 use tauri::{AppHandle, Manager};
+use unsub_library::{Library, Loudness};
 
 use crate::library::LibraryState;
 
@@ -73,8 +73,8 @@ fn measure(app: &AppHandle, cancel: &AtomicBool) {
             }
             // Skipped like an unmeasurable song, for this session only: nothing is recorded, so it is
             // measured once it is local again.
-            let measured = decode_if_local(&path, antistreaming_library::is_dataless, |path| {
-                antistreaming_playback::analyze_loudness(path, &mut |_, _| {}, cancel)
+            let measured = decode_if_local(&path, unsub_library::is_dataless, |path| {
+                unsub_playback::analyze_loudness(path, &mut |_, _| {}, cancel)
                     .ok()
                     .filter(|l| l.integrated_lufs.is_finite() && l.true_peak_dbtp.is_finite())
             });

@@ -8,7 +8,7 @@
 //!
 //! Analysis is cheap in an optimized build (about a thousand times faster than real time) but
 //! its FFT is generic code compiled into this crate, so an unoptimized build needs this crate
-//! optimized to keep up: the workspace's `[profile.dev.package.antistreaming-visualize]` does that.
+//! optimized to keep up: the workspace's `[profile.dev.package.unsub-visualize]` does that.
 //!
 //! Beat detection needs the 2048-sample window to be short against the beat, so it works from
 //! about 32 kHz upwards; below that spectrum, waveform and loudness are still right but beats

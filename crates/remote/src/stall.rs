@@ -1,7 +1,7 @@
 //! A per-read timeout for ureq, which only offers whole-body budgets.
 //!
 //! Every wait for incoming bytes is capped at the stall timeout, so a transfer may take as long
-//! as it likes provided data keeps arriving. This is the mechanism of `antistreaming-podcasts`'
+//! as it likes provided data keeps arriving. This is the mechanism of `unsub-podcasts`'
 //! `stall` module, copied here because that module is private to its crate.
 
 use std::time::Duration;

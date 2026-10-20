@@ -4,11 +4,11 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_library::{GainMode, MediaKind};
-use antistreaming_playback::{Equalizer, Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent, TrackOptions};
-use antistreaming_remote::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_library::{GainMode, MediaKind};
+use unsub_playback::{Equalizer, Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent, TrackOptions};
+use unsub_remote::Client;
 
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
@@ -182,7 +182,7 @@ impl PlaybackState {
 
     /// Writes the bookmark of the song being kept: every `PLACE_SAVED_EVERY_MS` of playback, and
     /// when it pauses, stops or gives way to another song. Finishing a song forgets it.
-    fn remember_place(&self, library: &LibraryState, event: &PlayerEvent) -> antistreaming_library::Result<()> {
+    fn remember_place(&self, library: &LibraryState, event: &PlayerEvent) -> unsub_library::Result<()> {
         let mut slot = self.place();
         match event {
             PlayerEvent::Position { track_id, position_ms, .. } => {
@@ -248,7 +248,7 @@ impl PlaybackState {
             return Ok(Located::Shared { client, song_id, library, cache });
         }
         let path = tracks.path(source, track_id)?;
-        Ok(if antistreaming_library::is_dataless(&path) { Located::ICloud(path) } else { Located::Ready(path) })
+        Ok(if unsub_library::is_dataless(&path) { Located::ICloud(path) } else { Located::Ready(path) })
     }
 
     /// What the engine is told about a song beyond its file: Sound Check's gain, and which album
@@ -384,7 +384,7 @@ impl Located {
         match self {
             Self::Ready(path) => Ok(path),
             Self::ICloud(path) => {
-                antistreaming_library::ensure_local(&path, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
+                unsub_library::ensure_local(&path, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
                 mark_local(app, track_id);
                 Ok(path)
             }
@@ -423,7 +423,7 @@ pub(crate) fn now_unix() -> i64 {
 /// does the work that can wait on SQLite or the webview, in the order events happened.
 pub fn spawn_event_worker(app: AppHandle) -> std::io::Result<Sender<PlayerEvent>> {
     let (events, received) = mpsc::channel();
-    std::thread::Builder::new().name("antistreaming-player-events".into()).spawn(move || {
+    std::thread::Builder::new().name("unsub-player-events".into()).spawn(move || {
         for event in received {
             handle_event(&app, event);
         }
@@ -638,7 +638,7 @@ pub struct EqualizerPreset {
 
 #[tauri::command]
 pub fn player_equalizer_presets() -> Vec<EqualizerPreset> {
-    antistreaming_playback::PRESETS.iter().map(|p| EqualizerPreset { name: p.name, bands: p.bands }).collect()
+    unsub_playback::PRESETS.iter().map(|p| EqualizerPreset { name: p.name, bands: p.bands }).collect()
 }
 
 /// Preferences › Playback › Crossfade Songs, in seconds; `None` turns it off.

@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_applemusic::{Located, MediaType, MusicLibrary, MusicLibraryItem, Ownership, PlaylistKind as MusicPlaylistKind};
-use antistreaming_library::{ExternalStats, Library, MatchQuality, MediaKind, PlaylistKind, TrackOverrides, TrackQuery};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use unsub_applemusic::{Located, MediaType, MusicLibrary, MusicLibraryItem, Ownership, PlaylistKind as MusicPlaylistKind};
+use unsub_library::{ExternalStats, Library, MatchQuality, MediaKind, PlaylistKind, TrackOverrides, TrackQuery};
 
 use crate::collection::external;
 use crate::error::{CommandError, CommandResult};
@@ -119,17 +119,17 @@ pub struct ImportSummary {
     failed: usize,
     playlists_created: usize,
     playlists_updated: usize,
-    /// Playlist entries whose song isn't in AntiStreaming (yet); they're left out, not faked.
+    /// Playlist entries whose song isn't in Unsub (yet); they're left out, not faked.
     entries_skipped: usize,
 }
 
-/// Music stores half stars (10, 30, …); AntiStreaming's ratings are whole stars like iTunes 10.
+/// Music stores half stars (10, 30, …); Unsub's ratings are whole stars like iTunes 10.
 fn whole_stars(rating: u8) -> u8 {
     ((u16::from(rating) + 10) / 20 * 20).min(100) as u8
 }
 
 /// What kind of song this is here, or `None` for the items that never have a file to bring in:
-/// streams, and the videos and other media AntiStreaming has no kind for.
+/// streams, and the videos and other media Unsub has no kind for.
 fn file_kind(item: &MusicLibraryItem) -> Option<MediaKind> {
     if item.ownership == Ownership::Subscription {
         return None;
@@ -237,7 +237,7 @@ fn import(
     located: &Located,
     mapping: &mut PlaylistMapping,
     progress: &mut dyn FnMut(ImportProgress),
-) -> antistreaming_library::Result<ImportSummary> {
+) -> unsub_library::Result<ImportSummary> {
     let everything = TrackQuery { kind: None, ..TrackQuery::default() };
     let plan = Plan::new(music, located);
 
@@ -348,7 +348,7 @@ fn report(app: &AppHandle, result: Result<ImportSummary, String>) {
             }
             if s.entries_skipped > 0 {
                 lines.push(format!(
-                    "{} playlist entries were left out because those songs aren't in AntiStreaming yet; add them and import again.",
+                    "{} playlist entries were left out because those songs aren't in Unsub yet; add them and import again.",
                     s.entries_skipped
                 ));
             }
@@ -366,9 +366,9 @@ fn emit_progress(app: &AppHandle, progress: Option<ImportProgress>) {
 
 fn read_music(xml: Option<PathBuf>) -> Result<MusicLibrary, String> {
     match xml {
-        Some(path) => antistreaming_applemusic::read_xml_library(&path).map_err(|e| e.to_string()),
+        Some(path) => unsub_applemusic::read_xml_library(&path).map_err(|e| e.to_string()),
         #[cfg(target_os = "macos")]
-        None => antistreaming_applemusic::read_system_music_library().map_err(|e| e.to_string()),
+        None => unsub_applemusic::read_system_music_library().map_err(|e| e.to_string()),
         #[cfg(not(target_os = "macos"))]
         None => Err("Reading the Music app directly needs macOS; choose an exported Library XML.".to_owned()),
     }
@@ -376,10 +376,10 @@ fn read_music(xml: Option<PathBuf>) -> Result<MusicLibrary, String> {
 
 /// Looks for the songs whose files Music can't find. Only directories are listed, so nothing in
 /// an iCloud folder is downloaded.
-fn locate(music: &MusicLibrary, folder: &Path, progress: &mut dyn FnMut(ImportProgress)) -> antistreaming_applemusic::Result<Located> {
+fn locate(music: &MusicLibrary, folder: &Path, progress: &mut dyn FnMut(ImportProgress)) -> unsub_applemusic::Result<Located> {
     let wanted: Vec<MusicLibraryItem> =
         music.items.iter().filter(|item| !item.file_present && file_kind(item).is_some()).cloned().collect();
-    antistreaming_applemusic::locate_in_folder(&wanted, folder, &mut |found| {
+    unsub_applemusic::locate_in_folder(&wanted, folder, &mut |found| {
         progress(ImportProgress { stage: ImportStage::Locating, done: found.done, total: found.total });
     })
 }
@@ -438,8 +438,8 @@ pub fn import_music_cancel(state: State<'_, ImportState>) {
 
 #[cfg(test)]
 mod tests {
-    use antistreaming_applemusic::{Confidence, LocatedFile, MusicPlaylist};
     use tempfile::TempDir;
+    use unsub_applemusic::{Confidence, LocatedFile, MusicPlaylist};
 
     use super::*;
     use crate::test_support::track;

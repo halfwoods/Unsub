@@ -3,11 +3,11 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_applemusic::{MediaType, MusicLibraryItem, Ownership};
-use antistreaming_library::{ExternalTrack, MatchQuality};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use unsub_applemusic::{MediaType, MusicLibraryItem, Ownership};
+use unsub_library::{ExternalTrack, MatchQuality};
 
 use crate::error::{CommandError, CommandResult};
 use crate::library::{self, LibraryState};
@@ -245,7 +245,7 @@ fn finish_load(app: &AppHandle, source: &str, result: Result<Vec<MusicLibraryIte
 pub fn collection_load_music_app(app: AppHandle) {
     // The first call blocks on the privacy prompt, so never run it on the IPC thread.
     std::thread::spawn(move || {
-        let result = antistreaming_applemusic::read_system_library().map_err(|e| e.to_string());
+        let result = unsub_applemusic::read_system_library().map_err(|e| e.to_string());
         finish_load(&app, "Music", result);
     });
 }
@@ -263,7 +263,7 @@ pub fn collection_load_xml(app: AppHandle) {
     app.dialog().file().set_title("Choose an Exported Library").add_filter("Library XML", &["xml"]).pick_file(move |file| {
         let Some(path) = file.and_then(|f| f.into_path().ok()) else { return };
         std::thread::spawn(move || {
-            let result = antistreaming_applemusic::read_xml(&path).map_err(|e| e.to_string());
+            let result = unsub_applemusic::read_xml(&path).map_err(|e| e.to_string());
             finish_load(&handle, "Library XML", result);
         });
     });
@@ -310,7 +310,7 @@ pub struct DownloadRequest {
 }
 
 /// "Download from iCloud" for purchased and uploaded/matched songs. macOS asks once before
-/// AntiStreaming may control Music; subscription songs aren't downloadable and are never sent.
+/// Unsub may control Music; subscription songs aren't downloadable and are never sent.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<DownloadRequest> {
@@ -363,7 +363,7 @@ pub fn collection_download_from_icloud() -> CommandResult<()> {
     Err(CommandError::from("Downloading from iCloud through Music needs macOS.".to_owned()))
 }
 
-/// Adds every owned file the Music app has that AntiStreaming doesn't, in one import.
+/// Adds every owned file the Music app has that Unsub doesn't, in one import.
 #[tauri::command]
 pub fn collection_import_owned(
     app: AppHandle,

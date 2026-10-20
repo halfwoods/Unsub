@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{MediaKind, TrackOverrides};
-use antistreaming_podcasts::{Episode, Feed, FeedSettings, Podcasts};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_library::{MediaKind, TrackOverrides};
+use unsub_podcasts::{Episode, Feed, FeedSettings, Podcasts};
 
 use crate::error::{CommandError, CommandResult};
 use crate::library::{self, LibraryState};
@@ -14,7 +14,7 @@ use crate::library::{self, LibraryState};
 pub const CHANGED_EVENT: &str = "podcasts://changed";
 pub const PROGRESS_EVENT: &str = "podcasts://progress";
 
-fn to_error(error: antistreaming_podcasts::Error) -> CommandError {
+fn to_error(error: unsub_podcasts::Error) -> CommandError {
     CommandError::from(error.to_string())
 }
 
@@ -35,7 +35,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl PodcastsState {
-    pub fn open(data_dir: &std::path::Path, download_dir: PathBuf) -> antistreaming_podcasts::Result<Self> {
+    pub fn open(data_dir: &std::path::Path, download_dir: PathBuf) -> unsub_podcasts::Result<Self> {
         let db_path = data_dir.join("Podcasts.sqlite");
         let tracks_path = data_dir.join("PodcastTracks.json");
         let tracks = std::fs::read(&tracks_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();

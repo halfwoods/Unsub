@@ -5,7 +5,7 @@
 //! discover()  ->  plan(device, items, playlists)  ->  apply(device, plan, items, playlists, ...)
 //! ```
 //!
-//! The device keeps `.antistreaming/manifest.json`, the record of the files this app put there. A
+//! The device keeps `.unsub/manifest.json`, the record of the files this app put there. A
 //! re-sync copies only what changed and deletes only what the manifest lists, so the user's own
 //! files on the player are never touched. Every write goes to a temporary name first and is
 //! renamed into place, and the manifest is saved atomically after each batch, so pulling the cable

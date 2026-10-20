@@ -43,7 +43,7 @@ function LoginFields({
 
 /** What a shared library shows until it's signed in to: iTunes asked for a shared library's password in place. */
 export function SharedLogin({ library }: { library: SharedLibrary }) {
-  const [username, setUsername] = useState("antistreaming");
+  const [username, setUsername] = useState("unsub");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +64,7 @@ export function SharedLogin({ library }: { library: SharedLibrary }) {
         <h1>{library.name}</h1>
         <p>
           {library.discovered
-            ? "This library is shared with a password. Its owner can find the user name and password in AntiStreaming's Preferences › Sharing."
+            ? "This library is shared with a password. Its owner can find the user name and password in Unsub's Preferences › Sharing."
             : "Sign in to this server with your account on it."}
         </p>
         <div className="prefs-grid shared-fields">
@@ -108,7 +108,7 @@ export function ConnectToServer() {
     <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div className="sheet connect-sheet" role="dialog" aria-label="Connect to Server">
         <h2 className="first-sync-title">Connect to Server</h2>
-        <p className="prefs-note">A Navidrome or other Subsonic server, or an AntiStreaming library you reach by address.</p>
+        <p className="prefs-note">A Navidrome or other Subsonic server, or an Unsub library you reach by address.</p>
         <div className="prefs-grid">
           <label className="prefs-label" htmlFor="server-url">
             Address:

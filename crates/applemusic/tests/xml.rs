@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_applemusic::{
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use tempfile::TempDir;
+use unsub_applemusic::{
     Error, MediaType, MusicLibrary, MusicLibraryItem, MusicPlaylist, Ownership, PlaylistKind,
     read_xml, read_xml_library,
 };
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use tempfile::TempDir;
 
 /// Files the fixture's "exists" locations point at, relative to the staged media folder.
 const MEDIA_FILES: &[&str] = &[

@@ -308,7 +308,7 @@ export type PlaySource =
   | { type: "cd"; discId: string }
   | { type: "shared"; library: string };
 
-/** A library under SHARED: another AntiStreaming Mac found on the network, or a server added by hand. */
+/** A library under SHARED: another Unsub Mac found on the network, or a server added by hand. */
 export interface SharedLibrary {
   /** "peer:<name>" or "server:<url>". */
   id: string;
@@ -499,7 +499,7 @@ export interface SharingSettings {
   password: string;
   /** Converts streams to at most this rate when a phone doesn't ask for one; null sends originals. */
   maxKbps: number | null;
-  /** What other AntiStreaming Macs see under SHARED. */
+  /** What other Unsub Macs see under SHARED. */
   sharedName: string;
 }
 

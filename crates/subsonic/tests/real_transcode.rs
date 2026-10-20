@@ -8,9 +8,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use antistreaming_playback::{Decoder, Target, TranscodeOptions, transcode_stream};
-use antistreaming_subsonic::{Error, StreamFormat};
 use common::*;
+use unsub_playback::{Decoder, Target, TranscodeOptions, transcode_stream};
+use unsub_subsonic::{Error, StreamFormat};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../playback/tests/fixtures/sine.flac")

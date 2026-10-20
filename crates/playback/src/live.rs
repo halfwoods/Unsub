@@ -122,7 +122,7 @@ impl LiveDecoder {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         thread::Builder::new()
-            .name("antistreaming-live".into())
+            .name("unsub-live".into())
             .spawn(move || run(source, hint, &sender, &flag))?;
         Ok(LiveDecoder { messages, stop })
     }

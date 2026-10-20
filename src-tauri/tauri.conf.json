@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AntiStreaming",
+  "productName": "Unsub",
   "version": "0.1.0",
-  "identifier": "org.antistreaming.app",
+  "identifier": "io.github.halfwoods.unsub",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AntiStreaming",
+        "title": "Unsub",
         "width": 1100,
         "height": 720,
         "minWidth": 820,
@@ -31,7 +31,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE: run `pnpm tauri signer generate -w ~/.tauri/antistreaming.key`, then paste the contents of the .pub file here. Until then the app never looks for updates.",
+      "pubkey": "REPLACE: run `pnpm tauri signer generate -w ~/.tauri/unsub.key`, then paste the contents of the .pub file here. Until then the app never looks for updates.",
       "endpoints": ["https://github.com/halfwoods/Unsub/releases/latest/download/latest.json"],
       "requireSignedVersion": true,
       "windows": { "installMode": "passive" }

@@ -1,4 +1,4 @@
-use antistreaming_ipod::{Error, apply_sync, clear_play_counts, plan_sync, read_database};
+use unsub_ipod::{Error, apply_sync, clear_play_counts, plan_sync, read_database};
 
 use super::*;
 
@@ -115,7 +115,7 @@ fn a_hash58_device_without_a_firewire_guid_is_refused() {
 #[test]
 fn a_damaged_bookkeeping_file_is_an_error_not_a_guess() {
     let fake = fake_classic();
-    fs::write(itunes_file(&fake, "AntiStreaming.json"), b"{ not json").unwrap();
+    fs::write(itunes_file(&fake, "Unsub.json"), b"{ not json").unwrap();
     let ipod = opened(&fake);
     let current = read_database(&ipod).unwrap();
 

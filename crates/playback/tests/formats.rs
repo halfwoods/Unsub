@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use antistreaming_playback::{Backend, Decoder};
+use unsub_playback::{Backend, Decoder};
 
 fn open(file: &str) -> Decoder {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,7 +31,7 @@ fn symphonia_keeps_every_format_it_can_read() {
 
 #[cfg(feature = "ffmpeg")]
 mod ffmpeg {
-    use antistreaming_playback::ChannelLayout;
+    use unsub_playback::ChannelLayout;
 
     use super::*;
     fn decode_to_end(decoder: &mut Decoder) -> Vec<f32> {

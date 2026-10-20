@@ -1,4 +1,4 @@
-use antistreaming_podcasts::Error;
+use unsub_podcasts::Error;
 
 use crate::common::Env;
 

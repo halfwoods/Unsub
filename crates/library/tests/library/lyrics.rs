@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Error, Library, Lyrics, LyricsSource, TrackEdits, TrackOverrides};
 use lofty::TextEncoding;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -15,6 +14,7 @@ use lofty::ogg::VorbisFile;
 use lofty::tag::{ItemKey, Tag, TagExt, TagType};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{Error, Library, Lyrics, LyricsSource, TrackEdits, TrackOverrides};
 
 use crate::common::{
     added_ids, all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track,

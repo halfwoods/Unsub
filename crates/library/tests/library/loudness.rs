@@ -2,10 +2,6 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{
-    Gain, GainMode, Library, Loudness, LoudnessSource, MediaKind, Track, TrackEdits, TrackLoudness,
-    TrackOverrides, itunes_soundcheck,
-};
 use lofty::TextEncoding;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -15,6 +11,10 @@ use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst, Mp4File};
 use lofty::tag::{ItemKey, Tag, TagType};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{
+    Gain, GainMode, Library, Loudness, LoudnessSource, MediaKind, Track, TrackEdits, TrackLoudness,
+    TrackOverrides, itunes_soundcheck,
+};
 
 use crate::common::{
     added_ids, all_kinds, copy_fixtures, library_of, rewind_schema, scan, scanned_library, track,
@@ -366,7 +366,7 @@ fn analyzed_loudness_is_stored_and_checked() {
         assert!(
             matches!(
                 library.set_loudness(id, &bad),
-                Err(antistreaming_library::Error::InvalidLoudness(_))
+                Err(unsub_library::Error::InvalidLoudness(_))
             ),
             "{bad:?}"
         );
@@ -380,7 +380,7 @@ fn analyzed_loudness_is_stored_and_checked() {
                 state: None
             }
         ),
-        Err(antistreaming_library::Error::TrackNotFound(9_999))
+        Err(unsub_library::Error::TrackNotFound(9_999))
     ));
     assert_eq!(
         library.track(id).unwrap().unwrap().loudness.unwrap().lufs,
@@ -539,7 +539,7 @@ fn an_albums_stated_loudness_wins_over_combining() {
         )
         .unwrap();
     let album = library
-        .albums(&antistreaming_library::TrackQuery::default())
+        .albums(&unsub_library::TrackQuery::default())
         .unwrap();
     let abbey_road = album.iter().find(|a| a.album == "Abbey Road").unwrap();
 

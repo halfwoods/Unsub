@@ -47,7 +47,7 @@ export function ImportSheet({ preview }: { preview: ImportPreview }) {
               <span className="import-library-path">{folder ?? "None chosen"}</span>
             </div>
             <p className="import-library-note">
-              AntiStreaming looks at the names of the files there to find your songs. Songs stored in iCloud aren't downloaded. Nothing in the
+              Unsub looks at the names of the files there to find your songs. Songs stored in iCloud aren't downloaded. Nothing in the
               folder is changed, moved or deleted.
             </p>
           </>

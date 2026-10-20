@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
   <key>NSAppleMusicUsageDescription</key>
-  <string>AntiStreaming reads your Music library to show which songs you stream but don't own yet, and to import the files you already own.</string>
+  <string>Unsub reads your Music library to show which songs you stream but don't own yet, and to import the files you already own.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>AntiStreaming asks Music to download the songs you bought or uploaded to iCloud, so it can import them.</string>
+  <string>Unsub asks Music to download the songs you bought or uploaded to iCloud, so it can import them.</string>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>AntiStreaming finds the libraries other people share on your network, and shares yours with them and your phone.</string>
+  <string>Unsub finds the libraries other people share on your network, and shares yours with them and your phone.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>AntiStreaming's visualizer can react to sound around you, like a record player. Nothing is recorded or kept.</string>
+  <string>Unsub's visualizer can react to sound around you, like a record player. Nothing is recorded or kept.</string>
   <key>NSBonjourServices</key>
   <array>
-    <string>_antistreaming._tcp</string>
+    <string>_unsub._tcp</string>
   </array>
 </dict>
 </plist>

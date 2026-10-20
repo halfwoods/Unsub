@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Error, Library, PlaylistKind};
 use tempfile::TempDir;
+use unsub_library::{Error, Library, PlaylistKind};
 
 use crate::common::{all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 
@@ -132,7 +132,7 @@ fn relinking_points_a_track_at_a_new_file_and_keeps_its_history() {
     );
     assert_eq!(
         library
-            .tracks(&antistreaming_library::TrackQuery {
+            .tracks(&unsub_library::TrackQuery {
                 playlist: Some(playlist),
                 kind: None,
                 ..Default::default()

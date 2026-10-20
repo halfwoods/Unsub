@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 
-use antistreaming_ipod::{
-    Error, SyncTrack, apply_sync, artwork_supported, plan_sync, read_database,
-};
+use unsub_ipod::{Error, SyncTrack, apply_sync, artwork_supported, plan_sync, read_database};
 
 use super::*;
 use crate::common::artwork::{self as art, ForeignImage, Thumb, foreign_database, jpeg, png};
@@ -429,18 +427,14 @@ fn the_previous_artwork_database_is_kept_beside_the_new_one() {
     );
 
     assert_eq!(
-        fs::read(art_dir(&fake).join("ArtworkDB.antistreaming-backup")).unwrap(),
+        fs::read(art_dir(&fake).join("ArtworkDB.unsub-backup")).unwrap(),
         original
     );
     assert_eq!(
-        fs::read(art_dir(&fake).join("ArtworkDB.antistreaming-original")).unwrap(),
+        fs::read(art_dir(&fake).join("ArtworkDB.unsub-original")).unwrap(),
         original
     );
-    assert!(
-        !ithmb_files(&fake)
-            .iter()
-            .any(|n| n.ends_with(".antistreaming-tmp"))
-    );
+    assert!(!ithmb_files(&fake).iter().any(|n| n.ends_with(".unsub-tmp")));
 }
 
 #[test]
@@ -608,10 +602,7 @@ impl Untouched {
     }
 }
 
-fn apply_covered(
-    fake: &FakeIpod,
-    tracks: &[SyncTrack],
-) -> Result<antistreaming_ipod::Database, Error> {
+fn apply_covered(fake: &FakeIpod, tracks: &[SyncTrack]) -> Result<unsub_ipod::Database, Error> {
     let plan = plan(fake, tracks, &[]);
     apply_sync(
         &opened(fake),
@@ -634,7 +625,7 @@ fn a_failure_writing_the_itunesdb_takes_the_appended_thumbnails_back_out() {
         "Hunter",
         png(300, 300, [255, 0, 0]),
     )];
-    fs::create_dir(itunes_file(&fake, "iTunesDB.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesDB.unsub-tmp")).unwrap();
     let untouched = Untouched::capture(&fake);
 
     let result = apply_covered(&fake, &tracks);
@@ -653,14 +644,14 @@ fn a_failure_staging_the_artwork_database_changes_nothing_either() {
         "Hunter",
         png(300, 300, [255, 0, 0]),
     )];
-    fs::create_dir(art_dir(&fake).join("ArtworkDB.antistreaming-tmp")).unwrap();
+    fs::create_dir(art_dir(&fake).join("ArtworkDB.unsub-tmp")).unwrap();
     let untouched = Untouched::capture(&fake);
 
     let result = apply_covered(&fake, &tracks);
 
     assert!(result.is_err());
     untouched.assert_holds(&fake);
-    assert!(!itunes_file(&fake, "iTunesDB.antistreaming-tmp").exists());
+    assert!(!itunes_file(&fake, "iTunesDB.unsub-tmp").exists());
 }
 
 #[test]
@@ -673,7 +664,7 @@ fn a_fresh_device_leaves_no_thumbnail_files_behind_when_the_sync_fails() {
         "Hunter",
         png(300, 300, [255, 0, 0]),
     )];
-    fs::create_dir(itunes_file(&fake, "iTunesDB.antistreaming-tmp")).unwrap();
+    fs::create_dir(itunes_file(&fake, "iTunesDB.unsub-tmp")).unwrap();
 
     let result = apply_covered(&fake, &tracks);
 
@@ -885,8 +876,7 @@ fn a_changed_cover_key_replaces_the_cover_and_a_changed_cover_with_the_same_key_
 /// The cover key the bookkeeping file holds for a library track.
 fn plan_key(fake: &FakeIpod, library_id: i64) -> Option<u64> {
     let json: serde_json::Value =
-        serde_json::from_slice(&fs::read(itunes_file(fake, "AntiStreaming.json")).unwrap())
-            .unwrap();
+        serde_json::from_slice(&fs::read(itunes_file(fake, "Unsub.json")).unwrap()).unwrap();
     json["tracks"]
         .as_array()
         .unwrap()

@@ -462,7 +462,7 @@ mod resync {
                 "Music/Other - Three.mp3",
             ]
         );
-        assert_eq!(player.folders(), [".antistreaming", "Music"]);
+        assert_eq!(player.folders(), [".unsub", "Music"]);
     }
 
     /// In memory, because the real thing flushes every file to disk, which is the right call for a
@@ -1201,13 +1201,13 @@ mod safety {
     fn an_unreadable_manifest_stops_everything() {
         let (player, library) = (Player::new(), Library::new());
         let items = [library.track(1, "A", "B", "One", 1, "flac")];
-        player.user_file(".antistreaming/manifest.json", b"{ this is not json");
+        player.user_file(".unsub/manifest.json", b"{ this is not json");
         assert!(matches!(
             plan_with(target(&player.storage, &rockbox()), &items, &[]),
             Err(Error::Manifest(_))
         ));
         player.user_file(
-            ".antistreaming/manifest.json",
+            ".unsub/manifest.json",
             br#"{"version":99,"revision":0,"items":{},"playlists":{},"pending":[],"trash":[]}"#,
         );
         assert!(matches!(
@@ -1292,7 +1292,7 @@ mod safety {
             player
                 .tree()
                 .keys()
-                .filter(|path| !path.starts_with(".antistreaming/"))
+                .filter(|path| !path.starts_with(".unsub/"))
                 .count(),
             user.len()
         );
@@ -1765,7 +1765,7 @@ mod devices {
 
         assert!(mount.join("Music/A/B/1-01 Song.flac").is_file());
         assert!(mount.join("Playlists/Mix.m3u8").is_file());
-        assert!(mount.join(".antistreaming/manifest.json").is_file());
+        assert!(mount.join(".unsub/manifest.json").is_file());
         // The .rockbox folder was not touched.
         assert_eq!(fs::read_dir(mount.join(".rockbox")).unwrap().count(), 0);
     }
@@ -1860,7 +1860,7 @@ mod devices {
         assert_eq!(
             memory.paths(),
             [
-                ".antistreaming/manifest.json",
+                ".unsub/manifest.json",
                 "Music/A/B/1-01 One.flac",
                 "Music/A/B/1-02 Two.ogg",
                 "Playlists/Mix.m3u8",

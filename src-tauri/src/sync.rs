@@ -4,12 +4,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_devicesync::{Device as Player, Profile, SyncItem};
-use antistreaming_ipod::{Ipod, IpodMediaKind, SyncPlaylist, SyncProgress, SyncSupport, SyncTrack};
-use antistreaming_library::{Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
-use antistreaming_playback::{Target, TranscodeOptions};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use unsub_devicesync::{Device as Player, Profile, SyncItem};
+use unsub_ipod::{Ipod, IpodMediaKind, SyncPlaylist, SyncProgress, SyncSupport, SyncTrack};
+use unsub_library::{Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
+use unsub_playback::{Target, TranscodeOptions};
 
 use crate::devices::{self, DevicesState};
 use crate::error::{CommandError, CommandResult};
@@ -253,7 +253,7 @@ fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
         sort_album_artist: track.sort_album_artist.clone(),
         artwork_key: Some(artwork_key(track)),
         // iTunes always wrote Sound Check values; the iPod's own setting decides whether to use them.
-        sound_check: track.loudness.as_ref().map(|l| antistreaming_library::itunes_soundcheck(crate::playback::SOUND_CHECK_LUFS - l.lufs)),
+        sound_check: track.loudness.as_ref().map(|l| unsub_library::itunes_soundcheck(crate::playback::SOUND_CHECK_LUFS - l.lufs)),
         library_id: track.id,
     }
 }
@@ -268,7 +268,7 @@ fn artwork_key(track: &Track) -> u64 {
     hasher.finish()
 }
 
-fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::Result<Chosen> {
+fn select(library: &Library, settings: &SyncSettings) -> unsub_library::Result<Chosen> {
     let all_playlists = library.playlists()?;
     let synced_playlists: Vec<_> = match &settings.music_scope {
         // Syncing everything brings every playlist along, as iTunes did.
@@ -326,9 +326,9 @@ fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::
 /// The iPod as it is now: free space changes as music is added outside the app.
 fn fresh_ipod(devices: &DevicesState, device_id: &str) -> CommandResult<Ipod> {
     let ipod = devices.ipod(device_id)?;
-    let ipod = antistreaming_ipod::open(&ipod.mount_path).map_err(to_error)?;
+    let ipod = unsub_ipod::open(&ipod.mount_path).map_err(to_error)?;
     if !matches!(ipod.sync, SyncSupport::Supported | SyncSupport::NeedsHash58) {
-        return Err(CommandError::from("AntiStreaming can't write to this iPod model's database yet".to_owned()));
+        return Err(CommandError::from("Unsub can't write to this iPod model's database yet".to_owned()));
     }
     Ok(ipod)
 }
@@ -365,7 +365,7 @@ pub async fn device_sync_preview(app: AppHandle, device_id: String) -> CommandRe
     let chosen = select(&app.state::<LibraryState>().queries(), &settings)?;
     if let Some(player) = app.state::<DevicesState>().player(&device_id) {
         let (items, playlists) = for_player(&chosen);
-        let plan = antistreaming_devicesync::plan(&player, &items, &playlists).map_err(to_error)?;
+        let plan = unsub_devicesync::plan(&player, &items, &playlists).map_err(to_error)?;
         let converting: HashSet<i64> = chosen.tracks.iter().filter(|t| player_target(t, &player.profile).is_some()).map(|t| t.id).collect();
         return Ok(SyncPreview {
             tracks: items.len(),
@@ -382,8 +382,8 @@ pub async fn device_sync_preview(app: AppHandle, device_id: String) -> CommandRe
     }
     let ipod = fresh_ipod(&app.state::<DevicesState>(), &device_id)?;
     let selection = for_ipod(&chosen, settings.convert_kbps);
-    let database = antistreaming_ipod::read_database(&ipod).map_err(to_error)?;
-    let plan = antistreaming_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
+    let database = unsub_ipod::read_database(&ipod).map_err(to_error)?;
+    let plan = unsub_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
     Ok(SyncPreview {
         tracks: selection.tracks.len(),
         add: plan.add.len(),
@@ -398,13 +398,10 @@ pub async fn device_sync_preview(app: AppHandle, device_id: String) -> CommandRe
     })
 }
 
-fn for_player(chosen: &Chosen) -> (Vec<SyncItem>, Vec<antistreaming_devicesync::SyncPlaylist>) {
+fn for_player(chosen: &Chosen) -> (Vec<SyncItem>, Vec<unsub_devicesync::SyncPlaylist>) {
     let items = chosen.tracks.iter().map(sync_item).collect();
-    let playlists = chosen
-        .playlists
-        .iter()
-        .map(|(name, items)| antistreaming_devicesync::SyncPlaylist { name: name.clone(), items: items.clone() })
-        .collect();
+    let playlists =
+        chosen.playlists.iter().map(|(name, items)| unsub_devicesync::SyncPlaylist { name: name.clone(), items: items.clone() }).collect();
     (items, playlists)
 }
 
@@ -428,7 +425,7 @@ struct SyncStatus {
 /// Merges what the iPod recorded (plays, skips, ratings) into the library, as iTunes did on
 /// every sync, so the library's counts are what gets written back.
 fn merge_play_counts(app: &AppHandle, ipod: &Ipod) -> CommandResult<bool> {
-    let deltas = antistreaming_ipod::read_play_counts_for_sync_back(ipod).map_err(to_error)?;
+    let deltas = unsub_ipod::read_play_counts_for_sync_back(ipod).map_err(to_error)?;
     if deltas.is_empty() {
         return Ok(false);
     }
@@ -465,7 +462,7 @@ fn run_player_sync(app: &AppHandle, player: &Player, cancel: &AtomicBool) -> Com
     if !summary.skipped.is_empty() {
         let count = summary.skipped.len();
         let message = format!("Synced, but {count} {} couldn't be converted for the player", if count == 1 { "song" } else { "songs" });
-        let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+        let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
     }
     Ok(())
 }
@@ -475,10 +472,10 @@ fn sync_to_player(
     chosen: &Chosen,
     work_dir: &std::path::Path,
     cancel: &AtomicBool,
-    progress: &mut dyn FnMut(antistreaming_devicesync::SyncProgress),
-) -> CommandResult<antistreaming_devicesync::SyncSummary> {
+    progress: &mut dyn FnMut(unsub_devicesync::SyncProgress),
+) -> CommandResult<unsub_devicesync::SyncSummary> {
     let (items, playlists) = for_player(chosen);
-    let plan = antistreaming_devicesync::plan(player, &items, &playlists).map_err(to_error)?;
+    let plan = unsub_devicesync::plan(player, &items, &playlists).map_err(to_error)?;
     let targets: HashMap<i64, (Target, &'static str)> =
         chosen.tracks.iter().filter_map(|t| player_target(t, &player.profile).map(|target| (t.id, target))).collect();
     let mut previous: Option<PathBuf> = None;
@@ -492,12 +489,12 @@ fn sync_to_player(
         let output = work_dir.join(format!("{}.{extension}", item.library_id));
         let options =
             TranscodeOptions { target, max_sample_rate: profile.max_sample_rate, max_bit_depth: profile.max_bit_depth, keep_tags: true };
-        antistreaming_playback::transcode_file(&item.source, &output, &options, &mut |_, _| {}, cancel)
+        unsub_playback::transcode_file(&item.source, &output, &options, &mut |_, _| {}, cancel)
             .map_err(|error| io::Error::other(error.to_string()))?;
         previous = Some(output.clone());
         Ok(output)
     };
-    let result = antistreaming_devicesync::apply(player, &plan, &items, &playlists, &mut prepare, progress, cancel);
+    let result = unsub_devicesync::apply(player, &plan, &items, &playlists, &mut prepare, progress, cancel);
     if let Some(done) = previous {
         let _ = std::fs::remove_file(done);
     }
@@ -509,7 +506,7 @@ fn sync_to_player(
 struct PlayerSyncStatus {
     device_id: String,
     #[serde(flatten)]
-    progress: antistreaming_devicesync::SyncProgress,
+    progress: unsub_devicesync::SyncProgress,
 }
 
 fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandResult<()> {
@@ -524,8 +521,8 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
     let merged = merge_play_counts(app, &ipod)?;
     let settings = app.state::<SyncState>().settings_for(device_id);
     let selection = for_ipod(&select(&app.state::<LibraryState>().queries(), &settings)?, settings.convert_kbps);
-    let database = antistreaming_ipod::read_database(&ipod).map_err(to_error)?;
-    let plan = antistreaming_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
+    let database = unsub_ipod::read_database(&ipod).map_err(to_error)?;
+    let plan = unsub_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
 
     let work_dir = fresh_work_dir(app)?;
     // apply_sync copies each prepared file before asking for the next, so a converted file can
@@ -540,7 +537,7 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
         }
         let (conversion, lossless) = selection.conversions.get(&track.library_id).copied().unwrap_or((Conversion::Copy, false));
         let target = match conversion {
-            Conversion::Copy if antistreaming_playback::ipod_compatible(&track.source_path).unwrap_or(false) => {
+            Conversion::Copy if unsub_playback::ipod_compatible(&track.source_path).unwrap_or(false) => {
                 return Ok(track.source_path.clone());
             }
             // The library's details said it would play, but the file itself disagrees.
@@ -556,7 +553,7 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
             max_bit_depth: Some(IPOD_MAX_BIT_DEPTH),
             keep_tags: true,
         };
-        antistreaming_playback::transcode_file(&track.source_path, &output, &options, &mut |_, _| {}, cancel)
+        unsub_playback::transcode_file(&track.source_path, &output, &options, &mut |_, _| {}, cancel)
             .map_err(|error| io::Error::other(error.to_string()))?;
         previous = Some(output.clone());
         Ok(output)
@@ -566,8 +563,7 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
     };
     let library = app.state::<LibraryState>();
     let mut cover = |library_id: i64| library.artwork(library_id, None).map(|art| art.bytes);
-    let result =
-        antistreaming_ipod::apply_sync(&ipod, &plan, &selection.tracks, &selection.playlists, &mut prepare, &mut cover, &mut progress);
+    let result = unsub_ipod::apply_sync(&ipod, &plan, &selection.tracks, &selection.playlists, &mut prepare, &mut cover, &mut progress);
     if let Some(done) = previous {
         let _ = std::fs::remove_file(done);
     }
@@ -575,7 +571,7 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
     // The library already holds what the iPod recorded, so the iPod's record goes whether or not
     // the sync committed; keeping it would count those plays again next time.
     if merged {
-        antistreaming_ipod::clear_play_counts(&ipod).map_err(to_error)?;
+        unsub_ipod::clear_play_counts(&ipod).map_err(to_error)?;
         let _ = app.emit(library::CHANGED_EVENT, ());
     }
     result.map_err(to_error)?;
@@ -600,7 +596,7 @@ pub fn device_sync(app: AppHandle, state: State<'_, SyncState>, device_id: Strin
         let _ = app.emit(SYNC_EVENT, None::<SyncStatus>);
         if let Err(error) = result {
             let message = if cancel.load(Ordering::Relaxed) { "Sync stopped".to_owned() } else { format!("Sync failed: {error}") };
-            let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+            let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
         }
     });
     Ok(())
@@ -742,8 +738,8 @@ mod tests {
         let player = Player {
             id: "test".into(),
             name: "Test Player".into(),
-            kind: antistreaming_devicesync::DeviceKind::MassStorage,
-            root: antistreaming_devicesync::DeviceRoot::Path(root.path().to_path_buf()),
+            kind: unsub_devicesync::DeviceKind::MassStorage,
+            root: unsub_devicesync::DeviceRoot::Path(root.path().to_path_buf()),
             capacity_bytes: 1 << 40,
             free_bytes: 1 << 40,
             profile,
@@ -773,7 +769,7 @@ mod tests {
         let summary = sync_to_player(&player, &chosen, work.path(), &AtomicBool::new(false), &mut |p| stages.push(p.stage)).unwrap();
         assert_eq!((summary.copied, summary.skipped.len()), (2, 0));
 
-        let mut files: Vec<PathBuf> = walk(root.path()).into_iter().filter(|p| !p.to_string_lossy().contains(".antistreaming")).collect();
+        let mut files: Vec<PathBuf> = walk(root.path()).into_iter().filter(|p| !p.to_string_lossy().contains(".unsub")).collect();
         files.sort();
         let names: Vec<String> = files.iter().map(|p| p.strip_prefix(root.path()).unwrap().to_string_lossy().into_owned()).collect();
         assert!(names.iter().any(|n| n.ends_with("Sine.mp3")), "{names:?}");
@@ -785,7 +781,7 @@ mod tests {
         let text = std::fs::read_to_string(playlist).unwrap();
         assert!(text.find("Beep").unwrap() < text.find("Sine").unwrap(), "{text}");
         assert!(walk(work.path()).is_empty(), "converted files left behind");
-        assert!(stages.contains(&antistreaming_devicesync::SyncStage::Copying));
+        assert!(stages.contains(&unsub_devicesync::SyncStage::Copying));
     }
 
     fn walk(dir: &std::path::Path) -> Vec<PathBuf> {

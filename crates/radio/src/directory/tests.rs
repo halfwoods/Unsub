@@ -148,7 +148,7 @@ fn a_search_asks_for_the_most_voted_working_stations_with_the_name_encoded() {
     assert!(
         request
             .header("user-agent")
-            .is_some_and(|agent| agent.starts_with("AntiStreaming/"))
+            .is_some_and(|agent| agent.starts_with("Unsub/"))
     );
 }
 

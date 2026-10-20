@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 
-use antistreaming_subsonic::Artist;
-use antistreaming_subsonic::{
+use serde_json::Value;
+use unsub_subsonic::Artist;
+use unsub_subsonic::{
     Album, AlbumListKind, Capabilities, Error, Genre, Lyrics, MusicSource, Playlist, PlaylistEdit,
     Result, SearchResult, Server, ServerConfig, Song, Starred, Stream, StreamFormat, Targets,
 };
-use serde_json::Value;
 
 pub const NS: &str = "http://subsonic.org/restapi";
 pub const USER: &str = "alice";

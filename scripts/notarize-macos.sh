@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Sends an .app or .dmg to Apple's notary service, waits for the verdict and staples the ticket.
 #
-#   scripts/notarize-macos.sh path/to/AntiStreaming.app
-#   scripts/notarize-macos.sh path/to/AntiStreaming.dmg
+#   scripts/notarize-macos.sh path/to/Unsub.app
+#   scripts/notarize-macos.sh path/to/Unsub.dmg
 #
 # Uses the variables Tauri documents for notarization with an Apple ID:
 #   APPLE_ID        the Apple account email

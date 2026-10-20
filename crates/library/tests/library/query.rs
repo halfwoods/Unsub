@@ -1,9 +1,9 @@
 use std::fs;
 
-use antistreaming_library::{Library, MediaKind, SortKey, TrackQuery};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::tag::ItemKey;
+use unsub_library::{Library, MediaKind, SortKey, TrackQuery};
 
 use crate::common::{
     MUSIC_COUNT, all_kinds, copy_fixtures, fixtures_dir, scan, scanned_library, titles,

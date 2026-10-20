@@ -1,4 +1,4 @@
-use antistreaming_ipod::{
+use unsub_ipod::{
     SyncPlan, SyncPlaylist, clear_play_counts, plan_sync, read_database,
     read_play_counts_for_sync_back,
 };

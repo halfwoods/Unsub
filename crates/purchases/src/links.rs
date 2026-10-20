@@ -13,7 +13,7 @@ const BASE_URL: &str = "https://musicbrainz.org/ws/2";
 /// MusicBrainz allows an average of one request per second per client.
 const MIN_INTERVAL: Duration = Duration::from_secs(1);
 const USER_AGENT: &str = concat!(
-    "AntiStreaming/",
+    "Unsub/",
     env!("CARGO_PKG_VERSION"),
     " ( local music player )"
 );

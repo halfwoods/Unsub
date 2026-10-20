@@ -42,7 +42,7 @@ export function SetUpPlayer() {
       <div className="sheet set-up-player" role="dialog" aria-label="Set Up Music Player">
         <h2 className="first-sync-title">Set Up a Music Player</h2>
         <p className="prefs-note">
-          Choose the drive of a USB music player or phone. AntiStreaming syncs your music to it as files and playlists, and never
+          Choose the drive of a USB music player or phone. Unsub syncs your music to it as files and playlists, and never
           touches anything else on it.
         </p>
         <div className="prefs-grid">

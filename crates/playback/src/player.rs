@@ -185,7 +185,7 @@ impl Player {
             // The engine owns the audio stream, which is not `Send` on every platform, so it is
             // built on the thread that will use it.
             thread::Builder::new()
-                .name("antistreaming-playback".into())
+                .name("unsub-playback".into())
                 .spawn(move || {
                     Engine::new(receiver, sender, Arc::new(on_event), shared, host()).run();
                 })?

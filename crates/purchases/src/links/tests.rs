@@ -185,10 +185,7 @@ fn identifies_itself_and_asks_for_json() {
 
     let requests = server.requests();
     assert_eq!(requests.len(), 2);
-    let expected = format!(
-        "AntiStreaming/{} ( local music player )",
-        env!("CARGO_PKG_VERSION")
-    );
+    let expected = format!("Unsub/{} ( local music player )", env!("CARGO_PKG_VERSION"));
     for request in &requests {
         assert_eq!(request.user_agent.as_deref(), Some(expected.as_str()));
         assert!(request.url.contains("fmt=json"), "{}", request.url);

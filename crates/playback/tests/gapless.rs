@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use antistreaming_playback::Decoder;
+use unsub_playback::Decoder;
 
 /// Frames of 440 Hz sine in every gapless fixture; not a multiple of any codec frame size.
 const FRAMES: usize = 43_210;

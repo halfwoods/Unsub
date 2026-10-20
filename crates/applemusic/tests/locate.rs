@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use antistreaming_applemusic::{
+use unsub_applemusic::{
     Confidence, Error, LocateStage, MediaType, MusicLibraryItem, Ownership, locate_in_folder,
 };
 
@@ -162,6 +162,6 @@ fn results_serialize_for_the_app() {
     assert_eq!(json["matched"]["a"]["confidence"], "exact");
     assert_eq!(json["matched"]["a"]["dataless"], false);
     assert_eq!(json["unmatched"], serde_json::json!([]));
-    let restored: antistreaming_applemusic::Located = serde_json::from_value(json).unwrap();
+    let restored: unsub_applemusic::Located = serde_json::from_value(json).unwrap();
     assert_eq!(restored, located);
 }

@@ -7,7 +7,7 @@ import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import "./PartyShuffleView.css";
 
-const ROWS_MIME = "application/x-antistreaming-party-rows";
+const ROWS_MIME = "application/x-unsub-party-rows";
 const COUNTS = [0, 5, 10, 15, 25, 50];
 
 type Row = { track: Track; part: "history" | "current" | "upcoming"; upcomingIndex: number };

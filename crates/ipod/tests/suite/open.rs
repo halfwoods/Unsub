@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use antistreaming_ipod::{DatabaseFormat, Error, IpodFamily, SyncSupport, open};
+use unsub_ipod::{DatabaseFormat, Error, IpodFamily, SyncSupport, open};
 
 use crate::common::mount::FakeIpod;
 use crate::{classic_7g, opened, sample_database};
@@ -182,9 +182,9 @@ fn a_directory_without_a_database_is_not_an_ipod() {
 fn eject_of_a_path_that_is_not_mounted_fails() {
     let fake = classic_7g(&sample_database());
     let mut ipod = opened(&fake);
-    ipod.mount_path = PathBuf::from("/nonexistent/antistreaming-ipod-test");
+    ipod.mount_path = PathBuf::from("/nonexistent/unsub-ipod-test");
 
-    assert!(antistreaming_ipod::eject(&ipod).is_err());
+    assert!(unsub_ipod::eject(&ipod).is_err());
 }
 
 #[test]

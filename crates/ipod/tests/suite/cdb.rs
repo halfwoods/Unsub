@@ -1,4 +1,4 @@
-use antistreaming_ipod::{DatabaseFormat, Error, read_database};
+use unsub_ipod::{DatabaseFormat, Error, read_database};
 
 use crate::common::mount::FakeIpod;
 use crate::{opened, sample_database};
@@ -32,7 +32,7 @@ fn compressed_and_plain_databases_parse_identically() {
     let from_plain = read_database(&opened(&plain)).unwrap();
     let from_compressed = read_database(&opened(&compressed)).unwrap();
 
-    let strip_mount = |mut database: antistreaming_ipod::Database, mount: &std::path::Path| {
+    let strip_mount = |mut database: unsub_ipod::Database, mount: &std::path::Path| {
         for track in &mut database.tracks {
             track.path = track.path.strip_prefix(mount).unwrap().to_path_buf();
         }

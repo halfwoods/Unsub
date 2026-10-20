@@ -5,11 +5,11 @@ mod common;
 
 use std::{io::Write, sync::Arc};
 
-use antistreaming_subsonic::{
+use common::{Resp, error_of, parse_xml};
+use unsub_subsonic::{
     Album, AlbumListKind, Artist, Genre, MusicSource, Playlist, Result, SearchResult, Server,
     ServerConfig, Song, Stream,
 };
-use common::{Resp, error_of, parse_xml};
 
 struct Bare {
     file: tempfile::NamedTempFile,

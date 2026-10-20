@@ -3,9 +3,9 @@
 
 mod common;
 
-use antistreaming_subsonic::{Capabilities, PlaylistEdit, Targets};
 use common::*;
 use serde_json::json;
+use unsub_subsonic::{Capabilities, PlaylistEdit, Targets};
 
 fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|&id| id.to_owned()).collect()

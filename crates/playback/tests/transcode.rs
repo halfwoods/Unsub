@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use antistreaming_playback::{Error, Target, TranscodeOptions, transcode_file};
+use unsub_playback::{Error, Target, TranscodeOptions, transcode_file};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -26,10 +26,8 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(test: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!(
-            "antistreaming-transcode-{}-{test}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("unsub-transcode-{}-{test}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         Scratch(dir)
@@ -56,7 +54,7 @@ mod with_ffmpeg {
     use lofty::probe::Probe;
     use lofty::tag::Accessor;
 
-    use antistreaming_playback::{Decoder, ipod_compatible, transcode_stream};
+    use unsub_playback::{Decoder, ipod_compatible, transcode_stream};
 
     use super::*;
 
@@ -793,7 +791,7 @@ mod with_ffmpeg {
 
 #[cfg(not(feature = "ffmpeg"))]
 mod without_ffmpeg {
-    use antistreaming_playback::transcode_stream;
+    use unsub_playback::transcode_stream;
 
     use super::*;
 

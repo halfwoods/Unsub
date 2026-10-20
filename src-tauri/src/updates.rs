@@ -209,7 +209,7 @@ mod tests {
     use serde_json::json;
 
     const REAL_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyMzQ1Njc4OTBBQkNERUYKUldTYWJjZGVm";
-    const REAL_ENDPOINT: &str = "https://github.com/someone/antistreaming/releases/latest/download/latest.json";
+    const REAL_ENDPOINT: &str = "https://github.com/someone/unsub/releases/latest/download/latest.json";
 
     #[test]
     fn a_real_key_and_endpoint_count_as_configured() {
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn the_shipped_placeholders_do_not() {
-        let placeholder_key = "REPLACE: run `pnpm tauri signer generate -w ~/.tauri/antistreaming.key` and paste the .pub file here";
+        let placeholder_key = "REPLACE: run `pnpm tauri signer generate -w ~/.tauri/unsub.key` and paste the .pub file here";
         let placeholder_endpoint = "https://github.com/REPLACE_OWNER/REPLACE_REPO/releases/latest/download/latest.json";
         assert!(!config_is_real(&json!({ "pubkey": placeholder_key, "endpoints": [REAL_ENDPOINT] })));
         assert!(!config_is_real(&json!({ "pubkey": REAL_KEY, "endpoints": [placeholder_endpoint] })));

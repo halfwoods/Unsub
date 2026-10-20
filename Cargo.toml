@@ -11,18 +11,18 @@ license = "GPL-3.0-or-later"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-antistreaming-library = { path = "crates/library" }
-antistreaming-playback = { path = "crates/playback" }
-antistreaming-ipod = { path = "crates/ipod" }
-antistreaming-applemusic = { path = "crates/applemusic" }
-antistreaming-subsonic = { path = "crates/subsonic" }
-antistreaming-podcasts = { path = "crates/podcasts" }
-antistreaming-purchases = { path = "crates/purchases" }
-antistreaming-cdrip = { path = "crates/cdrip" }
-antistreaming-devicesync = { path = "crates/devicesync" }
-antistreaming-remote = { path = "crates/remote" }
-antistreaming-radio = { path = "crates/radio" }
-antistreaming-visualize = { path = "crates/visualize" }
+unsub-library = { path = "crates/library" }
+unsub-playback = { path = "crates/playback" }
+unsub-ipod = { path = "crates/ipod" }
+unsub-applemusic = { path = "crates/applemusic" }
+unsub-subsonic = { path = "crates/subsonic" }
+unsub-podcasts = { path = "crates/podcasts" }
+unsub-purchases = { path = "crates/purchases" }
+unsub-cdrip = { path = "crates/cdrip" }
+unsub-devicesync = { path = "crates/devicesync" }
+unsub-remote = { path = "crates/remote" }
+unsub-radio = { path = "crates/radio" }
+unsub-visualize = { path = "crates/visualize" }
 
 # Profiles only take effect at the workspace root. Panics unwind (no `panic = "abort"`) so the audio
 # engine can contain a decoder panic on a corrupt file instead of killing the app.
@@ -35,7 +35,7 @@ strip = true
 # The visualizer analyzes the audio beside playback, and its FFT is generic code that is compiled
 # into this crate, so unoptimized it runs at about 30 times real time, not the thousand times it
 # manages optimized.
-[profile.dev.package.antistreaming-visualize]
+[profile.dev.package.unsub-visualize]
 opt-level = 3
 
 # Windows: bindgen overflows the stack of an unoptimised ffmpeg-sys-next build script.

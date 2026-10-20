@@ -1,4 +1,4 @@
-//! `iPod_Control/iTunes/AntiStreaming.json`: which tracks and playlists on the iPod this app put
+//! `iPod_Control/iTunes/Unsub.json`: which tracks and playlists on the iPod this app put
 //! there. A re-sync recognises its own tracks by it, and only ever removes or edits those; anything
 //! iTunes (or another tool) put on the iPod is not in the file and is left alone.
 
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::device::itunes_dir;
 use crate::error::{Error, Result};
 
-const FILE_NAME: &str = "AntiStreaming.json";
+const FILE_NAME: &str = "Unsub.json";
 const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

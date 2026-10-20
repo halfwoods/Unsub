@@ -1,4 +1,4 @@
-use antistreaming_ipod::{Error, SyncPlaylist, read_database, restore_backup};
+use unsub_ipod::{Error, SyncPlaylist, read_database, restore_backup};
 
 use super::*;
 use crate::common::artwork::png;
@@ -6,11 +6,11 @@ use crate::common::db::{Track, play_counts_file};
 use crate::common::shuffle::parse_fixed;
 
 fn backup_file(fake: &FakeIpod) -> PathBuf {
-    itunes_file(fake, "iTunesDB.antistreaming-backup")
+    itunes_file(fake, "iTunesDB.unsub-backup")
 }
 
 fn mapping_json(fake: &FakeIpod) -> serde_json::Value {
-    serde_json::from_slice(&fs::read(itunes_file(fake, "AntiStreaming.json")).unwrap()).unwrap()
+    serde_json::from_slice(&fs::read(itunes_file(fake, "Unsub.json")).unwrap()).unwrap()
 }
 
 fn mapped_library_ids(fake: &FakeIpod) -> Vec<i64> {
@@ -74,7 +74,7 @@ fn two_syncs() -> TwoSyncs {
 
 fn assert_refused_untouched(fake: &FakeIpod, expected: fn(&Error) -> bool) {
     let database = db_bytes(fake);
-    let mapping = fs::read(itunes_file(fake, "AntiStreaming.json")).ok();
+    let mapping = fs::read(itunes_file(fake, "Unsub.json")).ok();
     let music = music_files(fake);
     let listing = itunes_dir_listing(fake);
 
@@ -85,10 +85,7 @@ fn assert_refused_untouched(fake: &FakeIpod, expected: fn(&Error) -> bool) {
         other => panic!("expected a refusal, got {other:?}"),
     }
     assert_eq!(db_bytes(fake), database);
-    assert_eq!(
-        fs::read(itunes_file(fake, "AntiStreaming.json")).ok(),
-        mapping
-    );
+    assert_eq!(fs::read(itunes_file(fake, "Unsub.json")).ok(), mapping);
     assert_eq!(music_files(fake), music);
     assert_eq!(itunes_dir_listing(fake), listing);
 }
@@ -146,14 +143,14 @@ fn restoring_twice_changes_nothing_the_second_time() {
     let state = two_syncs();
     restore_backup(&opened(&state.fake)).unwrap();
     let database = db_bytes(&state.fake);
-    let mapping = fs::read(itunes_file(&state.fake, "AntiStreaming.json")).unwrap();
+    let mapping = fs::read(itunes_file(&state.fake, "Unsub.json")).unwrap();
     let music = music_files(&state.fake);
 
     restore_backup(&opened(&state.fake)).unwrap();
 
     assert_eq!(db_bytes(&state.fake), database);
     assert_eq!(
-        fs::read(itunes_file(&state.fake, "AntiStreaming.json")).unwrap(),
+        fs::read(itunes_file(&state.fake, "Unsub.json")).unwrap(),
         mapping
     );
     assert_eq!(music_files(&state.fake), music);
@@ -198,7 +195,7 @@ fn extra_track_setup(added_by_app: bool, path: &str) -> (FakeIpod, PathBuf) {
         "[]".to_owned()
     };
     fs::write(
-        itunes_file(&fake, "AntiStreaming.json"),
+        itunes_file(&fake, "Unsub.json"),
         format!(r#"{{"version":1,"tracks":{tracks},"playlists":[],"artwork":[]}}"#),
     )
     .unwrap();
@@ -377,14 +374,11 @@ fn a_device_that_cannot_be_written_is_refused() {
 
 #[test]
 fn a_failure_staging_a_file_changes_nothing() {
-    for blocked in [
-        "iTunesDB.antistreaming-tmp",
-        "AntiStreaming.json.antistreaming-tmp",
-    ] {
+    for blocked in ["iTunesDB.unsub-tmp", "Unsub.json.unsub-tmp"] {
         let state = two_syncs();
         fs::create_dir(itunes_file(&state.fake, blocked)).unwrap();
         let database = db_bytes(&state.fake);
-        let mapping = fs::read(itunes_file(&state.fake, "AntiStreaming.json")).unwrap();
+        let mapping = fs::read(itunes_file(&state.fake, "Unsub.json")).unwrap();
         let music = music_files(&state.fake);
         let listing = itunes_dir_listing(&state.fake);
 
@@ -396,7 +390,7 @@ fn a_failure_staging_a_file_changes_nothing() {
         );
         assert_eq!(db_bytes(&state.fake), database, "{blocked}");
         assert_eq!(
-            fs::read(itunes_file(&state.fake, "AntiStreaming.json")).unwrap(),
+            fs::read(itunes_file(&state.fake, "Unsub.json")).unwrap(),
             mapping
         );
         assert_eq!(music_files(&state.fake), music, "{blocked}");

@@ -7,9 +7,9 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use antistreaming_remote::{Client, Error};
 use common::{FakeServer, PASSWORD, USER, pattern};
 use filetime::{FileTime, set_file_mtime};
+use unsub_remote::{Client, Error};
 
 fn connect(server: &FakeServer) -> Client {
     Client::new(&server.url, USER, PASSWORD)
@@ -499,10 +499,7 @@ fn settled_size(path: &Path) -> u64 {
 fn gated_download(
     server: &FakeServer,
     dir: &Path,
-) -> (
-    antistreaming_remote::Download,
-    std::sync::mpsc::Sender<usize>,
-) {
+) -> (unsub_remote::Download, std::sync::mpsc::Sender<usize>) {
     let (permits, gate) = channel();
     server.mode(|mode| mode.gate = Some(gate));
     let download = connect(server).start_download("s-1", dir).unwrap();

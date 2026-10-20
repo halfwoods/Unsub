@@ -1,4 +1,4 @@
-# AntiStreaming — Spec
+# Unsub — Spec
 
 A desktop music player for people who own their music. Looks and behaves almost exactly like iTunes 10 (2010–2012), with features for a buy-to-own, self-hosted world instead of a store and a streaming service.
 
@@ -64,14 +64,14 @@ Each milestone ends with something you can run.
 7. **Lossless / audiophile** — Opus, WavPack; bit-perfect output (Core Audio hog mode + sample-rate switching; WASAPI exclusive).
 8. **Podcasts & Audiobooks** — RSS subscriptions, auto-download, played state, chapters, resume position.
 9. **CD ripping** — ALAC/FLAC/AAC, MusicBrainz disc lookup, AccurateRip verification.
-9b. **Own your streaming**: compare your Apple Music library against what AntiStreaming holds.
+9b. **Own your streaming**: compare your Apple Music library against what Unsub holds.
     - Read the library via `iTunesLibrary.framework` on macOS (permission prompt), or from an exported Library XML on Windows or as a fallback.
-    - Classify every song: in AntiStreaming / owned file to import / bought but not downloaded / uploaded or matched in iCloud / subscription-only (to buy).
+    - Classify every song: in Unsub / owned file to import / bought but not downloaded / uploaded or matched in iCloud / subscription-only (to buy).
     - Sidebar "To Own" under PURCHASES: a progress count ("412 of 1,203 owned"), one-click import of owned files, and a buy list grouped by album with store links.
     - Re-checks automatically as new purchases arrive.
 9c. **iCloud libraries:**
     - **iCloud Drive folders:** add them like any folder. Evicted (cloud-only) files are recognized without forcing a download, then fetched on demand when played, or pinned to stay local. Progress is shown in the LCD.
-    - **iCloud Music Library:** To Own's Re-download group gets "Download from iCloud". AntiStreaming asks the Music app to download purchased and uploaded/matched songs (Music's scripting `download` command, one-time Automation permission), then imports the files. Subscription songs can't be downloaded and stay on the buy list.
+    - **iCloud Music Library:** To Own's Re-download group gets "Download from iCloud". Unsub asks the Music app to download purchased and uploaded/matched songs (Music's scripting `download` command, one-time Automation permission), then imports the files. Subscription songs can't be downloaded and stay on the buy list.
     - **Later:** read the cloud library directly via the Apple Music API (MusicKit, owner's developer account), without Sync Library. Metadata only.
 10. **Purchases** — watch Downloads for Bandcamp/Qobuz/7digital archives, auto-import, "where to buy" links from MusicBrainz.
 11. **Mixes** — on-device "more like this" playlists from play history and tags.

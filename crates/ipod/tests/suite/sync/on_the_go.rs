@@ -1,4 +1,4 @@
-use antistreaming_ipod::{
+use unsub_ipod::{
     Error, OnTheGo, SyncPlan, apply_sync, clear_on_the_go, read_database, read_on_the_go,
 };
 

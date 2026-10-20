@@ -2,18 +2,18 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{AlbumSummary, Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
-use antistreaming_playback::{Target, TranscodeOptions};
-use antistreaming_subsonic::{
+use serde::{Deserialize, Serialize};
+use tauri::State;
+use unsub_library::{AlbumSummary, Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
+use unsub_playback::{Target, TranscodeOptions};
+use unsub_subsonic::{
     Album, AlbumListKind, Artist, Capabilities, Genre, MusicSource, Playlist, PlaylistEdit, SearchResult, Server, ServerConfig, Song,
     Starred, Stream, StreamFormat, Targets,
 };
-use serde::{Deserialize, Serialize};
-use tauri::State;
 
 use crate::error::{CommandError, CommandResult};
 
-type SourceResult<T> = antistreaming_subsonic::Result<T>;
+type SourceResult<T> = unsub_subsonic::Result<T>;
 
 /// A star on a phone is a five-star rating here: the library's own favourites, both ways.
 const STARRED_RATING: u8 = 100;
@@ -22,8 +22,8 @@ const STARRED_RATING: u8 = 100;
 const STREAM_KBPS: u32 = 192;
 const OPUS_STREAM_KBPS: u32 = 128;
 
-fn source_err(error: impl std::fmt::Display) -> antistreaming_subsonic::Error {
-    antistreaming_subsonic::Error::Source(error.to_string())
+fn source_err(error: impl std::fmt::Display) -> unsub_subsonic::Error {
+    unsub_subsonic::Error::Source(error.to_string())
 }
 
 // Library album/artist keys contain control characters, so they travel hex-encoded: reversible
@@ -128,7 +128,7 @@ struct LibrarySource {
 impl LibrarySource {
     fn rate_songs(&self, targets: &Targets, rating: u8) -> SourceResult<()> {
         if targets.songs.is_empty() && !(targets.albums.is_empty() && targets.artists.is_empty()) {
-            return Err(antistreaming_subsonic::Error::Unsupported("starring albums and artists"));
+            return Err(unsub_subsonic::Error::Unsupported("starring albums and artists"));
         }
         let mut library = self.library();
         for id in targets.songs.iter().filter_map(|id| track_id(id)) {
@@ -139,12 +139,11 @@ impl LibrarySource {
 
     /// A regular playlist's library id; smart playlists and folders aren't phones' to change.
     fn editable_playlist(&self, id: &str) -> SourceResult<i64> {
-        let id =
-            id.strip_prefix("pl").and_then(|n| n.parse::<i64>().ok()).ok_or(antistreaming_subsonic::Error::Unsupported("that playlist"))?;
+        let id = id.strip_prefix("pl").and_then(|n| n.parse::<i64>().ok()).ok_or(unsub_subsonic::Error::Unsupported("that playlist"))?;
         let playlists = self.library().playlists().map_err(source_err)?;
         match playlists.iter().find(|p| p.id == id).map(|p| p.kind) {
             Some(PlaylistKind::Regular) => Ok(id),
-            _ => Err(antistreaming_subsonic::Error::Unsupported("editing smart playlists")),
+            _ => Err(unsub_subsonic::Error::Unsupported("editing smart playlists")),
         }
     }
 
@@ -368,7 +367,7 @@ impl MusicSource for LibrarySource {
             StreamFormat::Flac => Target::Flac,
         };
         let options = TranscodeOptions { target, max_sample_rate: None, max_bit_depth: None, keep_tags: false };
-        Some(antistreaming_playback::transcode_stream(Path::new(&track.path), &options).map_err(source_err))
+        Some(unsub_playback::transcode_stream(Path::new(&track.path), &options).map_err(source_err))
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -389,7 +388,7 @@ impl MusicSource for LibrarySource {
 
     /// Phones rate songs only; albums and artists have no rating of their own here.
     fn set_rating(&self, id: &str, stars: u8) -> SourceResult<()> {
-        let id = track_id(id).ok_or(antistreaming_subsonic::Error::Unsupported("rating albums and artists"))?;
+        let id = track_id(id).ok_or(unsub_subsonic::Error::Unsupported("rating albums and artists"))?;
         self.library().set_rating(id, stars.min(5) * 20).map_err(source_err)
     }
 
@@ -449,7 +448,7 @@ pub struct SharingSettings {
     /// Defaulted so settings saved before it existed still load.
     #[serde(default)]
     pub max_kbps: Option<u32>,
-    /// What other AntiStreaming Macs see under SHARED, as iTunes' "Shared name".
+    /// What other Unsub Macs see under SHARED, as iTunes' "Shared name".
     #[serde(default = "default_shared_name")]
     pub shared_name: String,
 }
@@ -459,7 +458,7 @@ fn default_shared_name() -> String {
     let mut letters = user.chars();
     match letters.next() {
         Some(first) => format!("{}{}'s Library", first.to_uppercase(), letters.as_str()),
-        None => "AntiStreaming Library".to_owned(),
+        None => "Unsub Library".to_owned(),
     }
 }
 
@@ -467,14 +466,7 @@ impl Default for SharingSettings {
     /// Off until the user turns it on; 4533 is Navidrome's port, which many apps suggest by default.
     fn default() -> Self {
         let password: String = std::iter::repeat_with(fastrand::alphanumeric).take(12).collect();
-        Self {
-            enabled: false,
-            port: 4533,
-            username: "antistreaming".to_owned(),
-            password,
-            max_kbps: None,
-            shared_name: default_shared_name(),
-        }
+        Self { enabled: false, port: 4533, username: "unsub".to_owned(), password, max_kbps: None, shared_name: default_shared_name() }
     }
 }
 
@@ -493,8 +485,8 @@ pub struct SharingState {
     artwork_cache: PathBuf,
     settings: Mutex<SharingSettings>,
     server: Mutex<Option<Server>>,
-    /// Announces the library to other AntiStreaming Macs while the server runs.
-    advertisement: Mutex<Option<antistreaming_remote::Advertisement>>,
+    /// Announces the library to other Unsub Macs while the server runs.
+    advertisement: Mutex<Option<unsub_remote::Advertisement>>,
     last_error: Mutex<Option<String>>,
 }
 
@@ -545,7 +537,7 @@ impl SharingState {
                 *lock(&self.server) = Some(server);
                 *lock(&self.last_error) = None;
                 // Without it the library still works for phones; other Macs just won't list it.
-                *lock(&self.advertisement) = antistreaming_remote::advertise(&settings.shared_name, settings.port)
+                *lock(&self.advertisement) = unsub_remote::advertise(&settings.shared_name, settings.port)
                     .map_err(|error| eprintln!("[sharing] can't announce the library: {error}"))
                     .ok();
             }
@@ -597,13 +589,13 @@ pub async fn sharing_update(state: State<'_, SharingState>, settings: SharingSet
 mod tests {
     use super::{LibrarySource, decode, encode, track_id};
     use crate::test_support::track;
-    use antistreaming_library::{Library, MediaKind, Track};
-    use antistreaming_subsonic::{Server, ServerConfig};
     use std::net::{Ipv4Addr, SocketAddr};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use unsub_library::{Library, MediaKind, Track};
+    use unsub_subsonic::{Server, ServerConfig};
 
-    /// What another AntiStreaming Mac does with this one's shared library, end to end through
+    /// What another Unsub Mac does with this one's shared library, end to end through
     /// the real pieces: this library's source behind the Subsonic server, and the remote client
     /// signing in, paging every song and fetching one byte for byte.
     #[test]
@@ -619,7 +611,7 @@ mod tests {
         library.import_tracks(&[song(1, "sine.flac", "FLAC"), song(2, "sine.mp3", "MP3"), song(3, "sine-aac.m4a", "AAC")]).unwrap();
         let config = ServerConfig {
             bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            username: "antistreaming".into(),
+            username: "unsub".into(),
             password: "k3Xq9vR2".into(),
             api_key: None,
             default_max_kbps: None,
@@ -627,8 +619,8 @@ mod tests {
         let server = Server::start(config, Arc::new(LibrarySource { library: Mutex::new(library) })).unwrap();
         let url = format!("http://{}", server.local_addr());
 
-        assert!(antistreaming_remote::Client::new(&url, "antistreaming", "wrong").ping().is_err());
-        let client = antistreaming_remote::Client::new(&url, "antistreaming", "k3Xq9vR2");
+        assert!(unsub_remote::Client::new(&url, "unsub", "wrong").ping().is_err());
+        let client = unsub_remote::Client::new(&url, "unsub", "k3Xq9vR2");
         client.ping().unwrap();
 
         // One song per page, the way the app pages: until an empty page comes back.

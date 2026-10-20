@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_ipod::{ArtworkCheck, ChecksumCheck, Error, verify_roundtrip};
+use unsub_ipod::{ArtworkCheck, ChecksumCheck, Error, verify_roundtrip};
 
 use crate::common::artwork::png;
 use crate::common::db::{Database as DbSpec, Track, chunks, u32_at};

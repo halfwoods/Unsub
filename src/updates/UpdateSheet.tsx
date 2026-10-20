@@ -28,7 +28,7 @@ export function UpdateSheet() {
         setError(null);
         setProgress(null);
       } else if (manual) {
-        showNotice(failure ? `Couldn't check for updates: ${failure}` : "AntiStreaming is up to date");
+        showNotice(failure ? `Couldn't check for updates: ${failure}` : "Unsub is up to date");
       }
     });
     return () => void subscription.then((unlisten) => unlisten());
@@ -59,9 +59,9 @@ export function UpdateSheet() {
   return (
     <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && remindLater()}>
       <div className="sheet update-sheet" role="dialog" aria-label="Software Update">
-        <h2 className="first-sync-title">A new version of AntiStreaming is available.</h2>
+        <h2 className="first-sync-title">A new version of Unsub is available.</h2>
         <p className="prefs-note">
-          AntiStreaming {update.version} is now available—you have {update.currentVersion}. Would you like to download it now?
+          Unsub {update.version} is now available—you have {update.currentVersion}. Would you like to download it now?
         </p>
         {update.notes && (
           <>
@@ -97,7 +97,7 @@ export function UpdateSheet() {
   );
 }
 
-/** Preferences › General: whether AntiStreaming looks for updates by itself. Hidden in builds without update keys. */
+/** Preferences › General: whether Unsub looks for updates by itself. Hidden in builds without update keys. */
 export function AutoUpdateSetting() {
   const [status, setStatus] = useState<UpdatesStatus | null>(null);
   useEffect(() => {

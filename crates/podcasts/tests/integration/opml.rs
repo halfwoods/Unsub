@@ -1,4 +1,4 @@
-use antistreaming_podcasts::{Error, Podcasts};
+use unsub_podcasts::{Error, Podcasts};
 
 use crate::common::{Env, fixture};
 

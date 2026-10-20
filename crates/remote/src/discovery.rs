@@ -1,4 +1,4 @@
-//! Finding other AntiStreaming libraries on the local network with mDNS (Bonjour), the way
+//! Finding other Unsub libraries on the local network with mDNS (Bonjour), the way
 //! iTunes 10 found shared libraries.
 
 use std::collections::BTreeMap;
@@ -11,11 +11,11 @@ use serde::Serialize;
 
 use crate::error::Result;
 
-const SERVICE_TYPE: &str = "_antistreaming._tcp.local.";
+const SERVICE_TYPE: &str = "_unsub._tcp.local.";
 /// How long dropping an `Advertisement` waits for its goodbye packets to go out.
 const GOODBYE_WAIT: Duration = Duration::from_secs(1);
 
-/// Another library on the network: an AntiStreaming with sharing on.
+/// Another library on the network: an Unsub with sharing on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Peer {
@@ -35,7 +35,7 @@ pub struct Advertisement {
     fullname: String,
 }
 
-/// Announces a Subsonic server on `port` as `_antistreaming._tcp`, with TXT records
+/// Announces a Subsonic server on `port` as `_unsub._tcp`, with TXT records
 /// `version=1` and `api=subsonic`, under the display name `name`.
 pub fn advertise(name: &str, port: u16) -> Result<Advertisement> {
     let info = service_info(name, port)?;
@@ -127,13 +127,13 @@ fn host_label(name: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
     if label.is_empty() {
-        return "antistreaming".to_owned();
+        return "unsub".to_owned();
     }
     // A DNS label is at most 63 bytes.
     label.chars().take(63).collect()
 }
 
-/// "Mr\. Smith's Mac._antistreaming._tcp.local." is the instance "Mr. Smith's Mac".
+/// "Mr\. Smith's Mac._unsub._tcp.local." is the instance "Mr. Smith's Mac".
 fn instance_name(fullname: &str, service_type: &str) -> String {
     let escaped = fullname
         .strip_suffix(service_type)
@@ -158,11 +158,8 @@ mod tests {
         assert_eq!(info.get_property_val_str("version"), Some("1"));
         assert_eq!(info.get_property_val_str("api"), Some("subsonic"));
         assert_eq!(info.get_port(), 4533);
-        assert_eq!(info.get_type(), "_antistreaming._tcp.local.");
-        assert_eq!(
-            info.get_fullname(),
-            "Riley's MacBook._antistreaming._tcp.local."
-        );
+        assert_eq!(info.get_type(), "_unsub._tcp.local.");
+        assert_eq!(info.get_fullname(), "Riley's MacBook._unsub._tcp.local.");
         assert_eq!(info.get_hostname(), "riley-s-macbook.local.");
         assert!(info.is_addr_auto());
     }
@@ -170,17 +167,17 @@ mod tests {
     #[test]
     fn host_labels_are_valid_dns_labels() {
         assert_eq!(host_label("Riley's MacBook Pro"), "riley-s-macbook-pro");
-        assert_eq!(host_label("  --  "), "antistreaming");
+        assert_eq!(host_label("  --  "), "unsub");
         assert_eq!(host_label("Zoë"), "zo");
         assert_eq!(host_label(&"a".repeat(100)).len(), 63);
     }
 
     #[test]
     fn instance_names_lose_the_service_suffix_and_escapes() {
-        let ty = "_antistreaming._tcp.local.";
-        assert_eq!(instance_name("Den._antistreaming._tcp.local.", ty), "Den");
+        let ty = "_unsub._tcp.local.";
+        assert_eq!(instance_name("Den._unsub._tcp.local.", ty), "Den");
         assert_eq!(
-            instance_name("Mr\\. Smith's Mac._antistreaming._tcp.local.", ty),
+            instance_name("Mr\\. Smith's Mac._unsub._tcp.local.", ty),
             "Mr. Smith's Mac"
         );
         assert_eq!(instance_name("odd", ty), "odd");
@@ -195,7 +192,7 @@ mod tests {
     }
 
     /// Needs working multicast on a real network interface, which sandboxes and some CI machines
-    /// lack, so it is run on purpose: `cargo test -p antistreaming-remote -- --ignored`.
+    /// lack, so it is run on purpose: `cargo test -p unsub-remote -- --ignored`.
     #[test]
     #[ignore = "needs multicast networking"]
     fn a_browser_sees_an_advertisement_and_its_withdrawal() {
@@ -206,7 +203,7 @@ mod tests {
             let _ = seen.send(peers);
         })
         .unwrap();
-        let name = format!("AntiStreaming loopback test {}", std::process::id());
+        let name = format!("Unsub loopback test {}", std::process::id());
         let advertisement = advertise(&name, 4533).unwrap();
 
         let found = loop {

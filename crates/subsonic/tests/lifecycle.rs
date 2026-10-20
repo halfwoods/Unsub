@@ -8,8 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use antistreaming_subsonic::{Error, Server, ServerConfig};
 use common::*;
+use unsub_subsonic::{Error, Server, ServerConfig};
 
 fn refuses_connections(addr: std::net::SocketAddr) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_err()

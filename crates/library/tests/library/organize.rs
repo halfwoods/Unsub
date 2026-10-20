@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{Error, Library, TrackEdits, TrackOverrides};
 use tempfile::TempDir;
+use unsub_library::{Error, Library, TrackEdits, TrackOverrides};
 
 use crate::common::{added_ids, all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 
@@ -412,7 +412,7 @@ fn editing_moves_the_file_to_follow_its_new_details() {
     let halo = track_titled(&library, "Halo").id;
     let something = track_titled(&library, "Something").id;
     let playlist = library
-        .create_playlist("Mine", antistreaming_library::PlaylistKind::Regular, None)
+        .create_playlist("Mine", unsub_library::PlaylistKind::Regular, None)
         .unwrap()
         .id;
     library.add_to_playlist(playlist, &[halo], None).unwrap();
@@ -460,7 +460,7 @@ fn editing_moves_the_file_to_follow_its_new_details() {
     assert_eq!((rescan.added, rescan.updated, rescan.unchanged), (0, 0, 2));
     assert_eq!(
         library
-            .tracks(&antistreaming_library::TrackQuery {
+            .tracks(&unsub_library::TrackQuery {
                 playlist: Some(playlist),
                 kind: None,
                 ..Default::default()

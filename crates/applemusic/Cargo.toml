@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-applemusic"
+name = "unsub-applemusic"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

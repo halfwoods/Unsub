@@ -1,6 +1,6 @@
 # Third-party software in release builds
 
-AntiStreaming is GPL-3.0-or-later (`LICENSE`). This note covers the binaries: what they contain
+Unsub is GPL-3.0-or-later (`LICENSE`). This note covers the binaries: what they contain
 besides our own code, what that obliges us to do, and why the release builds do not use Homebrew's
 FFmpeg. It is not legal advice.
 
@@ -71,7 +71,7 @@ as for any distribution, plus these:
    and their tarballs are attached the same way.
 3. **Replaceable libraries.** The libraries stay separate files (dylibs, DLLs) so a user can rebuild
    and swap them. On macOS a swapped dylib breaks the notarized signature, so the user re-signs the
-   app (`codesign --force --deep -s - AntiStreaming.app`); building from our source remains open to
+   app (`codesign --force --deep -s - Unsub.app`); building from our source remains open to
    everyone in any case.
 4. **No further restrictions** on reverse engineering for debugging such modifications may be added
    to any terms we distribute with the app.
@@ -88,6 +88,6 @@ view before selling anything.
 
 - macOS: `Contents/Resources/ffmpeg-libraries.txt` lists each embedded library and where it came
   from. Expect exactly `libavcodec`, `libavformat`, `libavutil`, `libswresample`, `libmp3lame`,
-  `libopus`. `otool -L Contents/MacOS/antistreaming` shows only `@rpath/…` and system libraries.
-- Windows: the DLLs next to `antistreaming.exe` are the same set plus any runtime DLLs vcpkg added.
+  `libopus`. `otool -L Contents/MacOS/unsub` shows only `@rpath/…` and system libraries.
+- Windows: the DLLs next to `unsub.exe` are the same set plus any runtime DLLs vcpkg added.
 - Anything GPL showing up in either list means the wrong FFmpeg was picked up at build time.

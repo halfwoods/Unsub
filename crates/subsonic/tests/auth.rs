@@ -2,8 +2,8 @@
 
 mod common;
 
-use antistreaming_subsonic::ServerConfig;
 use common::*;
+use unsub_subsonic::ServerConfig;
 
 /// The worked example from the Subsonic API documentation: password "sesame", salt "c19b2d".
 const DOC_TOKEN: &str = "26719a1196d2a940705a59634eb18eab";

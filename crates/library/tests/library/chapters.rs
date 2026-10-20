@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Chapter, Error, Library, TrackOverrides};
 use lofty::TextEncoding;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::AudioFile;
@@ -12,6 +11,7 @@ use lofty::id3::v2::{
 use lofty::mpeg::MpegFile;
 use lofty::ogg::VorbisFile;
 use tempfile::TempDir;
+use unsub_library::{Chapter, Error, Library, TrackOverrides};
 
 use crate::common::{added_ids, all_kinds, fixtures_dir};
 

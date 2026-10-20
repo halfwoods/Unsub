@@ -7,7 +7,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-use antistreaming_applemusic::{MusicLibrary, Ownership, Result, read_xml_library};
+use unsub_applemusic::{MusicLibrary, Ownership, Result, read_xml_library};
 
 fn main() -> ExitCode {
     let library = match env::args_os().nth(1) {
@@ -28,12 +28,12 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "macos")]
 fn read_system() -> Result<MusicLibrary> {
-    antistreaming_applemusic::read_system_music_library()
+    unsub_applemusic::read_system_music_library()
 }
 
 #[cfg(not(target_os = "macos"))]
 fn read_system() -> Result<MusicLibrary> {
-    Err(antistreaming_applemusic::Error::Unavailable(
+    Err(unsub_applemusic::Error::Unavailable(
         "the system library is only readable on macOS; pass the path of an exported XML".into(),
     ))
 }

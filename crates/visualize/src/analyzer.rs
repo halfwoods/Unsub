@@ -52,7 +52,7 @@ struct Stored {
 ///
 /// ```
 /// use std::time::Duration;
-/// use antistreaming_visualize::Analyzer;
+/// use unsub_visualize::Analyzer;
 ///
 /// let mut analyzer = Analyzer::new(44_100, 2);
 /// // One second of a 440 Hz tone in both channels, first heard at 10 s on the player's clock.

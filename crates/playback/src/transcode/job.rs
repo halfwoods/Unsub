@@ -171,7 +171,7 @@ pub fn to_stream(
 
     let (sender, receiver) = mpsc::sync_channel(STREAM_BACKLOG);
     thread::Builder::new()
-        .name("antistreaming-transcode".into())
+        .name("unsub-transcode".into())
         .spawn(move || {
             let failures = sender.clone();
             if let Err(error) = guarded(|| stream(decoder, &plan, sender)) {

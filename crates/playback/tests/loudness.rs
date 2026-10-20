@@ -5,9 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use antistreaming_playback::{
-    ChannelLayout, Decoder, Error, Loudness, album_loudness, analyze_loudness,
-};
+use unsub_playback::{ChannelLayout, Decoder, Error, Loudness, album_loudness, analyze_loudness};
 
 const RATE: u32 = 48_000;
 /// Left, right, centre, LFE, rear pair, and for 7.1 the side pair.
@@ -25,10 +23,8 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(test: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!(
-            "antistreaming-loudness-{}-{test}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("unsub-loudness-{}-{test}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         Scratch(dir)

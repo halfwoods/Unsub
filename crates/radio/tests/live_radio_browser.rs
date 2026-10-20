@@ -1,12 +1,12 @@
 //! Against the real Radio Browser and a real station. Needs the network, so these only run when
-//! asked: `cargo test -p antistreaming-radio -- --ignored`.
+//! asked: `cargo test -p unsub-radio -- --ignored`.
 //!
 //! They stay read-only: no clicks are counted, so running them does not skew any station's
 //! popularity.
 
 use std::io::Read;
 
-use antistreaming_radio::{Directory, GENRES, genre, open};
+use unsub_radio::{Directory, GENRES, genre, open};
 
 #[test]
 #[ignore = "needs the network"]

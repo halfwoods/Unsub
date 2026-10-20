@@ -62,7 +62,7 @@ fn invalid(err: impl std::fmt::Display) -> Error {
 pub(crate) fn write(feeds: &[Feed]) -> String {
     let mut out = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n  <head>\n    \
-         <title>AntiStreaming Subscriptions</title>\n  </head>\n  <body>\n",
+         <title>Unsub Podcast Subscriptions</title>\n  </head>\n  <body>\n",
     );
     for feed in feeds {
         let title = escape(feed.title.as_str());

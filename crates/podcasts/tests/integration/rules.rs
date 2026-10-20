@@ -1,4 +1,4 @@
-use antistreaming_podcasts::{Error, FeedSettings, KeepRule};
+use unsub_podcasts::{Error, FeedSettings, KeepRule};
 
 use crate::common::Env;
 

@@ -851,10 +851,8 @@ mod crossfade {
 
     impl Tone {
         fn new(name: &str, seconds: usize, hz: f64) -> Tone {
-            let path = std::env::temp_dir().join(format!(
-                "antistreaming-crossfade-{}-{name}.wav",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("unsub-crossfade-{}-{name}.wav", std::process::id()));
             let frames = 44_100 * seconds;
             let data_len = (frames * 4) as u32;
             let mut wav = Vec::new();
@@ -1348,8 +1346,8 @@ mod live {
     #[cfg(feature = "ffmpeg")]
     impl Scratch {
         fn new(name: &str, contents: &[u8]) -> Scratch {
-            let path = std::env::temp_dir()
-                .join(format!("antistreaming-live-{}-{name}", std::process::id()));
+            let path =
+                std::env::temp_dir().join(format!("unsub-live-{}-{name}", std::process::id()));
             std::fs::write(&path, contents).unwrap();
             Scratch(path)
         }

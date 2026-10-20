@@ -1,6 +1,6 @@
 use std::fs;
 
-use antistreaming_ipod::{SyncPlaylist, read_database};
+use unsub_ipod::{SyncPlaylist, read_database};
 
 use super::*;
 use crate::common::db::{chunks, u32_at, u64_at};
@@ -38,11 +38,11 @@ fn the_previous_database_is_kept_beside_the_new_one() {
     sync(&fake, &tracks, &[]);
     let first = db_bytes(&fake);
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesDB.antistreaming-backup")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesDB.unsub-backup")).unwrap(),
         original
     );
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesDB.antistreaming-original")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesDB.unsub-original")).unwrap(),
         original
     );
 
@@ -52,11 +52,11 @@ fn the_previous_database_is_kept_beside_the_new_one() {
         &[],
     );
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesDB.antistreaming-backup")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesDB.unsub-backup")).unwrap(),
         first
     );
     assert_eq!(
-        fs::read(itunes_file(&fake, "iTunesDB.antistreaming-original")).unwrap(),
+        fs::read(itunes_file(&fake, "iTunesDB.unsub-original")).unwrap(),
         original,
         "the pre-sync original is never overwritten"
     );
@@ -69,9 +69,7 @@ fn no_temporary_files_remain_after_a_successful_sync() {
     let listing = itunes_dir_listing(&fake);
 
     assert!(
-        listing
-            .iter()
-            .all(|name| !name.ends_with(".antistreaming-tmp")),
+        listing.iter().all(|name| !name.ends_with(".unsub-tmp")),
         "{listing:?}"
     );
 }

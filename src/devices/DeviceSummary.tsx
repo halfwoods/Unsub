@@ -243,10 +243,10 @@ function FirstSyncSheet({ device, onCancel, onSync }: { device: Device; onCancel
   return (
     <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="sheet first-sync-sheet" role="dialog" aria-label="Sync this iPod">
-        <h2 className="first-sync-title">Sync “{device.name}” with AntiStreaming?</h2>
+        <h2 className="first-sync-title">Sync “{device.name}” with Unsub?</h2>
         <p>
-          AntiStreaming will add your chosen music to this iPod and keep it up to date. Songs that iTunes put on it stay as they
-          are; AntiStreaming only ever changes or removes songs it added itself.
+          Unsub will add your chosen music to this iPod and keep it up to date. Songs that iTunes put on it stay as they
+          are; Unsub only ever changes or removes songs it added itself.
         </p>
         <p>
           Before every sync it keeps a copy of the iPod's database beside the original, so a sync that goes wrong can be undone.
@@ -393,7 +393,7 @@ export function DeviceSummary({ device }: { device: Device }) {
       noun="iPod"
       device={device}
       writable={device.sync === "supported" || device.sync === "needsHash58"}
-      unwritable="AntiStreaming can't write to this iPod model yet. You can still browse and play its music."
+      unwritable="Unsub can't write to this iPod model yet. You can still browse and play its music."
       summary={(settings, update) => <SummaryTab device={device} settings={settings} update={update} />}
       capacity={<CapacityBar capacityBytes={device.capacityBytes} segments={segmentsOf(device)} />}
       firstSync={(onCancel, onSync) => <FirstSyncSheet device={device} onCancel={onCancel} onSync={onSync} />}

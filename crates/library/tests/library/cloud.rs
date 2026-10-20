@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
-use antistreaming_library::{
-    Library, MediaKind, ScanSummary, Track, TrackEdits, TrackOverrides, ensure_local, is_dataless,
-};
 use rusqlite::Connection;
 use tempfile::TempDir;
+use unsub_library::{
+    Library, MediaKind, ScanSummary, Track, TrackEdits, TrackOverrides, ensure_local, is_dataless,
+};
 
 use crate::common::{
     added_ids, all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track, track_titled,

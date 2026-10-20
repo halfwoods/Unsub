@@ -71,7 +71,7 @@ function AdvancedTab() {
           <button className="push-button" onClick={() => void change()}>
             Change…
           </button>
-          <button className="push-button" onClick={() => void audioDir().then((music) => join(music, "AntiStreaming")).then((folder) => save({ ...settings, folder }))}>
+          <button className="push-button" onClick={() => void audioDir().then((music) => join(music, "Unsub")).then((folder) => save({ ...settings, folder }))}>
             Reset
           </button>
         </div>
@@ -219,7 +219,7 @@ function PlaybackTab() {
         Bit-perfect output
       </label>
       <p className="prefs-note">
-        AntiStreaming takes exclusive use of your audio device and switches it to each song's own sample rate and bit depth,
+        Unsub takes exclusive use of your audio device and switches it to each song's own sample rate and bit depth,
         so the music reaches your DAC untouched. Other apps can't play sound meanwhile, and volume is fixed: use your
         device's or amplifier's volume instead.
       </p>

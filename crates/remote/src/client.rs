@@ -20,7 +20,7 @@ use crate::model::{
 use crate::stall::StallConnector;
 
 const API_VERSION: &str = "1.16.1";
-const CLIENT_NAME: &str = "AntiStreaming";
+const CLIENT_NAME: &str = "Unsub";
 /// A JSON listing of a very large library is a few megabytes.
 const DOCUMENT_LIMIT: u64 = 64 * 1024 * 1024;
 const COVER_ART_LIMIT: u64 = 32 * 1024 * 1024;
@@ -37,7 +37,7 @@ const LISTING_UNKNOWN: u8 = 0;
 const LISTING_SEARCH: u8 = 1;
 const LISTING_ALBUM_WALK: u8 = 2;
 
-/// A connection to one Subsonic-compatible server: another AntiStreaming, Navidrome, Airsonic.
+/// A connection to one Subsonic-compatible server: another Unsub, Navidrome, Airsonic.
 /// Calls block; the app runs them off its main thread.
 pub struct Client {
     pub(crate) base_url: String,
@@ -92,7 +92,7 @@ impl Client {
     }
 
     /// What the server calls itself, ready for a sidebar: OpenSubsonic servers report their
-    /// product and version ("navidrome 0.52.5", "AntiStreaming 0.1.0"); a classic Subsonic one
+    /// product and version ("navidrome 0.52.5", "Unsub 0.1.0"); a classic Subsonic one
     /// reports neither and is just "Subsonic".
     pub fn server_name(&self) -> Result<String> {
         let reply = self.call("ping", &[])?;
@@ -428,7 +428,7 @@ struct SearchWire {
 
 fn base_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     ureq::Agent::config_builder()
-        .user_agent(concat!("AntiStreaming/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Unsub/", env!("CARGO_PKG_VERSION")))
         .timeout_connect(Some(Duration::from_secs(10)))
         // Media endpoints answer with plain HTTP statuses that callers branch on themselves.
         .http_status_as_error(false)

@@ -26,10 +26,10 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-export const loadBitPerfect = () => load("antistreaming.bitPerfect");
-export const saveBitPerfect = (enabled: boolean) => save("antistreaming.bitPerfect", enabled);
-export const loadSoundCheck = () => load("antistreaming.soundCheck");
-export const saveSoundCheck = (enabled: boolean) => save("antistreaming.soundCheck", enabled);
+export const loadBitPerfect = () => load("unsub.bitPerfect");
+export const saveBitPerfect = (enabled: boolean) => save("unsub.bitPerfect", enabled);
+export const loadSoundCheck = () => load("unsub.soundCheck");
+export const saveSoundCheck = (enabled: boolean) => save("unsub.soundCheck", enabled);
 
 export interface EqualizerPrefs {
   on: boolean;
@@ -41,12 +41,12 @@ export interface EqualizerPrefs {
 }
 
 const FLAT: EqualizerPrefs = { on: false, preset: "Flat", preampDb: 0, bands: Array(10).fill(0), preventClipping: true };
-export const loadEqualizer = () => loadJson("antistreaming.equalizer", FLAT);
-export const saveEqualizer = (prefs: EqualizerPrefs) => save("antistreaming.equalizer", prefs);
+export const loadEqualizer = () => loadJson("unsub.equalizer", FLAT);
+export const saveEqualizer = (prefs: EqualizerPrefs) => save("unsub.equalizer", prefs);
 
 /** Crossfade Songs' length in seconds, or null when it's off. */
-export const loadCrossfade = () => loadJson<{ seconds: number | null }>("antistreaming.crossfade", { seconds: null }).seconds;
-export const saveCrossfade = (seconds: number | null) => save("antistreaming.crossfade", { seconds });
+export const loadCrossfade = () => loadJson<{ seconds: number | null }>("unsub.crossfade", { seconds: null }).seconds;
+export const saveCrossfade = (seconds: number | null) => save("unsub.crossfade", { seconds });
 
 export interface VisualizerPrefs {
   style: VisualizerStyle;
@@ -60,8 +60,8 @@ export interface VisualizerPrefs {
 
 const VISUALIZER: VisualizerPrefs = { style: "classic", limitFlashing: true, microphone: false, microphoneDevice: null };
 export function loadVisualizerPrefs(): VisualizerPrefs {
-  const prefs = loadJson("antistreaming.visualizer", VISUALIZER);
+  const prefs = loadJson("unsub.visualizer", VISUALIZER);
   // A style from some other version must not reach the renderer.
   return VISUALIZER_STYLES.includes(prefs.style) ? prefs : { ...prefs, style: VISUALIZER.style };
 }
-export const saveVisualizerPrefs = (prefs: VisualizerPrefs) => save("antistreaming.visualizer", prefs);
+export const saveVisualizerPrefs = (prefs: VisualizerPrefs) => save("unsub.visualizer", prefs);

@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-subsonic"
+name = "unsub-subsonic"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,7 +20,7 @@ tokio-util = { version = "0.7.20", features = ["io"] }
 
 [dev-dependencies]
 # The real converter, for one test that streams a fixture through it.
-antistreaming-playback.workspace = true
+unsub-playback.workspace = true
 roxmltree = "0.21.1"
 ureq = { version = "3.4.2", default-features = false }
 tempfile = "3"

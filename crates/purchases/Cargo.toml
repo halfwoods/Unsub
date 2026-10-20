@@ -1,5 +1,5 @@
 [package]
-name = "antistreaming-purchases"
+name = "unsub-purchases"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

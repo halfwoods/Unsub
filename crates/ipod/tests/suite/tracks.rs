@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use antistreaming_ipod::{IpodMediaKind, IpodTrack, read_database};
+use unsub_ipod::{IpodMediaKind, IpodTrack, read_database};
 
 use crate::common::db::{Database, Encoding, MEDIA_VIDEO, MHOD_PATH, Track, mhod_text};
 use crate::common::mount::FakeIpod;
@@ -230,7 +230,7 @@ fn a_string_that_overruns_its_mhod_is_corrupt() {
     let error = read_database(&opened(&fake)).unwrap_err();
 
     assert!(
-        matches!(error, antistreaming_ipod::Error::Corrupt { .. }),
+        matches!(error, unsub_ipod::Error::Corrupt { .. }),
         "{error}"
     );
 }

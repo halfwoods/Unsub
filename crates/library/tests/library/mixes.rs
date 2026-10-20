@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use antistreaming_library::{Library, MediaKind, Mix, PlaylistKind, Track};
+use unsub_library::{Library, MediaKind, Mix, PlaylistKind, Track};
 
 use crate::common::{library_of, track};
 
@@ -536,7 +536,7 @@ fn mixes_json_uses_camel_case() {
 
 /// Timing check kept out of the default run because debug builds are far
 /// slower. Run with:
-/// `cargo test -p antistreaming-library --release --test library -- --ignored mixes_stay`
+/// `cargo test -p unsub-library --release --test library -- --ignored mixes_stay`
 #[test]
 #[ignore = "timing check; needs --release"]
 fn mixes_stay_fast_at_a_hundred_thousand_songs() {

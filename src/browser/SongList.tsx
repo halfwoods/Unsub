@@ -10,7 +10,7 @@ import { showSongMenu } from "./songMenu";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
-const ROWS_MIME = "application/x-antistreaming-rows";
+const ROWS_MIME = "application/x-unsub-rows";
 
 function SortArrow({ descending }: { descending: boolean }) {
   return (

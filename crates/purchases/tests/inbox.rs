@@ -3,10 +3,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use antistreaming_purchases::{Candidate, Error, Inbox, Store};
 use filetime::FileTime;
 use lofty::config::WriteOptions;
 use lofty::prelude::*;
+use unsub_purchases::{Candidate, Error, Inbox, Store};
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -542,7 +542,7 @@ fn candidates_and_purchases_serialize_for_the_app() {
     let json = serde_json::to_value(&purchase).unwrap();
     assert_eq!(json["importedAt"], purchase.imported_at);
     assert_eq!(
-        serde_json::from_value::<antistreaming_purchases::Purchase>(json).unwrap(),
+        serde_json::from_value::<unsub_purchases::Purchase>(json).unwrap(),
         purchase
     );
     assert_eq!(
@@ -707,7 +707,7 @@ fn accept_refuses_an_archive_that_would_escape_the_library() {
     for (zip_name, evil) in [
         ("parent.zip", "../evil.flac"),
         ("deep.zip", "Album/../../evil.flac"),
-        ("absolute.zip", "/tmp/antistreaming-evil.flac"),
+        ("absolute.zip", "/tmp/unsub-evil.flac"),
         ("backslash.zip", "..\\evil.flac"),
     ] {
         env.zip(zip_name, &[("01 Fine.flac", b"fine"), (evil, b"evil")]);
@@ -727,7 +727,7 @@ fn accept_refuses_an_archive_that_would_escape_the_library() {
         "nothing at all was written"
     );
     assert!(!env.root.join("evil.flac").exists());
-    assert!(!Path::new("/tmp/antistreaming-evil.flac").exists());
+    assert!(!Path::new("/tmp/unsub-evil.flac").exists());
     assert_eq!(env.inbox.candidates().unwrap().len(), 4, "still pending");
     assert!(env.inbox.purchases().unwrap().is_empty());
 }

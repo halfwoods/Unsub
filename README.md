@@ -1,4 +1,4 @@
-# AntiStreaming
+# Unsub
 
 A music player for people who own their music. It looks and works like iTunes 10, the version before Apple Music. Instead of a store and a streaming service, it gives you:
 
@@ -44,7 +44,7 @@ Drag a folder of music onto the window, use **File › Add to Library…**, or b
 | `crates/podcasts/` | Podcast subscriptions, downloads and listening state |
 | `crates/purchases/` | Watching for Bandcamp, Qobuz, 7digital and HDtracks downloads |
 | `crates/subsonic/` | A Subsonic-compatible server, so phone apps can stream your library |
-| `crates/remote/` | Client mode: other AntiStreaming libraries and Subsonic servers on the network |
+| `crates/remote/` | Client mode: other Unsub libraries and Subsonic servers on the network |
 | `crates/radio/` | Internet radio: the Radio Browser directory, playlist files, live streams |
 | `crates/visualize/` | The visualizer's analysis: spectrum, waveform, loudness, beats |
 | `design/` | Source art (app icon) |

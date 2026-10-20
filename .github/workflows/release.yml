@@ -145,7 +145,7 @@ jobs:
         run: pnpm exec tauri build --ci --target ${{ matrix.target }} --bundles app --config .github/tauri/macos-release.conf.json
       - name: Locate the bundle
         run: |
-          app="$PWD/target/${{ matrix.target }}/release/bundle/macos/AntiStreaming.app"
+          app="$PWD/target/${{ matrix.target }}/release/bundle/macos/Unsub.app"
           [ -d "$app" ] || { echo "::error::$app was not built"; exit 1; }
           echo "APP=$app" >> "$GITHUB_ENV"
 
@@ -172,9 +172,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           version=$(jq -r .version src-tauri/tauri.conf.json)
-          archive="$RUNNER_TEMP/AntiStreaming_${version}_${{ matrix.updater_arch }}.app.tar.gz"
+          archive="$RUNNER_TEMP/Unsub_${version}_${{ matrix.updater_arch }}.app.tar.gz"
           # The updater unpacks the folder inside the archive over the installed app, so the app
-          # sits in it as AntiStreaming.app; without these flags tar adds files for extended
+          # sits in it as Unsub.app; without these flags tar adds files for extended
           # attributes that would end up inside the bundle.
           COPYFILE_DISABLE=1 tar --no-xattrs -czf "$archive" -C "$(dirname "$APP")" "$(basename "$APP")"
           # --app-version records the version in the signature, which the app (requireSignedVersion)
@@ -186,12 +186,12 @@ jobs:
         id: dmg
         run: |
           version=$(jq -r .version src-tauri/tauri.conf.json)
-          dmg="$RUNNER_TEMP/AntiStreaming_${version}_${{ matrix.arch }}.dmg"
+          dmg="$RUNNER_TEMP/Unsub_${version}_${{ matrix.arch }}.dmg"
           stage="$RUNNER_TEMP/dmg-stage"
           mkdir "$stage"
-          ditto "$APP" "$stage/AntiStreaming.app"
+          ditto "$APP" "$stage/Unsub.app"
           ln -s /Applications "$stage/Applications"
-          hdiutil create -volname AntiStreaming -srcfolder "$stage" -fs HFS+ -format UDZO "$dmg"
+          hdiutil create -volname Unsub -srcfolder "$stage" -fs HFS+ -format UDZO "$dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
 
       - name: Sign and notarize the disk image
@@ -379,8 +379,8 @@ jobs:
           # build cannot publish a manifest that skips a platform.
           scripts/updater-manifest.sh --version "$version" --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --notes-file "$RUNNER_TEMP/update-notes.txt" \
-            "darwin-aarch64=artifacts/AntiStreaming_${version}_aarch64.app.tar.gz" \
-            "darwin-x86_64=artifacts/AntiStreaming_${version}_x86_64.app.tar.gz" \
+            "darwin-aarch64=artifacts/Unsub_${version}_aarch64.app.tar.gz" \
+            "darwin-x86_64=artifacts/Unsub_${version}_x86_64.app.tar.gz" \
             "windows-x86_64-nsis=${nsis[0]}" \
             "windows-x86_64-msi=${msi[0]}" \
             "windows-x86_64=${nsis[0]}" > artifacts/latest.json
@@ -391,12 +391,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          AntiStreaming is free software under the GNU GPL v3 or later. It ships FFmpeg (LGPL 2.1 or
+          Unsub is free software under the GNU GPL v3 or later. It ships FFmpeg (LGPL 2.1 or
           later), libmp3lame (LGPL) and libopus (BSD-3-Clause) as separate, replaceable libraries.
           Source for this release is attached to the tag; see scripts/THIRD_PARTY.md for the exact
           upstream versions and where to get their source.
           NOTES
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-            --title "AntiStreaming ${GITHUB_REF_NAME#v}" \
+            --title "Unsub ${GITHUB_REF_NAME#v}" \
             --notes-file "$RUNNER_TEMP/notes.md" --generate-notes \
             artifacts/*

@@ -1,4 +1,4 @@
-use antistreaming_library::{Error, Library, MediaKind, SortKey, Track, TrackQuery};
+use unsub_library::{Error, Library, MediaKind, SortKey, Track, TrackQuery};
 
 use crate::common::{all_kinds, scanned_library, titles, track_titled};
 

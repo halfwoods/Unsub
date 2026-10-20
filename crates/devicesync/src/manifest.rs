@@ -1,4 +1,4 @@
-//! `.antistreaming/manifest.json`: which files on the device this app put there. A re-sync
+//! `.unsub/manifest.json`: which files on the device this app put there. A re-sync
 //! recognises its own files by it, copies only what changed, and only ever deletes what it lists.
 //! Anything else on the player is the user's and is never touched.
 
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result, Storage};
 
-pub(crate) const PATH: &str = ".antistreaming/manifest.json";
+pub(crate) const PATH: &str = ".unsub/manifest.json";
 const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

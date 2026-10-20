@@ -1,7 +1,7 @@
 import type { ImportFormat } from "../api/types";
 
 /** iTunes kept Import Settings per computer; so does this, in localStorage. */
-const KEY = "antistreaming.importSettings";
+const KEY = "unsub.importSettings";
 
 export interface ImportPrefs {
   format: ImportFormat;

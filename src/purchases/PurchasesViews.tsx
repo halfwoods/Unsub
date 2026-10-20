@@ -39,7 +39,7 @@ export function InboxView() {
         <div className="placard-card">
           <h1>Purchases Inbox</h1>
           <p>
-            Buy albums from Bandcamp, Qobuz, 7digital or HDtracks and AntiStreaming notices the downloads, then adds them to your
+            Buy albums from Bandcamp, Qobuz, 7digital or HDtracks and Unsub notices the downloads, then adds them to your
             library with one click. Your downloads stay where they are.
           </p>
           <div className="ownership-intro-actions">
@@ -47,7 +47,7 @@ export function InboxView() {
               Watch Downloads Folder
             </button>
           </div>
-          <p className="purchases-note">macOS will ask before AntiStreaming can look in your Downloads folder.</p>
+          <p className="purchases-note">macOS will ask before Unsub can look in your Downloads folder.</p>
         </div>
       </div>
     );

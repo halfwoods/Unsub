@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Instant;
 
-use antistreaming_library::{ExternalTrack, Library, MatchQuality, MediaKind, Track, TrackMatch};
+use unsub_library::{ExternalTrack, Library, MatchQuality, MediaKind, Track, TrackMatch};
 
 use crate::common::{library_of, scanned_library, track, track_titled};
 
@@ -493,7 +493,7 @@ fn json_contract_is_camel_case() {
 
 /// Timing sanity check, kept out of the default run because debug builds are
 /// an order of magnitude slower. Run with:
-/// `cargo test -p antistreaming-library --release -- --ignored matching_scales`
+/// `cargo test -p unsub-library --release -- --ignored matching_scales`
 #[test]
 #[ignore = "timing check; needs --release"]
 fn matching_scales_to_fifty_thousand_against_a_hundred_thousand() {
