@@ -17,7 +17,8 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 
 use crate::common::{
-    all_kinds, copy_fixtures, library_of, rewind_schema, scan, scanned_library, track, track_titled,
+    added_ids, all_kinds, copy_fixtures, library_of, rewind_schema, scan, scanned_library, track,
+    track_titled,
 };
 
 /// The sample from id3.org's description of the iTunNORM comment.
@@ -819,15 +820,16 @@ fn adding_a_known_file_again_keeps_its_measurement() {
         )
         .unwrap();
 
-    let ids = library
-        .add_files(&[(
+    let ids = added_ids(
+        &mut library,
+        &[(
             dir.path().join("halo.mp3"),
             TrackOverrides {
                 genre: Some("Mixed".into()),
                 ..TrackOverrides::default()
             },
-        )])
-        .unwrap();
+        )],
+    );
 
     assert_eq!(ids, [id]);
     assert_eq!(

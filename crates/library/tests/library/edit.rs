@@ -13,7 +13,8 @@ use lofty::tag::{Accessor, ItemKey, Tag};
 use tempfile::TempDir;
 
 use crate::common::{
-    all_kinds, copy_fixtures, fixtures_dir, library_of, scan, scanned_library, track, track_titled,
+    added_ids, all_kinds, copy_fixtures, fixtures_dir, library_of, scan, scanned_library, track,
+    track_titled,
 };
 
 fn file_tag(path: &Path) -> Tag {
@@ -625,6 +626,12 @@ fn library_only_edits_are_pinned_so_a_rescan_keeps_them() {
                 title: Some("Pinned".into()),
                 genre: Some("Pinned Genre".into()),
                 year: Some(Some(1984)),
+                composer: Some("Pinned Composer".into()),
+                track_number: Some(Some(9)),
+                track_count: Some(Some(10)),
+                disc_number: Some(Some(2)),
+                disc_count: Some(Some(3)),
+                compilation: Some(true),
                 ..TrackEdits::default()
             },
         )
@@ -640,6 +647,17 @@ fn library_only_edits_are_pinned_so_a_rescan_keeps_them() {
         (row.title.as_str(), row.genre.as_str(), row.year),
         ("Pinned", "Pinned Genre", Some(1984))
     );
+    assert_eq!(
+        (
+            row.composer.as_str(),
+            row.track_number,
+            row.track_count,
+            row.disc_number,
+            row.disc_count,
+            row.compilation
+        ),
+        ("Pinned Composer", Some(9), Some(10), Some(2), Some(3), true)
+    );
     assert_eq!(row.codec, "MP3");
     assert!(row.duration_ms > 0, "everything else comes from the file");
 }
@@ -653,7 +671,7 @@ fn writing_a_field_releases_its_pinned_value() {
         artist: Some("Pinned Artist".into()),
         ..TrackOverrides::default()
     };
-    let id = library.add_files(&[(path.clone(), overrides)]).unwrap()[0];
+    let id = added_ids(&mut library, &[(path.clone(), overrides)])[0];
 
     let report = library
         .edit_tracks(

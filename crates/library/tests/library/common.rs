@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use antistreaming_library::{Library, MediaKind, Track, TrackQuery};
+use antistreaming_library::{Library, MediaKind, Track, TrackOverrides, TrackQuery};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -23,6 +23,13 @@ pub fn copy_fixtures() -> TempDir {
         }
     }
     dir
+}
+
+/// The ids `add_files` gave, in input order, for a call in which nothing fails.
+pub fn added_ids(library: &mut Library, files: &[(PathBuf, TrackOverrides)]) -> Vec<i64> {
+    let summary = library.add_files(files).unwrap();
+    assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+    summary.ids.into_iter().map(Option::unwrap).collect()
 }
 
 pub fn scan(library: &mut Library, dir: &Path) {

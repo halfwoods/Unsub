@@ -332,8 +332,25 @@ pub struct TrackOverrides {
     pub genre: Option<String>,
     pub date_added: Option<i64>,
     pub year: Option<i32>,
+    pub composer: Option<String>,
+    pub track_number: Option<u32>,
+    pub track_count: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub disc_count: Option<u32>,
+    pub compilation: Option<bool>,
     /// Plain lyrics, for a file that cannot carry them; empty means none.
     pub lyrics: Option<String>,
+}
+
+/// What `add_files` made of its input.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddSummary {
+    /// The library id each input file became, in input order, whether it was
+    /// new or already in the library; `None` for one that failed.
+    pub ids: Vec<Option<i64>>,
+    /// The files that could not be added, with why.
+    pub failed: Vec<(String, String)>,
 }
 
 /// A themed, generated playlist. The key is stable for as long as the cluster it

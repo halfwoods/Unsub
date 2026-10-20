@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 use antistreaming_library::{Error, Library, TrackEdits, TrackOverrides};
 use tempfile::TempDir;
 
-use crate::common::{all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
+use crate::common::{added_ids, all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 
 struct Setup {
     _root: TempDir,
@@ -363,12 +363,13 @@ fn add_files_copies_in_once_per_file() {
     let mut library = library_with_media(&s);
     library.set_copy_on_add(true).unwrap();
 
-    let ids = library
-        .add_files(&[
+    let ids = added_ids(
+        &mut library,
+        &[
             (download.clone(), TrackOverrides::default()),
             (download.clone(), TrackOverrides::default()),
-        ])
-        .unwrap();
+        ],
+    );
 
     assert_eq!(ids[0], ids[1]);
     assert_eq!(files_under(&s.media), ["Radiolab/Radiolab/Episode 12.mp3"]);

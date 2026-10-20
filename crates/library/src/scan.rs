@@ -10,7 +10,10 @@ use walkdir::{DirEntry, WalkDir};
 use crate::cloud::placeholder_meta;
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::{MediaKind, RADIO, ScanProgress, ScanSummary, Track, TrackOverrides};
+use crate::model::{
+    AddSummary, MediaKind, RADIO, ScanProgress, ScanSummary, Track, TrackOverrides,
+};
+use crate::organize::MediaSettings;
 use crate::store::{WriteMode, write_tracks};
 use crate::tags::{self, TAG_PARSER_VERSION, TrackMeta};
 
@@ -241,48 +244,51 @@ impl Library {
     }
 
     /// Imports specific files with metadata the tags lack or get wrong, such as
-    /// podcast downloads. The files are always re-read, the overrides replace any
-    /// stored for the same file, and they are re-applied on every later rescan.
-    /// Returns the track ids in input order; a failure on any file adds none.
-    pub fn add_files(&mut self, files: &[(PathBuf, TrackOverrides)]) -> Result<Vec<i64>> {
+    /// podcast downloads or songs another player already knows. The overrides
+    /// replace any stored for the same file, and they are re-applied on every
+    /// later rescan. Files are read again, except placeholders in the cloud,
+    /// which reading would download: those are added as a scan adds them, from
+    /// their names and the overrides, and read properly once they are local.
+    /// One already in the library as a placeholder keeps what is known of it.
+    /// A file that cannot be added is reported in `failed`; the rest are added.
+    pub fn add_files(&mut self, files: &[(PathBuf, TrackOverrides)]) -> Result<AddSummary> {
         let now = now_unix();
-        let tracks = files
-            .iter()
-            .map(|(path, overrides)| {
-                let canonical = fs::canonicalize(path)?;
-                let facts = FileFacts::of(&canonical)?;
-                read_track(&canonical, facts, now, Some(overrides))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut tracks = tracks;
         let media = self.media_settings()?;
+        let mut summary = AddSummary {
+            ids: vec![None; files.len()],
+            failed: Vec::new(),
+        };
         // The same file twice in one call is placed once.
         let mut placed: HashMap<String, String> = HashMap::new();
-        for track in &mut tracks {
-            if let Some(path) = placed.get(&track.path) {
-                track.path.clone_from(path);
-            } else if !self.path_in_library(Path::new(&track.path))? {
-                let original = track.path.clone();
-                self.place_new_file(track, &media)?;
-                placed.insert(original, track.path.clone());
+        let mut tracks: Vec<(usize, Track)> = Vec::with_capacity(files.len());
+        for (index, (path, overrides)) in files.iter().enumerate() {
+            match self.prepare_added(path, overrides, now, &media, &mut placed) {
+                Ok(track) => tracks.push((index, track)),
+                Err(err @ Error::Database(_)) => return Err(err),
+                Err(err) => summary
+                    .failed
+                    .push((path.display().to_string(), err.to_string())),
             }
         }
 
         let tx = self.conn.transaction()?;
-        write_tracks(&tx, WriteMode::RefreshTags, &tracks)?;
-        let mut ids = Vec::with_capacity(files.len());
+        write_tracks(
+            &tx,
+            WriteMode::RefreshTags,
+            tracks.iter().map(|(_, track)| track),
+        )?;
         {
             // An existing row keeps its date added on refresh, so an explicit one is set here.
             let mut store = tx.prepare(
                 "UPDATE tracks SET overrides = ?2, date_added = COALESCE(?3, date_added)
                  WHERE path = ?1 RETURNING id",
             )?;
-            for (track, (_, overrides)) in tracks.iter().zip(files) {
+            for (index, track) in &tracks {
+                let overrides = &files[*index].1;
                 let json = (*overrides != TrackOverrides::default())
                     .then(|| serde_json::to_string(overrides))
                     .transpose()?;
-                ids.push(
+                summary.ids[*index] = Some(
                     store.query_row(params![track.path, json, overrides.date_added], |row| {
                         row.get(0)
                     })?,
@@ -290,7 +296,42 @@ impl Library {
             }
         }
         tx.commit()?;
-        Ok(ids)
+        Ok(summary)
+    }
+
+    fn prepare_added(
+        &self,
+        path: &Path,
+        overrides: &TrackOverrides,
+        now: i64,
+        media: &MediaSettings,
+        placed: &mut HashMap<String, String>,
+    ) -> Result<Track> {
+        let canonical = fs::canonicalize(path)?;
+        let facts = FileFacts::of(&canonical)?;
+        if (self.is_dataless)(&canonical) {
+            // Reading the tags would download the file, and so would placing it.
+            return Ok(match self.track_at_path(&facts.path)? {
+                Some(mut known) => {
+                    known.in_cloud = true;
+                    known.missing = false;
+                    known.file_size = facts.file_size;
+                    known.date_modified = facts.date_modified;
+                    apply_overrides(&mut known, overrides);
+                    known
+                }
+                None => placeholder_track(&canonical, None, facts, now, Some(overrides)),
+            });
+        }
+        let mut track = read_track(&canonical, facts, now, Some(overrides))?;
+        if let Some(path) = placed.get(&track.path) {
+            track.path.clone_from(path);
+        } else if !self.path_in_library(Path::new(&track.path))? {
+            let original = track.path.clone();
+            self.place_new_file(&mut track, media)?;
+            placed.insert(original, track.path.clone());
+        }
+        Ok(track)
     }
 
     fn flush(&mut self, batch: &mut Vec<Track>) -> Result<()> {
@@ -358,49 +399,59 @@ fn placeholder_track(
 }
 
 fn build_track(
-    mut meta: TrackMeta,
+    meta: TrackMeta,
     facts: FileFacts,
     now: i64,
     overrides: Option<&TrackOverrides>,
     in_cloud: bool,
 ) -> Track {
-    let mut date_added = now;
-    if let Some(overrides) = overrides {
-        apply_overrides(&mut meta, overrides);
-        date_added = overrides.date_added.unwrap_or(now);
-    }
-    Track {
+    let mut track = Track {
         in_cloud,
-        ..new_track(
-            meta,
-            facts.path,
-            facts.file_size,
-            facts.date_modified,
-            date_added,
-        )
+        ..new_track(meta, facts.path, facts.file_size, facts.date_modified, now)
+    };
+    if let Some(overrides) = overrides {
+        apply_overrides(&mut track, overrides);
     }
+    track
 }
 
-fn apply_overrides(meta: &mut TrackMeta, overrides: &TrackOverrides) {
+fn apply_overrides(track: &mut Track, overrides: &TrackOverrides) {
     let text = |target: &mut String, value: &Option<String>| {
         if let Some(value) = value {
             target.clone_from(value);
         }
     };
-    text(&mut meta.title, &overrides.title);
-    text(&mut meta.artist, &overrides.artist);
-    text(&mut meta.album, &overrides.album);
-    text(&mut meta.album_artist, &overrides.album_artist);
-    text(&mut meta.genre, &overrides.genre);
+    text(&mut track.title, &overrides.title);
+    text(&mut track.artist, &overrides.artist);
+    text(&mut track.album, &overrides.album);
+    text(&mut track.album_artist, &overrides.album_artist);
+    text(&mut track.genre, &overrides.genre);
+    text(&mut track.composer, &overrides.composer);
     // Radio is a kind of row, not of file: nothing read from a file can be one.
     if let Some(kind) = overrides.kind.filter(|kind| *kind != MediaKind::Radio) {
-        meta.kind = kind;
+        track.kind = kind;
     }
     if overrides.year.is_some() {
-        meta.year = overrides.year;
+        track.year = overrides.year;
+    }
+    for (target, value) in [
+        (&mut track.track_number, overrides.track_number),
+        (&mut track.track_count, overrides.track_count),
+        (&mut track.disc_number, overrides.disc_number),
+        (&mut track.disc_count, overrides.disc_count),
+    ] {
+        if value.is_some() {
+            *target = value;
+        }
+    }
+    if let Some(compilation) = overrides.compilation {
+        track.compilation = compilation;
+    }
+    if let Some(date_added) = overrides.date_added {
+        track.date_added = date_added;
     }
     if let Some(lyrics) = &overrides.lyrics {
-        meta.has_lyrics = !lyrics.is_empty();
+        track.has_lyrics = !lyrics.is_empty();
     }
 }
 

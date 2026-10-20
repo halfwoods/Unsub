@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 
 use crate::common::{
-    all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track, track_titled,
+    added_ids, all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track, track_titled,
 };
 
 /// Stands in for iCloud Drive: a file counts as a cloud placeholder while a
@@ -323,7 +323,7 @@ fn refreshing_re_applies_overrides_and_skips_files_it_cannot_read_or_find() {
         title: Some("Pinned".into()),
         ..TrackOverrides::default()
     };
-    let pinned_id = library.add_files(&[(pinned.clone(), overrides)]).unwrap()[0];
+    let pinned_id = added_ids(&mut library, &[(pinned.clone(), overrides)])[0];
     rescan(&mut library, dir.path());
     let id_of = |library: &Library, title: &str| {
         library
@@ -456,4 +456,239 @@ fn ordinary_and_missing_files_are_not_placeholders() {
     assert!(!is_dataless(&path));
     assert!(!is_dataless(dir.path()));
     assert!(!is_dataless(&dir.path().join("missing.mp3")));
+}
+
+/// What Music knows about a song and a placeholder cannot say.
+fn from_music(title: &str, number: u32) -> TrackOverrides {
+    TrackOverrides {
+        title: Some(title.into()),
+        artist: Some("Music Artist".into()),
+        album: Some("Music Album".into()),
+        album_artist: Some("Music Album Artist".into()),
+        genre: Some("Music Genre".into()),
+        composer: Some("Music Composer".into()),
+        year: Some(1999),
+        track_number: Some(number),
+        track_count: Some(12),
+        disc_number: Some(1),
+        disc_count: Some(2),
+        compilation: Some(true),
+        date_added: Some(1_500_000_000),
+        ..TrackOverrides::default()
+    }
+}
+
+#[test]
+fn adding_files_makes_placeholder_rows_without_opening_the_files() {
+    let dir = TempDir::new().unwrap();
+    let db = TempDir::new().unwrap();
+    let db_path = db.path().join("library.db");
+    // None of these could be parsed, and one cannot even be opened.
+    let first = put(dir.path(), "Artist/Album/01 First.mp3", b"not audio");
+    let second = put(dir.path(), "Artist/Album/02 Second.m4a", b"not audio");
+    let third = put(dir.path(), "Artist/Album/03 Third.flac", b"not audio");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&third, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    for file in [&first, &second, &third] {
+        evict(file);
+    }
+    let mut library = Library::open(&db_path).unwrap();
+    library.set_dataless_check(|path| path.with_extension("evicted").exists());
+
+    let summary = library
+        .add_files(&[
+            (first.clone(), from_music("One", 1)),
+            (second.clone(), from_music("Two", 2)),
+            (third.clone(), TrackOverrides::default()),
+        ])
+        .unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&third, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+    let ids: Vec<i64> = summary.ids.iter().map(|id| id.unwrap()).collect();
+    let rows: Vec<Track> = ids
+        .iter()
+        .map(|id| library.track(*id).unwrap().unwrap())
+        .collect();
+    assert!(rows.iter().all(|row| row.in_cloud && row.duration_ms == 0));
+    let one = &rows[0];
+    assert_eq!(
+        (one.title.as_str(), one.artist.as_str(), one.album.as_str()),
+        ("One", "Music Artist", "Music Album")
+    );
+    assert_eq!(
+        (
+            one.album_artist.as_str(),
+            one.genre.as_str(),
+            one.composer.as_str()
+        ),
+        ("Music Album Artist", "Music Genre", "Music Composer")
+    );
+    assert_eq!(
+        (
+            one.year,
+            one.track_number,
+            one.track_count,
+            one.disc_number,
+            one.disc_count,
+            one.compilation,
+            one.date_added
+        ),
+        (
+            Some(1999),
+            Some(1),
+            Some(12),
+            Some(1),
+            Some(2),
+            true,
+            1_500_000_000
+        )
+    );
+    assert_eq!((one.codec.as_str(), rows[1].codec.as_str()), ("MP3", "AAC"));
+    // Without overrides it is described by its name, as a scan would.
+    let bare = &rows[2];
+    assert_eq!(
+        (bare.title.as_str(), bare.track_number, bare.codec.as_str()),
+        ("Third", Some(3), "FLAC")
+    );
+    let versions: Vec<u32> = Connection::open(&db_path)
+        .unwrap()
+        .prepare("SELECT parser_version FROM tracks")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(versions, [0, 0, 0], "each is read once it is local");
+
+    // The first is downloaded: the real file arrives, and the scan reads it
+    // properly while what Music said stays.
+    download(&first);
+    fs::copy(fixtures_dir().join("halo.mp3"), &first).unwrap();
+    rescan(&mut library, dir.path());
+    let read = library.track(ids[0]).unwrap().unwrap();
+    assert!(!read.in_cloud && read.duration_ms > 0);
+    assert_eq!(
+        (
+            read.title.as_str(),
+            read.composer.as_str(),
+            read.track_number
+        ),
+        ("One", "Music Composer", Some(1))
+    );
+    assert!(read.compilation && read.disc_count == Some(2));
+    assert!(library.track(ids[1]).unwrap().unwrap().in_cloud);
+}
+
+#[test]
+fn adding_a_known_file_that_is_now_a_placeholder_keeps_what_was_read_from_it() {
+    let dir = TempDir::new().unwrap();
+    let path = put_fixture(dir.path(), "halo.mp3", "halo.mp3");
+    let mut library = cloud_library();
+    rescan(&mut library, dir.path());
+    let before = library.tracks(&all_kinds()).unwrap().remove(0);
+    assert!(!before.in_cloud && before.duration_ms > 0);
+    evict(&path);
+
+    let summary = library
+        .add_files(&[(path.clone(), from_music("Renamed", 4))])
+        .unwrap();
+
+    assert_eq!(summary.ids, [Some(before.id)]);
+    let after = library.track(before.id).unwrap().unwrap();
+    assert!(after.in_cloud);
+    assert_eq!(
+        (
+            after.title.as_str(),
+            after.composer.as_str(),
+            after.track_number
+        ),
+        ("Renamed", "Music Composer", Some(4))
+    );
+    assert_eq!(
+        (after.duration_ms, after.bitrate_kbps, after.codec.as_str()),
+        (
+            before.duration_ms,
+            before.bitrate_kbps,
+            before.codec.as_str()
+        ),
+        "the details read before it was evicted stand"
+    );
+    // Downloaded again, it is read and the overrides still hold.
+    download(&path);
+    rescan(&mut library, dir.path());
+    let reread = library.track(before.id).unwrap().unwrap();
+    assert!(!reread.in_cloud);
+    assert_eq!(
+        (reread.title.as_str(), reread.disc_count),
+        ("Renamed", Some(2))
+    );
+}
+
+#[test]
+fn placeholders_are_not_copied_into_the_media_folder_and_duplicates_are_one_row() {
+    let dir = TempDir::new().unwrap();
+    let media = TempDir::new().unwrap();
+    let path = put(dir.path(), "A/B/01 Song.mp3", b"not audio");
+    evict(&path);
+    let mut library = cloud_library();
+    library.set_media_folder(media.path()).unwrap();
+    library.set_copy_on_add(true).unwrap();
+    library.set_organize(true).unwrap();
+
+    let summary = library
+        .add_files(&[
+            (path.clone(), from_music("First", 1)),
+            (path.clone(), from_music("Second", 1)),
+        ])
+        .unwrap();
+
+    assert!(summary.failed.is_empty());
+    assert_eq!(summary.ids[0], summary.ids[1]);
+    assert_eq!(library.stats(&all_kinds()).unwrap().count, 1);
+    let row = library.track(summary.ids[0].unwrap()).unwrap().unwrap();
+    assert_eq!(row.title, "Second", "the later one wins");
+    assert!(Path::new(&row.path).ends_with("A/B/01 Song.mp3"));
+    assert_eq!(fs::read_dir(media.path()).unwrap().count(), 0);
+}
+
+#[test]
+#[ignore = "timing check; needs --release"]
+fn forty_thousand_placeholders_are_added_in_seconds() {
+    let dir = TempDir::new().unwrap();
+    let mut files = Vec::new();
+    for artist in 0..2_000 {
+        let folder = dir
+            .path()
+            .join(format!("Artist {artist}/Album {}", artist % 7));
+        fs::create_dir_all(&folder).unwrap();
+        for song in 0..20 {
+            let path = folder.join(format!("{:02} Song {artist}-{song}.m4a", song + 1));
+            fs::write(&path, b"").unwrap();
+            files.push((path, from_music(&format!("Song {artist}-{song}"), song + 1)));
+        }
+    }
+    let mut library = Library::open_in_memory().unwrap();
+    library.set_dataless_check(|_| true);
+
+    let started = std::time::Instant::now();
+    let summary = library.add_files(&files).unwrap();
+    let added = started.elapsed();
+    let again = std::time::Instant::now();
+    let summary_again = library.add_files(&files).unwrap();
+    let updated = again.elapsed();
+
+    eprintln!("40,000 placeholders: added in {added:?}, added again in {updated:?}");
+    assert!(summary.failed.is_empty() && summary_again.failed.is_empty());
+    assert_eq!(summary.ids, summary_again.ids);
+    assert!(summary.ids.iter().all(Option::is_some));
+    assert_eq!(library.stats(&all_kinds()).unwrap().count, 40_000);
+    assert!(added.as_secs() < 10 && updated.as_secs() < 10);
 }

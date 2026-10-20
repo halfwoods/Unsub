@@ -43,6 +43,15 @@ impl Library {
             .optional()?)
     }
 
+    pub(crate) fn track_at_path(&self, path: &str) -> Result<Option<Track>> {
+        let sql = format!("SELECT {TRACK_COLUMNS} FROM tracks WHERE path = ?1");
+        Ok(self
+            .conn
+            .prepare_cached(&sql)?
+            .query_row([path], track_from_row)
+            .optional()?)
+    }
+
     pub fn stats(&self, query: &TrackQuery) -> Result<LibraryStats> {
         let selection = selection(&self.conn, query, true)?;
         let sql = format!(

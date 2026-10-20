@@ -10,7 +10,7 @@ use antistreaming_library::{
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-use crate::common::{all_kinds, fixtures_dir, library_of, rewind_schema, track};
+use crate::common::{added_ids, all_kinds, fixtures_dir, library_of, rewind_schema, track};
 
 const GROOVE_URL: &str = "https://ice1.somafm.com/groovesalad-128-mp3";
 const GROOVE_UUID: &str = "960e57c5-0601-11e8-ae97-52543be04c81";
@@ -903,9 +903,7 @@ fn nothing_that_works_on_files_touches_stations() {
         recorder.lock().unwrap().push(path.to_path_buf());
         Ok(())
     });
-    let song_id = library
-        .add_files(&[(real.clone(), TrackOverrides::default())])
-        .unwrap()[0];
+    let song_id = added_ids(&mut library, &[(real.clone(), TrackOverrides::default())])[0];
     let a = library
         .add_station(&NewStation {
             genre: "Jazz".into(),
@@ -1057,15 +1055,16 @@ fn a_file_cannot_be_added_as_a_station_by_override_or_scan() {
     let mut library = Library::open_in_memory().unwrap();
     let station = library.add_station(&groove()).unwrap();
 
-    let id = library
-        .add_files(&[(
+    let id = added_ids(
+        &mut library,
+        &[(
             path,
             TrackOverrides {
                 kind: Some(MediaKind::Radio),
                 ..TrackOverrides::default()
             },
-        )])
-        .unwrap()[0];
+        )],
+    )[0];
     let summary = library
         .add_paths(&[dir.path().to_path_buf()], |_| {})
         .unwrap();

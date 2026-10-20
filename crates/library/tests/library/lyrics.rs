@@ -16,7 +16,9 @@ use lofty::tag::{ItemKey, Tag, TagExt, TagType};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-use crate::common::{all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track};
+use crate::common::{
+    added_ids, all_kinds, copy_fixtures, fixtures_dir, rewind_schema, scan, track,
+};
 
 const WORDS: &str = "First line\nSecond line";
 
@@ -29,9 +31,10 @@ fn copy(fixture: &str) -> (TempDir, PathBuf) {
 
 fn added(path: &Path) -> (Library, i64) {
     let mut library = Library::open_in_memory().unwrap();
-    let id = library
-        .add_files(&[(path.to_path_buf(), TrackOverrides::default())])
-        .unwrap()[0];
+    let id = added_ids(
+        &mut library,
+        &[(path.to_path_buf(), TrackOverrides::default())],
+    )[0];
     (library, id)
 }
 
@@ -879,15 +882,16 @@ fn added_files_can_bring_lyrics_as_an_override() {
     let (_dir, path) = copy("halo.mp3");
     let mut library = Library::open_in_memory().unwrap();
 
-    let id = library
-        .add_files(&[(
+    let id = added_ids(
+        &mut library,
+        &[(
             path,
             TrackOverrides {
                 lyrics: Some("Brought along\r\nwith it".into()),
                 ..TrackOverrides::default()
             },
-        )])
-        .unwrap()[0];
+        )],
+    )[0];
 
     assert!(has_lyrics(&library, id));
     assert_eq!(

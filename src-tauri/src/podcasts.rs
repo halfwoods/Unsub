@@ -238,12 +238,12 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
                 genre: Some("Podcast".to_owned()),
                 date_added: episode.published,
                 year: None,
-                lyrics: None,
+                ..TrackOverrides::default()
             };
             let added = app.state::<LibraryState>().queries().add_files(&[(file, overrides)]);
             match added {
-                Ok(ids) => {
-                    if let Some(&track_id) = ids.first() {
+                Ok(summary) => {
+                    if let Some(track_id) = summary.ids.first().copied().flatten() {
                         state.remember(episode_id, track_id);
                     }
                 }

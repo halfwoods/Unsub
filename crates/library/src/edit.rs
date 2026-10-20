@@ -206,10 +206,20 @@ impl TrackEdits {
             in_file,
         );
         field(&mut overrides.genre, self.genre.clone(), in_file);
+        field(&mut overrides.composer, self.composer.clone(), in_file);
+        field(&mut overrides.compilation, self.compilation, in_file);
         field(&mut overrides.lyrics, self.lyrics.clone(), in_file);
-        if let Some(year) = self.year {
-            overrides.year = year.filter(|_| !in_file);
+        // A number cleared on a file that cannot take it has nothing to pin.
+        fn number<T>(slot: &mut Option<T>, edited: Option<Option<T>>, in_file: bool) {
+            if let Some(value) = edited {
+                *slot = value.filter(|_| !in_file);
+            }
         }
+        number(&mut overrides.year, self.year, in_file);
+        number(&mut overrides.track_number, self.track_number, in_file);
+        number(&mut overrides.track_count, self.track_count, in_file);
+        number(&mut overrides.disc_number, self.disc_number, in_file);
+        number(&mut overrides.disc_count, self.disc_count, in_file);
         // The kind is not in the tags at all, so it is always pinned.
         if let Some(kind) = self.kind {
             overrides.kind = Some(kind);

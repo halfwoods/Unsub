@@ -35,9 +35,10 @@ pub use loudness::{
 };
 pub use lyrics::{Lyrics, LyricsSource};
 pub use model::{
-    AlbumSummary, ArtistSummary, Artwork, ComposerSummary, ExternalStats, ExternalTrack,
-    GenreSummary, LibraryStats, MatchQuality, MediaKind, Mix, Playlist, PlaylistKind, ScanProgress,
-    ScanSummary, SortKey, Track, TrackMatch, TrackOverrides, TrackQuery,
+    AddSummary, AlbumSummary, ArtistSummary, Artwork, ComposerSummary, ExternalStats,
+    ExternalTrack, GenreSummary, LibraryStats, MatchQuality, MediaKind, Mix, Playlist,
+    PlaylistKind, ScanProgress, ScanSummary, SortKey, Track, TrackMatch, TrackOverrides,
+    TrackQuery,
 };
 pub use organize::{MediaSettings, OrganizeProgress, OrganizeReport};
 pub use smart::{

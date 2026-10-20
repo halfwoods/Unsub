@@ -13,7 +13,7 @@ use lofty::mpeg::MpegFile;
 use lofty::ogg::VorbisFile;
 use tempfile::TempDir;
 
-use crate::common::{all_kinds, fixtures_dir};
+use crate::common::{added_ids, all_kinds, fixtures_dir};
 
 fn fixture(name: &str) -> PathBuf {
     fixtures_dir().join("chapters").join(name)
@@ -22,9 +22,10 @@ fn fixture(name: &str) -> PathBuf {
 /// The file added to a fresh library, and its chapters.
 fn chapters_of(path: &Path) -> Vec<Chapter> {
     let mut library = Library::open_in_memory().unwrap();
-    let id = library
-        .add_files(&[(path.to_path_buf(), TrackOverrides::default())])
-        .unwrap()[0];
+    let id = added_ids(
+        &mut library,
+        &[(path.to_path_buf(), TrackOverrides::default())],
+    )[0];
     library.chapters(id).unwrap()
 }
 
@@ -199,8 +200,10 @@ fn damaged_mp4s_give_what_survives_not_errors() {
         fs::write(&path, bytes).unwrap();
         let mut library = Library::open_in_memory().unwrap();
         // The scan may not accept such a file; the point is that asking for chapters is safe.
-        if let Ok(ids) = library.add_files(&[(path.clone(), TrackOverrides::default())]) {
-            let chapters = library.chapters(ids[0]).unwrap();
+        if let Ok(summary) = library.add_files(&[(path.clone(), TrackOverrides::default())])
+            && let Some(id) = summary.ids[0]
+        {
+            let chapters = library.chapters(id).unwrap();
             assert!(chapters.len() <= 3, "{name}");
         }
     }
@@ -211,8 +214,10 @@ fn damaged_mp4s_give_what_survives_not_errors() {
     let path = dir.path().join("garbled.m4b");
     fs::write(&path, garbled).unwrap();
     let mut library = Library::open_in_memory().unwrap();
-    if let Ok(ids) = library.add_files(&[(path, TrackOverrides::default())]) {
-        assert!(library.chapters(ids[0]).unwrap().len() <= 3);
+    if let Ok(summary) = library.add_files(&[(path, TrackOverrides::default())])
+        && let Some(id) = summary.ids[0]
+    {
+        assert!(library.chapters(id).unwrap().len() <= 3);
     }
 }
 
@@ -405,7 +410,7 @@ fn files_without_chapters_in_any_format_have_none() {
         (path, TrackOverrides::default())
     })
     .collect();
-    let ids = library.add_files(&files).unwrap();
+    let ids = added_ids(&mut library, &files);
 
     for id in ids {
         assert!(library.chapters(id).unwrap().is_empty(), "{id}");
@@ -418,9 +423,7 @@ fn asking_for_chapters_is_safe_for_missing_tracks_files_and_placeholders() {
     let path = copy("book.m4b", &dir);
     let mut library = Library::open_in_memory().unwrap();
     library.set_dataless_check(|p| p.with_extension("evicted").exists());
-    let id = library
-        .add_files(&[(path.clone(), TrackOverrides::default())])
-        .unwrap()[0];
+    let id = added_ids(&mut library, &[(path.clone(), TrackOverrides::default())])[0];
     assert!(matches!(
         library.chapters(9_999),
         Err(Error::TrackNotFound(9_999))
