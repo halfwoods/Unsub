@@ -156,6 +156,10 @@ export const playerSetRepeat = (repeat: RepeatMode) => invoke<void>("player_set_
 export const playerStatus = () => invoke<PlaybackStatus>("player_status");
 export const playerSetBitPerfect = (enabled: boolean) => invoke<void>("player_set_bit_perfect", { enabled });
 export const playerSetSoundCheck = (enabled: boolean) => invoke<void>("player_set_sound_check", { enabled });
+export const playerSetEqualizer = (equalizer: { preampDb: number; bands: number[] } | null, preventClipping: boolean) =>
+  invoke<void>("player_set_equalizer", { equalizer, preventClipping });
+export const playerEqualizerPresets = () => invoke<{ name: string; bands: number[] }[]>("player_equalizer_presets");
+export const playerSetCrossfade = (seconds: number | null) => invoke<void>("player_set_crossfade", { seconds });
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));
@@ -242,6 +246,7 @@ export type MenuAction =
   | "organize-library"
   | "set-up-player"
   | "connect-to-server"
+  | "equalizer"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

@@ -123,3 +123,14 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+.prefs-crossfade {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px 22px;
+}
+
+.prefs-crossfade input {
+  width: 220px;
+}

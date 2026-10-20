@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use antistreaming_library::GainMode;
-use antistreaming_playback::{Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent};
+use antistreaming_playback::{Equalizer, Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent, TrackOptions};
 use antistreaming_remote::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -151,20 +151,35 @@ impl PlaybackState {
         Ok(if antistreaming_library::is_dataless(&path) { Located::ICloud(path) } else { Located::Ready(path) })
     }
 
+    /// What the engine is told about a song beyond its file: Sound Check's gain, and which album
+    /// it's from, so Crossfade Songs leaves gapless albums alone.
+    fn options(&self, tracks: &Tracks, source: &PlaySource, track_id: i64) -> TrackOptions {
+        let album_key = match source {
+            PlaySource::Library => tracks.library.queries().track(track_id).ok().flatten().filter(|t| !t.album.is_empty()).map(|t| {
+                let artist = if t.album_artist.is_empty() { t.artist } else { t.album_artist };
+                format!("{artist}\u{1f}{}", t.album)
+            }),
+            // A CD is one album, played as it was pressed.
+            PlaySource::Cd { disc_id } => Some(disc_id.clone()),
+            PlaySource::Device { .. } | PlaySource::Shared { .. } => None,
+        };
+        TrackOptions { gain: self.gain(tracks, source, track_id), album_key }
+    }
+
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         let track_id = playing.queue.current();
         let located = self.locate(tracks, &playing.source, track_id)?;
-        let gain = self.gain(tracks, &playing.source, track_id);
+        let options = self.options(tracks, &playing.source, track_id);
         let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
         if let Located::Ready(path) = located {
-            self.player.play_with(track_id, path, gain);
+            self.player.play_with(track_id, path, options);
             return self.queue_following(tracks, playing);
         }
         // Opening a file that isn't here yet would block the engine while it arrives, so fetch it
         // first and start playing once it's local, showing progress in the LCD meanwhile.
         self.player.stop();
         let next = match playing.queue.peek_next() {
-            Some(next) => Some((next, self.locate(tracks, &playing.source, next)?, self.gain(tracks, &playing.source, next))),
+            Some(next) => Some((next, self.locate(tracks, &playing.source, next)?, self.options(tracks, &playing.source, next))),
             None => None,
         };
         let app = self.app.clone();
@@ -180,9 +195,9 @@ impl PlaybackState {
             }
             match result {
                 Ok(path) => {
-                    playback.player.play_with(track_id, path, gain);
-                    if let Some((next, next_located, next_gain)) = next {
-                        playback.queue_located(next, next_located, next_gain);
+                    playback.player.play_with(track_id, path, options);
+                    if let Some((next, next_located, next_options)) = next {
+                        playback.queue_located(next, next_located, next_options);
                     }
                 }
                 Err(error) => {
@@ -196,7 +211,9 @@ impl PlaybackState {
     /// Hands the engine the next track early so it can play gaplessly.
     pub(crate) fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         match playing.queue.peek_next() {
-            Some(next) => self.queue_located(next, self.locate(tracks, &playing.source, next)?, self.gain(tracks, &playing.source, next)),
+            Some(next) => {
+                self.queue_located(next, self.locate(tracks, &playing.source, next)?, self.options(tracks, &playing.source, next))
+            }
             None => {
                 self.nexts.fetch_add(1, Ordering::SeqCst);
                 self.player.clear_next();
@@ -207,10 +224,10 @@ impl PlaybackState {
 
     /// Queues the next song for gapless play, fetching it first when needed so the engine never
     /// decodes ahead into a file that isn't here yet.
-    fn queue_located(&self, track_id: i64, located: Located, gain: Option<Gain>) {
+    fn queue_located(&self, track_id: i64, located: Located, options: TrackOptions) {
         let next = self.nexts.fetch_add(1, Ordering::SeqCst) + 1;
         if let Located::Ready(path) = located {
-            self.player.queue_next_with(track_id, path, gain);
+            self.player.queue_next_with(track_id, path, options);
             return;
         }
         self.player.clear_next();
@@ -221,7 +238,7 @@ impl PlaybackState {
             if let Ok(path) = fetched
                 && playback.nexts.load(Ordering::SeqCst) == next
             {
-                playback.player.queue_next_with(track_id, path, gain);
+                playback.player.queue_next_with(track_id, path, options);
             }
         });
     }
@@ -469,6 +486,30 @@ pub fn player_set_repeat(
 #[tauri::command]
 pub fn player_set_bit_perfect(playback: State<'_, PlaybackState>, enabled: bool) {
     playback.player.set_bit_perfect(enabled);
+}
+
+/// Window › Equalizer. "Prevent clipping" lowers the preamp by the curve's real peak, so boosts
+/// never distort.
+#[tauri::command]
+pub fn player_set_equalizer(playback: State<'_, PlaybackState>, equalizer: Option<Equalizer>, prevent_clipping: bool) {
+    playback.player.set_equalizer(equalizer.map(|eq| if prevent_clipping { eq.with_headroom() } else { eq }));
+}
+
+#[derive(serde::Serialize)]
+pub struct EqualizerPreset {
+    name: &'static str,
+    bands: [f32; 10],
+}
+
+#[tauri::command]
+pub fn player_equalizer_presets() -> Vec<EqualizerPreset> {
+    antistreaming_playback::PRESETS.iter().map(|p| EqualizerPreset { name: p.name, bands: p.bands }).collect()
+}
+
+/// Preferences › Playback › Crossfade Songs, in seconds; `None` turns it off.
+#[tauri::command]
+pub fn player_set_crossfade(playback: State<'_, PlaybackState>, seconds: Option<f32>) {
+    playback.player.set_crossfade(seconds.filter(|s| s.is_finite() && *s > 0.0).map(std::time::Duration::from_secs_f32));
 }
 
 /// iTunes' Sound Check: levels songs to one loudness from the next song on, measuring in the

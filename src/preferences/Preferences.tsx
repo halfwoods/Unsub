@@ -1,10 +1,18 @@
 import { audioDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
-import { libraryMediaSettings, librarySetMediaSettings, playerSetBitPerfect, playerSetSoundCheck, sharingStatus, sharingUpdate } from "../api/commands";
+import {
+  libraryMediaSettings,
+  librarySetMediaSettings,
+  playerSetBitPerfect,
+  playerSetCrossfade,
+  playerSetSoundCheck,
+  sharingStatus,
+  sharingUpdate,
+} from "../api/commands";
 import type { MediaSettings, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
-import { loadBitPerfect, loadSoundCheck, saveBitPerfect, saveSoundCheck } from "./playbackPrefs";
+import { loadBitPerfect, loadCrossfade, loadSoundCheck, saveBitPerfect, saveCrossfade, saveSoundCheck } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
 
@@ -104,6 +112,14 @@ function GeneralTab() {
 function PlaybackTab() {
   const [bitPerfect, setBitPerfect] = useState(loadBitPerfect);
   const [soundCheck, setSoundCheck] = useState(loadSoundCheck);
+  const [crossfade, setCrossfade] = useState(loadCrossfade);
+  // The slider remembers its length while Crossfade Songs is off.
+  const [fadeSeconds, setFadeSeconds] = useState(() => loadCrossfade() ?? 6);
+  const applyCrossfade = (seconds: number | null) => {
+    setCrossfade(seconds);
+    saveCrossfade(seconds);
+    void playerSetCrossfade(seconds);
+  };
   const outputFormat = useApp((s) => s.playback.outputFormat);
   const active = useApp((s) => s.playback.bitPerfect);
   const toggle = (enabled: boolean) => {
@@ -118,6 +134,27 @@ function PlaybackTab() {
   };
   return (
     <div>
+      <label className="prefs-check">
+        <input type="checkbox" checked={crossfade !== null} onChange={(e) => applyCrossfade(e.target.checked ? fadeSeconds : null)} />
+        Crossfade Songs
+      </label>
+      <div className="prefs-crossfade">
+        <input
+          type="range"
+          min={1}
+          max={12}
+          step={1}
+          value={fadeSeconds}
+          disabled={crossfade === null}
+          aria-label="Crossfade length"
+          onChange={(e) => {
+            setFadeSeconds(Number(e.target.value));
+            applyCrossfade(Number(e.target.value));
+          }}
+        />
+        <span>{fadeSeconds} {fadeSeconds === 1 ? "second" : "seconds"}</span>
+      </div>
+      <p className="prefs-note">Songs from the same album still play without a break, so live and gapless albums stay intact.</p>
       <label className="prefs-check">
         <input type="checkbox" checked={soundCheck} onChange={(e) => toggleSoundCheck(e.target.checked)} />
         Sound Check

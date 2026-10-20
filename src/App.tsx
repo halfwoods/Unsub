@@ -18,6 +18,7 @@ import {
   playerNext,
   playerPrevious,
   playerSetBitPerfect,
+  playerSetCrossfade,
   playerSetSoundCheck,
   playerStatus,
   type MenuAction,
@@ -26,12 +27,13 @@ import { Content } from "./browser/Content";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
+import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
-import { loadBitPerfect, loadSoundCheck } from "./preferences/playbackPrefs";
+import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
 import { isLibrarySource, isPlaylistSource, useApp } from "./state/store";
 import "./theme/base.css";
@@ -65,6 +67,8 @@ function runMenuAction(action: MenuAction) {
       return useApp.setState({ settingUpPlayer: true });
     case "connect-to-server":
       return useApp.setState({ connectingToServer: true });
+    case "equalizer":
+      return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
       return setPreferencesOpen(true);
     case "new-playlist":
@@ -129,6 +133,9 @@ function useBackendEvents() {
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     if (loadBitPerfect()) void playerSetBitPerfect(true);
     if (loadSoundCheck()) void playerSetSoundCheck(true);
+    applyEqualizer(loadEqualizer());
+    const crossfade = loadCrossfade();
+    if (crossfade !== null) void playerSetCrossfade(crossfade);
     return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
   }, []);
 }
@@ -154,6 +161,7 @@ export default function App() {
   const preferencesOpen = useApp((s) => s.preferencesOpen);
   const settingUpPlayer = useApp((s) => s.settingUpPlayer);
   const connectingToServer = useApp((s) => s.connectingToServer);
+  const equalizerOpen = useApp((s) => s.equalizerOpen);
   useBackendEvents();
   useGlobalKeys();
 
@@ -171,6 +179,7 @@ export default function App() {
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
       {connectingToServer && <ConnectToServer />}
+      {equalizerOpen && <EqualizerPanel />}
     </div>
   );
 }

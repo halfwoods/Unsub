@@ -190,6 +190,7 @@ interface AppState {
   organize: OrganizeProgress | null;
   settingUpPlayer: boolean;
   connectingToServer: boolean;
+  equalizerOpen: boolean;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -274,6 +275,7 @@ export const useApp = create<AppState>((set, get) => ({
   organize: null,
   settingUpPlayer: false,
   connectingToServer: false,
+  equalizerOpen: false,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
