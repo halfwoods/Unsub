@@ -370,6 +370,7 @@ mod tests {
             missing: false,
             loudness: None,
             remember_position: false,
+            has_lyrics: false,
             sort_title: None,
             sort_artist: None,
             sort_album: None,

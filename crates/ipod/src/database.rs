@@ -60,6 +60,8 @@ pub struct IpodTrack {
     /// The type string iTunes stored ("MPEG audio file") or, for flash iPods, the four-letter code.
     pub file_type: String,
     pub compilation: bool,
+    /// iTunes' Sound Check value, `1000 * 10^(-gain/10)` for a gain in dB; 0 means off.
+    pub sound_check: u32,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,

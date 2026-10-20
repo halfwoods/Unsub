@@ -10,6 +10,7 @@ mod duplicates;
 mod edit;
 mod import;
 mod loudness;
+mod lyrics;
 mod matching;
 mod missing;
 mod mixes;

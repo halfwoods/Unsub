@@ -24,8 +24,9 @@ pub use eject::eject;
 pub use error::{Error, Result};
 pub use models::{IpodFamily, IpodModel, SyncSupport};
 pub use sync::{
-    PlayDelta, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, apply_sync,
-    artwork_supported, clear_play_counts, plan_sync, read_play_counts_for_sync_back,
+    OnTheGo, PlayDelta, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, apply_sync,
+    artwork_supported, clear_on_the_go, clear_play_counts, plan_sync, read_on_the_go,
+    read_play_counts_for_sync_back, restore_backup,
 };
 pub use verify::{
     ArtworkCheck, ChecksumCheck, ChunkCount, FieldDifference, HeaderChange, RecordDifference,

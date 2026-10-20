@@ -18,7 +18,7 @@ pub(crate) const TRACK_COLUMNS: &str =
     bit_depth, channels, codec, file_size, date_added, date_modified, play_count, last_played,
     skip_count, rating, kind, compilation, sort_title, sort_artist, sort_album, sort_album_artist,
     enabled, in_cloud, missing, loudness_lufs, true_peak_dbtp, loudness_source,
-    album_loudness_lufs, album_true_peak_dbtp, COALESCE(remember_position, kind IN (1, 2))";
+    album_loudness_lufs, album_true_peak_dbtp, COALESCE(remember_position, kind IN (1, 2)), has_lyrics";
 
 impl Library {
     pub fn tracks(&self, query: &TrackQuery) -> Result<Vec<Track>> {
@@ -119,6 +119,7 @@ pub(crate) fn track_from_row(row: &Row<'_>) -> rusqlite::Result<Track> {
         missing: row.get(34)?,
         loudness: loudness_from_row(row)?,
         remember_position: row.get(40)?,
+        has_lyrics: row.get(41)?,
     })
 }
 

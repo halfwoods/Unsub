@@ -37,6 +37,7 @@ pub fn track(id: i64, codec: &str, kind: MediaKind) -> Track {
         missing: false,
         loudness: None,
         remember_position: false,
+        has_lyrics: false,
         compilation: false,
         sort_title: None,
         sort_artist: None,

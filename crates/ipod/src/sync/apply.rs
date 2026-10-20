@@ -8,14 +8,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::commit::{self, Staged};
 use super::files::{self, Rng};
 use super::mapping::{MappedImage, MappedPlaylist, MappedTrack, Mapping};
+use super::on_the_go;
 use super::plan::{Space, artwork_bytes, freed_bytes, reserve_bytes, space};
-use super::{SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, checksum_key};
+use super::{
+    SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, checksum_key, shuffle_format,
+};
 use crate::bytes::u64_at;
 use crate::database::{Database, Usage};
 use crate::device::{Ipod, database_path, itunes_dir};
 use crate::error::{Error, Result};
 use crate::itunesdb::artwork::{self, Artwork, KnownImage, Link, Writer};
 use crate::itunesdb::raw::{RawDb, RawPlaylist, RawTrack};
+use crate::itunesdb::shuffle::{self, ShuffleFormat};
 use crate::itunesdb::{self, Metadata, Origin};
 
 /// iTunes numbers the first track 52 (libgpod's `FIRST_IPOD_ID`).
@@ -106,6 +110,8 @@ struct Job<'a> {
     playlists: &'a [SyncPlaylist],
     /// What this iPod can do with album art; `None` if nothing is written for it.
     artwork: Option<Artwork>,
+    /// The iTunesSD to keep in step with the iTunesDB, if this iPod is a shuffle.
+    shadow: Option<Shadow>,
     /// Whether the tracks being removed must go before anything is copied, to make room.
     removals_first: bool,
     /// The previous databases are kept once per run, at its first commit.
@@ -122,6 +128,16 @@ struct Job<'a> {
     committed: bool,
     /// The ArtworkDB that refers to the appended thumbnails has been put in place.
     artwork_committed: bool,
+}
+
+/// The iTunesSD a shuffle plays from, written after the iTunesDB with the same care.
+struct Shadow {
+    format: ShuffleFormat,
+    path: PathBuf,
+    /// Carried over from the iTunesSD already on the iPod.
+    volume_limit: u8,
+    /// The file as it was when the run read it, to notice anyone else changing it.
+    stamp: Option<Stamp>,
 }
 
 /// Length and modification time, enough to see that another program rewrote a file.
@@ -147,6 +163,16 @@ impl<'a> Job<'a> {
         let snapshot = Snapshot::read(&database)?;
         let raw = RawDb::parse(&snapshot.bytes)?;
         let mapping = Mapping::load(mount)?;
+        let shadow = shuffle_format(ipod)?.map(|format| {
+            let path = itunes_dir(mount).join(shuffle::FILE_NAME);
+            let existing = fs::read(&path).unwrap_or_default();
+            Shadow {
+                format,
+                volume_limit: shuffle::volume_limit(&existing),
+                stamp: stamp(&path),
+                path,
+            }
+        });
         let mut sources = HashMap::new();
         for track in tracks {
             sources.entry(track.library_id).or_insert(track);
@@ -163,6 +189,7 @@ impl<'a> Job<'a> {
             sources,
             playlists,
             artwork: Artwork::for_device(mount, ipod.model.as_ref()),
+            shadow,
             removals_first: false,
             backups_kept: false,
             copied: Vec::new(),
@@ -182,6 +209,15 @@ impl<'a> Job<'a> {
     fn validate_plan(&self) -> Result<()> {
         let conflict =
             |message: String| Err(Error::Conflict(format!("{message}; nothing was written")));
+        // Removing a track moves every later one up the list, which the iPod's playlists made with
+        // its On-The-Go menu count positions in.
+        if !self.plan.remove.is_empty() && on_the_go::present(self.mount) {
+            return conflict(
+                "the iPod has On-The-Go playlists, which count tracks by position; read them with \
+                 read_on_the_go and delete them with clear_on_the_go before removing tracks"
+                    .to_owned(),
+            );
+        }
         let dbid_of = self.mapping.dbid_by_library_id();
         let owned: HashSet<u64> = dbid_of.values().copied().collect();
         let by_id: HashMap<u32, &RawTrack> = self
@@ -275,8 +311,7 @@ impl<'a> Job<'a> {
             .tracks
             .iter()
             .filter(|track| remove.contains(&track.id()))
-            .filter_map(|track| track.text(itunesdb::PATH).ok().flatten())
-            .map(|path| itunesdb::native_path(self.mount, &path))
+            .filter_map(|track| files::music_path(self.mount, track))
             .collect()
     }
 
@@ -344,6 +379,9 @@ impl<'a> Job<'a> {
             source: Box::new(source),
         };
         self.snapshot = Snapshot::read(&self.database).map_err(after_removals)?;
+        if let Some(shadow) = &mut self.shadow {
+            shadow.stamp = stamp(&shadow.path);
+        }
         self.mapping = mapping;
         self.delete_removed_files(&removed_files, progress);
         Ok(())
@@ -773,12 +811,14 @@ impl<'a> Job<'a> {
         })
     }
 
-    /// Puts the bookkeeping file, the ArtworkDB (if it changed) and the iTunesDB in place, in that
-    /// order. Each is written and flushed beside its old version first, so nothing is replaced
-    /// until all of them exist; each replacement is one atomic rename. The iTunesDB goes last
-    /// because it points at the others: should anything fail between renames, the old iTunesDB
+    /// Puts the bookkeeping file, the ArtworkDB (if it changed), the iTunesDB and, on a shuffle, the
+    /// iTunesSD in place, in that order. Each is written and flushed beside its old version first,
+    /// so nothing is replaced until all of them exist; each replacement is one atomic rename. The
+    /// iTunesDB points at the earlier files: should anything fail between renames, the old iTunesDB
     /// still works with the extra entries (bookkeeping for tracks not yet there, images nobody
-    /// points at yet).
+    /// points at yet). The iTunesSD goes after it, so a failure there leaves a new iTunesDB beside
+    /// an iTunesSD that still lists only files that exist: removed files are deleted only after
+    /// this returns.
     fn commit(&mut self, bytes: &[u8], mapping: &Mapping) -> Result<()> {
         let artwork_path = artwork::database_path(self.mount);
         let artwork_bytes = self
@@ -786,6 +826,11 @@ impl<'a> Job<'a> {
             .as_ref()
             .and_then(|written| written.database.as_deref());
         let artwork_changes = artwork_bytes.is_some();
+        let shuffle_bytes = self
+            .shadow
+            .as_ref()
+            .map(|shadow| shuffle::emit(&self.raw, shadow.format, shadow.volume_limit))
+            .transpose()?;
         let mut staged: Vec<(Staged, Kind)> = Vec::new();
         let staging = (|| -> Result<()> {
             staged.push((
@@ -796,6 +841,9 @@ impl<'a> Job<'a> {
                 staged.push((Staged::write(&artwork_path, art)?, Kind::Artwork));
             }
             staged.push((Staged::write(&self.database, bytes)?, Kind::Database));
+            if let (Some(shadow), Some(file)) = (&self.shadow, &shuffle_bytes) {
+                staged.push((Staged::write(&shadow.path, file)?, Kind::Shadow));
+            }
             Ok(())
         })();
         let ready = staging.and_then(|()| self.keep_backups(artwork_changes, &artwork_path));
@@ -814,6 +862,7 @@ impl<'a> Job<'a> {
                 Kind::Mapping => {}
                 Kind::Artwork => self.artwork_committed = true,
                 Kind::Database => self.committed = true,
+                Kind::Shadow => {}
             }
         }
         Ok(())
@@ -833,8 +882,18 @@ impl<'a> Job<'a> {
         if artwork_changes && stamp(artwork_path) != self.artwork_stamp {
             return conflict("ArtworkDB");
         }
+        if let Some(shadow) = &self.shadow
+            && stamp(&shadow.path) != shadow.stamp
+        {
+            return conflict("iTunesSD");
+        }
         if !self.backups_kept {
             commit::keep_backups(&self.database)?;
+            if let Some(shadow) = &self.shadow
+                && shadow.path.exists()
+            {
+                commit::keep_backups(&shadow.path)?;
+            }
             self.backups_kept = true;
         }
         if artwork_changes && artwork_path.exists() {
@@ -850,8 +909,7 @@ impl<'a> Job<'a> {
             .raw
             .tracks
             .iter()
-            .filter_map(|track| track.text(crate::itunesdb::PATH).ok().flatten())
-            .map(|path| itunesdb::native_path(self.mount, &path))
+            .filter_map(|track| files::music_path(self.mount, track))
             .collect();
         let total = files.len() as u64;
         for (done, file) in files.iter().enumerate() {
@@ -887,6 +945,7 @@ enum Kind {
     Mapping,
     Artwork,
     Database,
+    Shadow,
 }
 
 fn metadata(track: &SyncTrack) -> Metadata {
@@ -908,6 +967,7 @@ fn metadata(track: &SyncTrack) -> Metadata {
         disc_count: track.disc_count,
         rating: track.rating.min(100),
         compilation: track.compilation,
+        sound_check: track.sound_check.unwrap_or(0),
         play_count: track.play_count,
         last_played: track.last_played,
     }
@@ -931,7 +991,7 @@ fn ipod_path(mount: &Path, file: &Path) -> String {
 
 /// Fails early, before any music is copied, if the iPod is mounted read-only (HFS+ iPods usually
 /// are when connected to Windows or Linux).
-fn probe_writable(mount: &Path) -> Result<()> {
+pub(super) fn probe_writable(mount: &Path) -> Result<()> {
     let probe = itunes_dir(mount).join(".antistreaming-write-probe");
     File::create(&probe)
         .and_then(|_| fs::remove_file(&probe))

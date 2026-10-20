@@ -8,6 +8,7 @@ mod edit;
 mod error;
 mod library;
 mod loudness;
+mod lyrics;
 mod matching;
 mod missing;
 mod mix;
@@ -31,6 +32,7 @@ pub use library::Library;
 pub use loudness::{
     AlbumLoudness, Gain, GainMode, Loudness, LoudnessSource, TrackLoudness, itunes_soundcheck,
 };
+pub use lyrics::{Lyrics, LyricsSource};
 pub use model::{
     AlbumSummary, ArtistSummary, Artwork, ComposerSummary, ExternalStats, ExternalTrack,
     GenreSummary, LibraryStats, MatchQuality, MediaKind, Mix, Playlist, PlaylistKind, ScanProgress,

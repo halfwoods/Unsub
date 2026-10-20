@@ -13,6 +13,7 @@ mod mhod;
 mod playlists;
 pub(crate) mod raw;
 pub(crate) mod roundtrip;
+pub(crate) mod shuffle;
 mod view;
 
 use std::fs;

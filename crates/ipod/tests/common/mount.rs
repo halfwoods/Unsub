@@ -90,6 +90,26 @@ impl FakeIpod {
         .unwrap();
     }
 
+    /// A SysInfoExtended that only says which iTunesSD layout the device uses.
+    pub fn write_shadow_db_version(&self, version: i64) {
+        let plist = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ShadowDBVersion</key>
+	<integer>{version}</integer>
+</dict>
+</plist>
+"#
+        );
+        fs::write(
+            self.mount.join("iPod_Control/Device/SysInfoExtended"),
+            plist,
+        )
+        .unwrap();
+    }
+
     pub fn write_sysinfo_extended(&self, firewire_guid: &str, serial: &str, db_version: i64) {
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>

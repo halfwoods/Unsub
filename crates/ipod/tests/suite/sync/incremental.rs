@@ -293,3 +293,58 @@ fn play_counts_come_back_for_synced_tracks_only_and_are_cleared_on_request() {
     clear_play_counts(&ipod).unwrap();
     assert!(read_play_counts_for_sync_back(&ipod).unwrap().is_empty());
 }
+
+fn sound_check_of(fake: &FakeIpod, title: &str) -> (u32, u32) {
+    let read = read_database(&opened(fake)).unwrap();
+    let track = read.tracks.iter().find(|t| t.title == title).unwrap();
+    let (header, _) = crate::common::db::track_record(&db_bytes(fake), track.dbid).unwrap();
+    (track.sound_check, crate::common::db::u32_at(&header, 76))
+}
+
+#[test]
+fn sound_check_is_written_and_a_change_to_it_is_an_update() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let mut loud = library_track(library.path(), 1, "Loud");
+    loud.sound_check = Some(1_259);
+    let quiet = library_track(library.path(), 2, "Quiet");
+    sync(&fake, &[loud.clone(), quiet.clone()], &[]);
+
+    assert_eq!(sound_check_of(&fake, "Loud"), (1_259, 1_259));
+    assert_eq!(sound_check_of(&fake, "Quiet"), (0, 0), "no value means off");
+    assert!(
+        plan(&fake, &[loud.clone(), quiet.clone()], &[])
+            .update
+            .is_empty()
+    );
+
+    loud.sound_check = Some(800);
+    let (changed, _) = sync(&fake, &[loud.clone(), quiet.clone()], &[]);
+    assert_eq!(changed.update, [1]);
+    assert_eq!(sound_check_of(&fake, "Loud"), (800, 800));
+
+    loud.sound_check = None;
+    let (switched_off, _) = sync(&fake, &[loud, quiet], &[]);
+    assert_eq!(switched_off.update, [1]);
+    assert_eq!(sound_check_of(&fake, "Loud"), (0, 0));
+}
+
+#[test]
+fn syncing_never_changes_the_sound_check_itunes_gave_its_own_tracks() {
+    let mut database = sample_database();
+    database.tracks[0]
+        .header_patches
+        .push((76, 1_995u32.to_le_bytes().to_vec()));
+    let fake = crate::classic_7g(&database);
+    let library = tempfile::tempdir().unwrap();
+
+    sync(&fake, &[library_track(library.path(), 1, "Alpha")], &[]);
+
+    let read = read_database(&opened(&fake)).unwrap();
+    let crazy = read
+        .tracks
+        .iter()
+        .find(|t| t.title == "Crazy in Love")
+        .unwrap();
+    assert_eq!(crazy.sound_check, 1_995);
+}

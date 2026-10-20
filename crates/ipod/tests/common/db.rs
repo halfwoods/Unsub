@@ -525,3 +525,31 @@ pub fn track_record(bytes: &[u8], dbid: u64) -> Option<(Vec<u8>, Vec<u8>)> {
             )
         })
 }
+
+/// An `OTGPlaylistInfo` file: an `mhpo` header and one entry per track position, each padded to
+/// `entry_len`. Files for mobile phones are big endian with the tag reversed.
+pub fn on_the_go_file(
+    positions: &[u32],
+    header_len: usize,
+    entry_len: usize,
+    big_endian: bool,
+) -> Vec<u8> {
+    let word = |value: u32| {
+        if big_endian {
+            value.to_be_bytes()
+        } else {
+            value.to_le_bytes()
+        }
+    };
+    let mut bytes = Vec::from(if big_endian { *b"opmh" } else { *b"mhpo" });
+    bytes.extend(word(u32::try_from(header_len).unwrap()));
+    bytes.extend(word(u32::try_from(entry_len).unwrap()));
+    bytes.extend(word(u32::try_from(positions.len()).unwrap()));
+    bytes.resize(header_len, 0);
+    for &position in positions {
+        let start = bytes.len();
+        bytes.extend(word(position));
+        bytes.resize(start + entry_len, 0);
+    }
+    bytes
+}

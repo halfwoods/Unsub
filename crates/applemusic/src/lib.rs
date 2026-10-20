@@ -6,12 +6,14 @@
 mod classify;
 mod error;
 mod item;
+mod locate;
 #[cfg(target_os = "macos")]
 mod macos;
 mod xml;
 
 pub use error::{Error, Result};
 pub use item::{MediaType, MusicLibrary, MusicLibraryItem, MusicPlaylist, Ownership, PlaylistKind};
+pub use locate::{Confidence, LocateProgress, LocateStage, Located, LocatedFile, locate_in_folder};
 #[cfg(target_os = "macos")]
 pub use macos::{read_system_library, read_system_music_library};
 pub use xml::{read_xml, read_xml_library};

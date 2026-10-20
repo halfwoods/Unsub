@@ -398,6 +398,9 @@ fn apply_overrides(meta: &mut TrackMeta, overrides: &TrackOverrides) {
     if overrides.year.is_some() {
         meta.year = overrides.year;
     }
+    if let Some(lyrics) = &overrides.lyrics {
+        meta.has_lyrics = !lyrics.is_empty();
+    }
 }
 
 /// User-state columns start at their defaults; on a rescan the writer leaves
@@ -443,6 +446,7 @@ fn new_track(
         missing: false,
         loudness: meta.loudness,
         remember_position: meta.kind != MediaKind::Music,
+        has_lyrics: meta.has_lyrics,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,

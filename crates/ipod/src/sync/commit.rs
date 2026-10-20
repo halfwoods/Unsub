@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{Error, Result};
 
 const TEMP_SUFFIX: &str = ".antistreaming-tmp";
-pub(super) const BACKUP_SUFFIX: &str = ".antistreaming-backup";
+const BACKUP_SUFFIX: &str = ".antistreaming-backup";
 const ORIGINAL_SUFFIX: &str = ".antistreaming-original";
 
 fn beside(path: &Path, suffix: &str) -> PathBuf {
@@ -54,12 +54,44 @@ impl Staged {
     }
 }
 
+/// Where the latest sync left the copy of `path` as it was before.
+pub(super) fn backup_of(path: &Path) -> PathBuf {
+    beside(path, BACKUP_SUFFIX)
+}
+
+/// Stages every file or none: if one cannot be written, the others are discarded.
+pub(super) fn stage_all(files: &[(&Path, Vec<u8>)]) -> Result<Vec<Staged>> {
+    let mut staged = Vec::new();
+    for (destination, bytes) in files {
+        match Staged::write(destination, bytes) {
+            Ok(file) => staged.push(file),
+            Err(error) => {
+                staged.into_iter().for_each(Staged::discard);
+                return Err(error);
+            }
+        }
+    }
+    Ok(staged)
+}
+
+/// Renames staged files into place in order. If one fails the rest are discarded, so what was
+/// renamed before it stays and nothing after it is half-done.
+pub(super) fn commit_all(staged: Vec<Staged>) -> Result<()> {
+    let mut remaining = staged.into_iter();
+    while let Some(file) = remaining.next() {
+        if let Err(error) = file.commit() {
+            remaining.for_each(Staged::discard);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
 /// Copies the current database aside before it is replaced. The `.antistreaming-backup` copy is the
 /// database as it was before the latest sync; `.antistreaming-original` is kept once, from before
 /// the first sync, so a bad sync can never overwrite the only good copy.
 pub(super) fn keep_backups(database: &Path) -> Result<()> {
-    let backup = beside(database, BACKUP_SUFFIX);
-    copy_and_flush(database, &backup)?;
+    copy_and_flush(database, &backup_of(database))?;
     let original = beside(database, ORIGINAL_SUFFIX);
     if !original.exists() {
         copy_and_flush(database, &original)?;

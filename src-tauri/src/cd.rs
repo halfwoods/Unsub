@@ -241,6 +241,7 @@ fn tracks(cd: &Inserted) -> Vec<Track> {
             missing: false,
             loudness: None,
             remember_position: false,
+            has_lyrics: false,
             compilation: false,
             sort_title: None,
             sort_artist: None,

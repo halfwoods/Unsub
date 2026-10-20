@@ -20,7 +20,7 @@ use crate::remote::RemoteState;
 
 pub const PLAYER_EVENT: &str = "player://event";
 /// Sound Check's target, about where iTunes levelled songs.
-const SOUND_CHECK_LUFS: f64 = -16.0;
+pub(crate) const SOUND_CHECK_LUFS: f64 = -16.0;
 
 /// Progress while a song downloads (from iCloud Drive or a shared library) before it can play;
 /// `null` when done.

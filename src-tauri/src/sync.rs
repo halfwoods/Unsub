@@ -250,6 +250,8 @@ fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
         sort_album: track.sort_album.clone(),
         sort_album_artist: track.sort_album_artist.clone(),
         artwork_key: Some(artwork_key(track)),
+        // iTunes always wrote Sound Check values; the iPod's own setting decides whether to use them.
+        sound_check: track.loudness.as_ref().map(|l| antistreaming_library::itunes_soundcheck(crate::playback::SOUND_CHECK_LUFS - l.lufs)),
         library_id: track.id,
     }
 }

@@ -184,6 +184,7 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
         missing: false,
         loudness: None,
         remember_position: false,
+        has_lyrics: false,
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
         sort_artist: track.sort_artist.clone(),

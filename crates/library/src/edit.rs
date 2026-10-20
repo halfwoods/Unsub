@@ -8,12 +8,13 @@ use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{Picture, PictureType};
 use lofty::tag::items::Timestamp;
-use lofty::tag::{Accessor, ItemKey, Tag};
+use lofty::tag::{Accessor, ItemKey, Tag, TagType};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::lyrics;
 use crate::model::{MediaKind, Track, TrackOverrides};
 use crate::scan::{FileFacts, now_unix, read_track};
 use crate::store::{WriteMode, write_tracks};
@@ -56,6 +57,9 @@ pub struct TrackEdits {
     pub remember_position: Option<bool>,
     /// Kept in the library, and pinned so a rescan does not guess it afresh.
     pub kind: Option<MediaKind>,
+    /// The plain lyrics (USLT, `©lyr`, `LYRICS`); empty clears them. Timed
+    /// lyrics in the file and a `.lrc` sidecar are left as they are.
+    pub lyrics: Option<String>,
     /// New cover art (any common image format), or `Some(None)` to remove it.
     #[serde(deserialize_with = "set_or_clear")]
     pub artwork: Option<Option<Vec<u8>>>,
@@ -102,6 +106,7 @@ impl TrackEdits {
             || self.sort_artist.is_some()
             || self.sort_album.is_some()
             || self.sort_album_artist.is_some()
+            || self.lyrics.is_some()
             || self.artwork.is_some()
     }
 
@@ -130,6 +135,7 @@ impl TrackEdits {
             sort_artist: text(&self.sort_artist),
             sort_album: text(&self.sort_album),
             sort_album_artist: text(&self.sort_album_artist),
+            lyrics: self.lyrics.as_deref().map(lyrics::clean),
             ..self.clone()
         }
     }
@@ -177,6 +183,9 @@ impl TrackEdits {
         if let Some(kind) = self.kind {
             track.kind = kind;
         }
+        if let Some(lyrics) = &self.lyrics {
+            track.has_lyrics = !lyrics.is_empty();
+        }
     }
 
     /// Keeps the pinned values in step with the edit, so a re-read cannot
@@ -197,6 +206,7 @@ impl TrackEdits {
             in_file,
         );
         field(&mut overrides.genre, self.genre.clone(), in_file);
+        field(&mut overrides.lyrics, self.lyrics.clone(), in_file);
         if let Some(year) = self.year {
             overrides.year = year.filter(|_| !in_file);
         }
@@ -446,6 +456,19 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
     }
     if let Some(compilation) = edits.compilation {
         set(tag, ItemKey::FlagCompilation, compilation.then_some("1"));
+    }
+    if let Some(lyrics) = &edits.lyrics {
+        // Vorbis has two fields for plain lyrics and MP4 reads both keys from
+        // one atom, so whichever the file's own item was filed under must go.
+        tag.remove_key(ItemKey::Lyrics);
+        tag.remove_key(ItemKey::UnsyncLyrics);
+        // ID3v2 keeps `Lyrics` for its timed SYLT frame, so plain lyrics are
+        // `UnsyncLyrics` there (and in MP4, where both mean `©lyr`).
+        let key = match tag.tag_type() {
+            TagType::Id3v2 | TagType::Mp4Ilst => ItemKey::UnsyncLyrics,
+            _ => ItemKey::Lyrics,
+        };
+        set(tag, key, Some(lyrics.as_str()).filter(|v| !v.is_empty()));
     }
 }
 

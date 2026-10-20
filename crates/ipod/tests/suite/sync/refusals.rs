@@ -82,12 +82,25 @@ fn a_device_with_an_itunescdb_library_is_refused() {
 }
 
 #[test]
-fn a_shuffle_is_refused() {
+fn an_unrecognised_device_with_an_itunessd_is_refused() {
+    // Its song list lives in a file this crate would leave stale, so removed music would still be
+    // listed by it.
+    let fake = FakeIpod::new("MYSTERY");
+    fake.write_itunesdb(&sample_database().build());
+    fake.write_sysinfo_extended("000A270011223344", "7T0000000ABC", 0);
+    fs::write(itunes_file(&fake, "iTunesSD"), b"whatever the device wrote").unwrap();
+
+    assert_refused(&fake, "iTunesSD");
+}
+
+#[test]
+fn a_shuffle_whose_itunessd_format_is_unknown_is_refused() {
     let fake = FakeIpod::new("SHUFFLE");
     fake.write_itunesdb(&sample_database().build());
     fake.write_sysinfo("xB518", "0x000A270011223344");
+    fake.write_shadow_db_version(9);
 
-    assert_refused(&fake, "iTunesSD");
+    assert_refused(&fake, "iTunesSD format");
 }
 
 #[test]

@@ -101,6 +101,8 @@ const MIGRATIONS: &[&str] = &[
     // for the kind"; `bookmark_ms` is null when there is nothing to resume.
     "ALTER TABLE tracks ADD COLUMN bookmark_ms INTEGER;
     ALTER TABLE tracks ADD COLUMN remember_position INTEGER;",
+    // Read from the file's tags at scan time; rows from before it are re-read.
+    "ALTER TABLE tracks ADD COLUMN has_lyrics INTEGER NOT NULL DEFAULT 0;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

@@ -86,6 +86,7 @@ pub fn library_track(library: &Path, library_id: i64, title: &str) -> SyncTrack 
         date_added: unix_local(2010, 1, 2, 12),
         media_kind: IpodMediaKind::Music,
         compilation: false,
+        sound_check: None,
         sort_title: Some(format!("sort {title}")),
         sort_artist: Some("Bjork".to_owned()),
         sort_album: None,
@@ -171,6 +172,9 @@ mod add;
 pub mod artwork;
 mod faults;
 mod incremental;
+mod on_the_go;
 mod refusals;
+mod restore;
+mod shuffle;
 mod structure;
 mod swap;

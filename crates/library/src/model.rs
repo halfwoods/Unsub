@@ -124,6 +124,10 @@ pub struct Track {
     /// audiobooks and podcasts unless Get Info says otherwise. Not written by
     /// `import_tracks`, which has no such setting to bring.
     pub remember_position: bool,
+    /// The file's own tags carry lyrics, plain or timed, or they were set in
+    /// Get Info. A `.lrc` sidecar is not counted: it can appear without the
+    /// audio file changing, which is what a scan looks for; `lyrics` finds it.
+    pub has_lyrics: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -301,6 +305,8 @@ pub struct TrackOverrides {
     pub genre: Option<String>,
     pub date_added: Option<i64>,
     pub year: Option<i32>,
+    /// Plain lyrics, for a file that cannot carry them; empty means none.
+    pub lyrics: Option<String>,
 }
 
 /// A themed, generated playlist. The key is stable for as long as the cluster it

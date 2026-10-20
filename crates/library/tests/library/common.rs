@@ -105,6 +105,7 @@ pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) 
         missing: false,
         loudness: None,
         remember_position: false,
+        has_lyrics: false,
         sort_title: None,
         sort_artist: None,
         sort_album: None,
@@ -122,11 +123,15 @@ pub fn library_of(tracks: &[Track]) -> Library {
 /// been created by an older build, so migrations can be run on real data.
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
-    conn.execute_batch(
-        "ALTER TABLE tracks DROP COLUMN bookmark_ms;
-         ALTER TABLE tracks DROP COLUMN remember_position;",
-    )
-    .unwrap();
+    conn.execute_batch("ALTER TABLE tracks DROP COLUMN has_lyrics;")
+        .unwrap();
+    if version < 8 {
+        conn.execute_batch(
+            "ALTER TABLE tracks DROP COLUMN bookmark_ms;
+             ALTER TABLE tracks DROP COLUMN remember_position;",
+        )
+        .unwrap();
+    }
     if version < 7 {
         conn.execute_batch(
             "ALTER TABLE tracks DROP COLUMN loudness_lufs;

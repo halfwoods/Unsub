@@ -27,12 +27,17 @@ pub(super) mod at {
     pub(in crate::itunesdb) const YEAR: usize = 52;
     pub(in crate::itunesdb) const BITRATE: usize = 56;
     pub(in crate::itunesdb) const SAMPLE_RATE: usize = 60;
+    pub(in crate::itunesdb) const VOLUME: usize = 64;
+    pub(in crate::itunesdb) const START_TIME: usize = 68;
+    pub(in crate::itunesdb) const STOP_TIME: usize = 72;
+    pub(in crate::itunesdb) const SOUND_CHECK: usize = 76;
     pub(in crate::itunesdb) const PLAY_COUNT: usize = 80;
     pub(in crate::itunesdb) const PLAY_COUNT_REPEAT: usize = 84;
     pub(in crate::itunesdb) const LAST_PLAYED: usize = 88;
     pub(in crate::itunesdb) const DISC_NUMBER: usize = 92;
     pub(in crate::itunesdb) const DISC_COUNT: usize = 96;
     pub(in crate::itunesdb) const DATE_ADDED: usize = 104;
+    pub(in crate::itunesdb) const BOOKMARK_TIME: usize = 108;
     pub(in crate::itunesdb) const DBID: usize = 112;
     pub(in crate::itunesdb) const APP_RATING: usize = 121;
     pub(in crate::itunesdb) const UNKNOWN_126: usize = 126;
@@ -45,7 +50,11 @@ pub(super) mod at {
     pub(in crate::itunesdb) const DBID_REPEAT: usize = 168;
     pub(in crate::itunesdb) const MOVIE_FLAG: usize = 177;
     pub(in crate::itunesdb) const MARK_UNPLAYED: usize = 178;
+    pub(in crate::itunesdb) const PREGAP: usize = 184;
+    pub(in crate::itunesdb) const SAMPLE_COUNT: usize = 188;
+    pub(in crate::itunesdb) const POSTGAP: usize = 200;
     pub(in crate::itunesdb) const MEDIA_TYPE: usize = 208;
+    pub(in crate::itunesdb) const GAPLESS_DATA: usize = 248;
     pub(in crate::itunesdb) const ALBUM_ID: usize = 0x120;
     /// Repeats the mhbd's field at 0x24; purpose unknown, but libgpod writes it.
     pub(in crate::itunesdb) const DATABASE_TAG: usize = 0x124;
@@ -135,6 +144,7 @@ fn parse_track(data: &[u8], chunk: &Chunk, mount: &Path) -> Result<IpodTrack> {
             .map(|raw| raw >> 16)
             .filter(|&hz| hz != 0),
         file_size: u64::from(chunk.u32(at::FILE_SIZE).unwrap_or(0)),
+        sound_check: chunk.u32(at::SOUND_CHECK).unwrap_or(0),
         play_count: chunk.u32(at::PLAY_COUNT).unwrap_or(0),
         last_played: chunk.u32(at::LAST_PLAYED).and_then(mac_to_unix),
         skip_count: chunk.u32(at::SKIP_COUNT).unwrap_or(0),

@@ -4,3 +4,4 @@
 pub mod artwork;
 pub mod db;
 pub mod mount;
+pub mod shuffle;

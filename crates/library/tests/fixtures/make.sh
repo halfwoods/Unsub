@@ -5,8 +5,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 rm -f -- *.flac *.m4a *.m4b *.mp3 *.ogg *.wav
-rm -rf chapters audiobook
-mkdir chapters audiobook
+rm -rf chapters audiobook lyrics
+mkdir chapters audiobook lyrics
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -122,3 +122,9 @@ ff $(chapter_tone 8000) -ac 1 -c:a flac "${vorbis_chapters[@]}" chapters/book.fl
 ff $(echo -f lavfi -i "sine=frequency=220:duration=40:sample_rate=8000") -ac 1 -c:a aac -b:a 8k -f ipod \
   -metadata title="Long Chapter" -metadata artist="Narrator" -metadata album="Long Book" \
   audiobook/long.m4b
+
+# Containers whose lyrics are read differently from the main fixtures'.
+# shellcheck disable=SC2046
+ff $(sine 523 8000) -ac 1 -c:a pcm_s16be -f aiff lyrics/tone.aiff
+# shellcheck disable=SC2046
+ff $(sine 587 8000) -ac 1 -c:a libopus -b:a 16k lyrics/tone.opus

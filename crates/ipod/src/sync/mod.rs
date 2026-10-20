@@ -2,7 +2,8 @@
 //! the iPod recorded while it was away.
 //!
 //! The rules this module keeps, because the device holds music that cannot be replaced:
-//! * only iPods whose database this crate can write correctly are touched (see [`checksum_key`]);
+//! * only iPods whose database this crate can write correctly are touched (see [`checksum_key`]),
+//!   and a shuffle's iTunesSD is written with its iTunesDB;
 //! * only tracks and playlists this app added (recorded in `AntiStreaming.json`) are ever removed
 //!   or edited, everything else is carried over byte for byte;
 //! * music is copied before the database that references it is committed, and removed files are
@@ -17,22 +18,28 @@ mod artwork_support;
 mod commit;
 mod files;
 mod mapping;
+mod on_the_go;
 mod plan;
 mod play_deltas;
+mod restore;
 
 use std::path::PathBuf;
 
 use serde::Serialize;
 
 use crate::database::IpodMediaKind;
-use crate::device::{DatabaseFormat, Ipod};
+use crate::device::{DatabaseFormat, Ipod, itunes_dir};
 use crate::error::{Error, Result};
+use crate::itunesdb::shuffle::{self, ShuffleFormat};
 use crate::models::{IpodFamily, SyncSupport};
+use crate::sysinfo;
 
 pub use apply::apply_sync;
 pub use artwork_support::artwork_supported;
+pub use on_the_go::{OnTheGo, clear_on_the_go, read_on_the_go};
 pub use plan::plan_sync;
 pub use play_deltas::{PlayDelta, clear_play_counts, read_play_counts_for_sync_back};
+pub use restore::restore_backup;
 
 /// A library track as the sync sees it. Tags describe the track on the iPod; the audio file comes
 /// from `source_path`, via the `prepare` step of [`apply_sync`].
@@ -65,6 +72,8 @@ pub struct SyncTrack {
     pub date_added: i64,
     pub media_kind: IpodMediaKind,
     pub compilation: bool,
+    /// iTunes' Sound Check value for the track (`1000 * 10^(-gain/10)`), or `None` for off.
+    pub sound_check: Option<u32>,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -138,13 +147,8 @@ pub(crate) fn checksum_key(ipod: &Ipod) -> Result<Option<[u8; 8]>> {
             "its library is a compressed iTunesCDB (SQLite) database, which cannot be written yet",
         );
     }
-    if ipod
-        .model
-        .as_ref()
-        .is_some_and(|model| model.family == IpodFamily::Shuffle)
-    {
-        return refuse("iPod shuffles also need an iTunesSD database, which cannot be written yet");
-    }
+    // Every caller of this gate must also refuse a device whose iTunesSD cannot be kept in step.
+    shuffle_format(ipod)?;
     match ipod.sync {
         SyncSupport::Supported => Ok(None),
         SyncSupport::NeedsHash58 => {
@@ -162,6 +166,35 @@ pub(crate) fn checksum_key(ipod: &Ipod) -> Result<Option<[u8; 8]>> {
         SyncSupport::Unsupported => {
             refuse("its model is unknown or uses a checksum (HASHAB) that cannot be written")
         }
+    }
+}
+
+/// Which iTunesSD this iPod needs beside its iTunesDB, if any. A shuffle plays from the iTunesSD
+/// alone, so one that only got a new iTunesDB would keep playing the old list and lose the files
+/// that were deleted. libgpod finds no database checksum for any shuffle generation
+/// (`itdb_device_get_checksum_type`) and its 3G/4G writer has no authentication step.
+pub(crate) fn shuffle_format(ipod: &Ipod) -> Result<Option<ShuffleFormat>> {
+    let mount = ipod.mount_path.as_path();
+    let refuse = |reason: &str| Err(Error::SyncRefused(reason.to_owned()));
+    let Some(model) = ipod
+        .model
+        .as_ref()
+        .filter(|model| model.family == IpodFamily::Shuffle)
+    else {
+        return if itunes_dir(mount).join(shuffle::FILE_NAME).exists() {
+            refuse(
+                "it has an iTunesSD file but is not a recognised iPod shuffle, so its song list \
+                 cannot be kept in step",
+            )
+        } else {
+            Ok(None)
+        };
+    };
+    let shadow = sysinfo::read(&mount.join("iPod_Control").join("Device")).shadow_db_version;
+    match (shadow, model.generation) {
+        (Some(1), _) | (None | Some(0), 1 | 2) => Ok(Some(ShuffleFormat::Fixed)),
+        (Some(2), _) | (None | Some(0), 3 | 4) => Ok(Some(ShuffleFormat::Indexed)),
+        _ => refuse("its iTunesSD format is not one this crate knows"),
     }
 }
 

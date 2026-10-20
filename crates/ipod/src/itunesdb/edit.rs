@@ -27,6 +27,7 @@ pub(crate) struct Metadata {
     pub(crate) disc_count: Option<u32>,
     pub(crate) rating: u8,
     pub(crate) compilation: bool,
+    pub(crate) sound_check: u32,
     pub(crate) play_count: u32,
     pub(crate) last_played: Option<i64>,
 }
@@ -239,6 +240,7 @@ impl RawTrack {
         self.set_u8(at::RATING, metadata.rating);
         self.set_u8(at::APP_RATING, metadata.rating);
         self.set_u8(at::COMPILATION, u8::from(metadata.compilation));
+        self.set_u32(at::SOUND_CHECK, metadata.sound_check);
         self.set_u32(at::PLAY_COUNT, metadata.play_count);
         self.set_u32(at::PLAY_COUNT_REPEAT, metadata.play_count);
         self.set_u32(at::LAST_PLAYED, metadata.last_played.map_or(0, unix_to_mac));
@@ -336,6 +338,7 @@ mod tests {
             disc_count: None,
             rating: 80,
             compilation: true,
+            sound_check: 0,
             play_count: 0,
             last_played: None,
         }

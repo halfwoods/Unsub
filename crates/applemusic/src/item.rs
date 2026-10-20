@@ -84,18 +84,24 @@ pub struct MusicLibraryItem {
     /// found again; see `file_present`.
     pub location: Option<PathBuf>,
     /// Whether a file exists at `location` right now.
+    #[serde(default)]
     pub file_present: bool,
     pub play_count: u32,
+    #[serde(default)]
     pub skip_count: u32,
     /// 0..=100, in steps of 20 per star.
     pub rating: u8,
     /// Unix seconds.
     pub date_added: Option<i64>,
     /// Unix seconds; `None` if never played.
+    #[serde(default)]
     pub last_played: Option<i64>,
     /// Unix seconds; `None` if never skipped.
+    #[serde(default)]
     pub last_skipped: Option<i64>,
-    /// False when the user has unchecked the song in the library.
+    /// False when the user has unchecked the song in the library. Absent in snapshots saved before
+    /// the field existed, which are read as enabled.
+    #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
 
@@ -125,4 +131,8 @@ pub enum Ownership {
     /// Streamed or downloaded through an Apple Music subscription; not owned.
     Subscription,
     Unknown,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }

@@ -15,11 +15,12 @@ use lofty::tag::{Accessor, ItemKey, Tag};
 
 use crate::error::{Error, Result};
 use crate::loudness::{self, TrackLoudness};
+use crate::lyrics;
 use crate::model::MediaKind;
 
 /// Bump whenever `read` starts extracting something differently, so a rescan
 /// re-reads files whose size and mtime say they are unchanged.
-pub(crate) const TAG_PARSER_VERSION: u32 = 3;
+pub(crate) const TAG_PARSER_VERSION: u32 = 4;
 
 /// Everything derived from the file's contents; filesystem facts (size, mtime)
 /// are filled in by the scanner.
@@ -44,6 +45,7 @@ pub(crate) struct TrackMeta {
     pub kind: MediaKind,
     pub compilation: bool,
     pub loudness: Option<TrackLoudness>,
+    pub has_lyrics: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -54,6 +56,8 @@ struct Parsed {
     file: TaggedFile,
     codec: &'static str,
     id3_podcast_frame: bool,
+    /// ID3's timed lyrics are a binary frame, which the generic `Tag` drops.
+    id3_synced_lyrics: bool,
     /// iTunes' Sound Check data, which only the concrete tag types expose.
     itunnorm: Option<String>,
 }
@@ -65,6 +69,7 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         file,
         codec,
         id3_podcast_frame,
+        id3_synced_lyrics,
         itunnorm,
     } = parse(path, options)?;
     let properties = file.properties();
@@ -109,6 +114,11 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         kind: media_kind(path, tag, &genre, id3_podcast_frame),
         compilation: flag(tag, ItemKey::FlagCompilation),
         loudness: loudness::from_tags(&file, itunnorm.as_deref()),
+        has_lyrics: id3_synced_lyrics
+            || file
+                .tags()
+                .iter()
+                .any(|tag| lyrics::raw_text(tag).is_some()),
         sort_title: optional_text(tag, ItemKey::TrackTitleSortOrder),
         sort_artist: optional_text(tag, ItemKey::TrackArtistSortOrder),
         sort_album: optional_text(tag, ItemKey::AlbumTitleSortOrder),
@@ -141,6 +151,7 @@ fn parse(path: &Path, options: ParseOptions) -> Result<Parsed> {
         file: probe.read()?,
         codec,
         id3_podcast_frame: false,
+        id3_synced_lyrics: false,
         itunnorm: None,
     })
 }
@@ -160,6 +171,7 @@ fn parse_mp4(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Par
         file: mp4.into(),
         codec,
         id3_podcast_frame: false,
+        id3_synced_lyrics: false,
         itunnorm,
     })
 }
@@ -172,11 +184,13 @@ fn parse_mpeg(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Pa
     let id3_podcast_frame = mpeg
         .id3v2()
         .is_some_and(|tag| tag.get(&FrameId::Valid(Cow::Borrowed("PCST"))).is_some());
+    let id3_synced_lyrics = has_synced_lyrics(mpeg.id3v2());
     let itunnorm = id3_itunnorm(mpeg.id3v2());
     Ok(Parsed {
         file: mpeg.into(),
         codec: "MP3",
         id3_podcast_frame,
+        id3_synced_lyrics,
         itunnorm,
     })
 }
@@ -185,13 +199,20 @@ fn parse_mpeg(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Pa
 /// and it keeps its ID3 tag, Sound Check data included.
 fn parse_aiff(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Parsed> {
     let aiff = AiffFile::read_from(&mut probe.into_inner(), options)?;
+    let id3_synced_lyrics = has_synced_lyrics(aiff.id3v2());
     let itunnorm = id3_itunnorm(aiff.id3v2());
     Ok(Parsed {
         file: aiff.into(),
         codec: "AIFF",
         id3_podcast_frame: false,
+        id3_synced_lyrics,
         itunnorm,
     })
+}
+
+fn has_synced_lyrics(tag: Option<&Id3v2Tag>) -> bool {
+    tag.and_then(|tag| tag.get(&FrameId::Valid(Cow::Borrowed("SYLT"))))
+        .is_some_and(|frame| lyrics::timed_frame(frame).is_some())
 }
 
 /// A `COMM` frame described "iTunNORM". The generic tag keeps only comments
@@ -252,7 +273,7 @@ fn text(tag: Option<&Tag>, key: ItemKey) -> String {
 /// then reads as "JÃ³zsef". Re-decoding the Latin-1 bytes as UTF-8 undoes it,
 /// but only when the whole string decodes cleanly: genuine Latin-1 such as
 /// "SÃO" is not valid UTF-8 and stays as it is.
-fn repair_mojibake(text: &str) -> String {
+pub(crate) fn repair_mojibake(text: &str) -> String {
     if text.is_ascii() {
         return text.to_owned();
     }

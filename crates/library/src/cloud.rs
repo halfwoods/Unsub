@@ -211,6 +211,7 @@ pub(crate) fn placeholder_meta(path: &Path, root: Option<&Path>) -> TrackMeta {
         },
         compilation: false,
         loudness: None,
+        has_lyrics: false,
         sort_title: None,
         sort_artist: None,
         sort_album: None,

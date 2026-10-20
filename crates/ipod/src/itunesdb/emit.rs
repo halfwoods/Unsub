@@ -115,9 +115,9 @@ struct Context<'a> {
 
 /// libgpod's `prepare_itdb_for_write`: albums, artists and composers are numbered from 1 in track
 /// order; 0 means the track has none.
-struct Ids {
-    album: Vec<u32>,
-    artist: Vec<u32>,
+pub(super) struct Ids {
+    pub(super) album: Vec<u32>,
+    pub(super) artist: Vec<u32>,
     composer: Vec<u32>,
     /// The first track of each album and artist, which supplies the list entry's strings.
     albums: Vec<usize>,
@@ -125,7 +125,7 @@ struct Ids {
 }
 
 impl Ids {
-    fn assign(views: &[TrackView]) -> Self {
+    pub(super) fn assign(views: &[TrackView]) -> Self {
         let mut ids = Self {
             album: Vec::new(),
             artist: Vec::new(),
@@ -510,6 +510,7 @@ mod tests {
             disc_count: None,
             rating: 0,
             compilation: false,
+            sound_check: 0,
             play_count: 0,
             last_played: None,
         };

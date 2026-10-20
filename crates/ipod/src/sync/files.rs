@@ -8,7 +8,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::itunesdb::Codec;
+use crate::itunesdb::raw::RawTrack;
+use crate::itunesdb::{self, Codec};
 
 const NAME_LETTERS: usize = 4;
 /// Give up on finding an unused name after this many tries per folder choice; with 26^4 names a
@@ -105,6 +106,12 @@ pub(super) fn copy_into(source: &Path, placed: Placed) -> io::Result<()> {
         let _ = fs::remove_file(&path);
     }
     copied
+}
+
+/// Where the database says this track's file is.
+pub(super) fn music_path(mount: &Path, track: &RawTrack) -> Option<PathBuf> {
+    let path = track.text(itunesdb::PATH).ok().flatten()?;
+    Some(itunesdb::native_path(mount, &path))
 }
 
 /// Removes a music file, but only one that really lives under the iPod's music folders: the path

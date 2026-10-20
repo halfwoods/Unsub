@@ -53,6 +53,7 @@ const COLUMNS: &[&str] = &[
     "loudness_source",
     "album_loudness_lufs",
     "album_true_peak_dbtp",
+    "has_lyrics",
     "artist_group",
     "album_group",
 ];
@@ -206,6 +207,7 @@ pub(crate) fn write_tracks<'a>(
                 ":loudness_source": track.loudness.as_ref().map(|l| l.source),
                 ":album_loudness_lufs": track.loudness.as_ref().and_then(|l| l.album_lufs),
                 ":album_true_peak_dbtp": track.loudness.as_ref().and_then(|l| l.album_true_peak_dbtp),
+                ":has_lyrics": track.has_lyrics,
                 ":enabled": track.enabled,
                 ":artist_group": artist_group,
                 ":album_group": album_group,

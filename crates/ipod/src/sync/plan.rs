@@ -177,6 +177,7 @@ fn differs(track: &SyncTrack, on_ipod: &IpodTrack) -> bool {
         || track.disc_count != on_ipod.disc_count
         || track.rating.min(100) != on_ipod.rating
         || track.compilation != on_ipod.compilation
+        || track.sound_check.unwrap_or(0) != on_ipod.sound_check
         || track.play_count != on_ipod.play_count
         || track.last_played != on_ipod.last_played
         || track.sort_title != on_ipod.sort_title

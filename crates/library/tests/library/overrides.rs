@@ -21,6 +21,7 @@ fn episode_overrides() -> TrackOverrides {
         genre: Some("Podcast".into()),
         date_added: Some(1_500_000_000),
         year: Some(2024),
+        lyrics: None,
     }
 }
 
