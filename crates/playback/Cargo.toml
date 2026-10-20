@@ -12,6 +12,8 @@ symphonia = { version = "0.6.1", default-features = false, features = [
     "aac", "aiff", "alac", "flac", "id3v1", "id3v2", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav",
 ] }
 cpal = "0.18.2"
+# Tags and cover art for transcoded files, at the version the library crate reads them with.
+lofty = "0.25"
 ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling"], optional = true }
 rtrb = "0.4"
 rubato = "5"

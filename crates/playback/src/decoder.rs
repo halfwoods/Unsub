@@ -10,9 +10,31 @@ use crate::mix::ChannelLayout;
 use crate::symphonia_source::SymphoniaSource;
 use crate::{Error, Result};
 
+/// The codec a file's audio is stored in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Codec {
+    Mp3,
+    Aac,
+    Alac,
+    Flac,
+    Vorbis,
+    Opus,
+    WavPack,
+    /// Monkey's Audio.
+    Ape,
+    Dsd,
+    /// Uncompressed PCM, as in WAV and AIFF.
+    Pcm,
+    Other,
+}
+
 /// What a source knows about its stream once opened.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Info {
+    pub codec: Codec,
+    /// The container format: "isomp4", "wav", "aiff", "flac", "ogg", ... or "ffmpeg" for files
+    /// FFmpeg reads.
+    pub container: &'static str,
     pub sample_rate: u32,
     pub channels: u16,
     pub layout: ChannelLayout,
@@ -88,6 +110,16 @@ impl Decoder {
     /// Which decoder reads this file.
     pub fn backend(&self) -> Backend {
         self.source.backend()
+    }
+
+    /// The codec the audio is stored in.
+    pub fn codec(&self) -> Codec {
+        self.info.codec
+    }
+
+    /// The container format, e.g. "isomp4" for `.m4a`, or "ffmpeg" for files FFmpeg reads.
+    pub fn container(&self) -> &'static str {
+        self.info.container
     }
 
     /// Which speakers the channels are, which decides how they are downmixed.

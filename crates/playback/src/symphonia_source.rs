@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use symphonia::core::audio::Channels;
 use symphonia::core::codecs::audio::well_known::CODEC_ID_ALAC;
-use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::{Error as SymphoniaError, SeekErrorKind};
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -12,7 +12,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Duration, Time, TimeBase, Timestamp};
 
-use crate::decoder::{Backend, Info, Source};
+use crate::decoder::{Backend, Codec, Info, Source};
 use crate::mix::ChannelLayout;
 use crate::{Error, Result, mp4};
 
@@ -69,6 +69,8 @@ impl SymphoniaSource {
             .and_then(|params| params.audio())
             .ok_or(Error::NoAudioTrack)?;
         // Neither symphonia's ALAC reader nor decoder reports the depth, but its config does.
+        let params_codec = params.codec;
+        let format_name = format.format_info().short_name;
         let container_depth = params
             .bits_per_sample
             .or(params.bits_per_coded_sample)
@@ -136,6 +138,8 @@ impl SymphoniaSource {
             codec,
             time_base,
             info: Info {
+                codec: codec_of(params_codec),
+                container: format_name,
                 sample_rate,
                 channels,
                 layout: ChannelLayout::from_mask(speakers, channels),
@@ -277,6 +281,23 @@ impl Source for SymphoniaSource {
 
     fn seek_to(&mut self, position_ms: u64) -> Result<u64> {
         self.seek_position(position_ms)
+    }
+}
+
+fn codec_of(id: AudioCodecId) -> Codec {
+    use symphonia::core::codecs::audio::well_known::{
+        CODEC_ID_AAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_VORBIS,
+    };
+    match id {
+        CODEC_ID_MP3 => Codec::Mp3,
+        CODEC_ID_AAC => Codec::Aac,
+        CODEC_ID_ALAC => Codec::Alac,
+        CODEC_ID_FLAC => Codec::Flac,
+        CODEC_ID_VORBIS => Codec::Vorbis,
+        other => symphonia::default::get_codecs()
+            .get_audio_decoder(other)
+            .filter(|registered| registered.codec.info.short_name.starts_with("pcm"))
+            .map_or(Codec::Other, |_| Codec::Pcm),
     }
 }
 

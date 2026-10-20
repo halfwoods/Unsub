@@ -17,6 +17,7 @@ gen() {
 
 gen sine.flac 44100 stereo 1 -sample_fmt s16 -c:a flac
 gen sine-24bit.flac 44100 stereo 0.2 -sample_fmt s32 -bits_per_raw_sample 24 -c:a flac
+gen sine-24bit-96k.flac 96000 stereo 0.1 -sample_fmt s32 -bits_per_raw_sample 24 -c:a flac
 gen sine-alac.m4a 48000 stereo 1 -sample_fmt s16p -c:a alac
 gen sine-aac.m4a 44100 stereo 1 -c:a aac -b:a 64k
 gen sine.mp3 44100 stereo 1 -c:a libmp3lame -b:a 64k
@@ -39,6 +40,17 @@ ffmpeg -v error -y -f lavfi -i "aevalsrc='0.05|0.10|0.15|0.20|0.25|0.30':c=5.1:d
   -map_metadata -1 -c:a flac surround-5.1.flac
 ffmpeg -v error -y -f lavfi -i "aevalsrc='0.05|0.10|0.15|0.20|0.25|0.30|0.35|0.40':c=7.1:d=0.02:s=44100" \
   -map_metadata -1 -c:a flac surround-7.1.flac
+
+# Tags and cover art for the transcoder to carry across. -frames:v would end the whole output, so
+# the cover is a ready-made 64x64 JPEG rather than a video source.
+cover=$(mktemp -d)/cover.jpg
+ffmpeg -v error -y -f lavfi -i "color=c=0x336699:s=64x64" -frames:v 1 "$cover"
+ffmpeg -v error -y -f lavfi -i "aevalsrc='$SINE|$SINE':d=0.3:s=44100:c=stereo" -i "$cover" \
+  -map 0:a -map 1:v -sample_fmt s16 -c:a flac -c:v copy -disposition:v attached_pic \
+  -metadata title="Sine Title" -metadata artist="Test Artist" -metadata album="Test Album" \
+  -metadata album_artist="Album Artist" -metadata track=3 -metadata date=2001 -metadata genre=Jazz \
+  tagged.flac
+rm -rf "$(dirname "$cover")"
 
 # Gapless fixtures. 43210 frames is not a multiple of any codec's frame size, so leftover encoder
 # delay or padding shows up as a wrong length or a shifted waveform.

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/library", "crates/playback", "crates/ipod", "crates/applemusic", "crates/subsonic", "crates/podcasts", "crates/purchases", "crates/cdrip"]
+members = ["src-tauri", "crates/library", "crates/playback", "crates/ipod", "crates/applemusic", "crates/subsonic", "crates/podcasts", "crates/purchases", "crates/cdrip", "crates/devicesync"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,7 @@ antistreaming-subsonic = { path = "crates/subsonic" }
 antistreaming-podcasts = { path = "crates/podcasts" }
 antistreaming-purchases = { path = "crates/purchases" }
 antistreaming-cdrip = { path = "crates/cdrip" }
+antistreaming-devicesync = { path = "crates/devicesync" }
 
 # Profiles only take effect at the workspace root. Panics unwind (no `panic = "abort"`) so the audio
 # engine can contain a decoder panic on a corrupt file instead of killing the app.

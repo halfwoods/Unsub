@@ -14,6 +14,12 @@ pub enum Error {
     Ffmpeg(String),
     #[error("the decoder crashed on this file: {0}")]
     Panicked(String),
+    #[error("the conversion was cancelled")]
+    Cancelled,
+    #[error("cannot read tags: {0}")]
+    TagsRead(#[from] lofty::error::FileParseError),
+    #[error("cannot write tags: {0}")]
+    TagsWrite(#[from] lofty::error::FileEncodingError),
     #[error("file contains no decodable audio")]
     Empty,
     #[error("unsupported audio: {0}")]

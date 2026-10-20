@@ -9,12 +9,22 @@ use ffmpeg_next::software::resampling;
 use ffmpeg_next::util::error::EAGAIN;
 use ffmpeg_next::{ChannelLayout as FfmpegLayout, Error as FfmpegError, codec, frame, log, media};
 
-use crate::decoder::{Backend, Info, Source};
+use crate::decoder::{Backend, Codec, Info, Source};
 use crate::mix::ChannelLayout;
 use crate::{Error, Result};
 
 /// `AV_NOPTS_VALUE`: a timestamp the container did not provide.
 const NO_TIMESTAMP: i64 = i64::MIN;
+
+/// Prepares FFmpeg's global state, once.
+pub(crate) fn init() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // Initialisation can only fail by a missing library, which opening reports anyway.
+        let _ = ffmpeg_next::init();
+        log::set_level(log::Level::Quiet);
+    });
+}
 
 pub struct FfmpegSource {
     input: format::context::Input,
@@ -38,12 +48,7 @@ pub struct FfmpegSource {
 
 impl FfmpegSource {
     pub fn open(path: &Path) -> Result<FfmpegSource> {
-        static INIT: Once = Once::new();
-        INIT.call_once(|| {
-            // Initialisation can only fail by a missing library, which opening reports anyway.
-            let _ = ffmpeg_next::init();
-            log::set_level(log::Level::Quiet);
-        });
+        init();
 
         let input = format::input(path)?;
         let stream = input
@@ -68,6 +73,8 @@ impl FfmpegSource {
             .or_else(|| u64::try_from(input.duration()).ok().map(|us| us / 1000))
             .map(|ms| ms.saturating_sub(skipped_ms));
         let info = Info {
+            codec: codec_of(decoder.id()),
+            container: "ffmpeg",
             sample_rate,
             channels,
             layout: ChannelLayout::from_mask(speaker_mask(&decoder), channels),
@@ -228,6 +235,22 @@ impl Source for FfmpegSource {
         self.seeked = true;
         self.skip_to = Some(position_ms * u64::from(self.info.sample_rate) / 1000);
         Ok(position_ms)
+    }
+}
+
+fn codec_of(id: codec::Id) -> Codec {
+    use codec::Id;
+    match id {
+        Id::OPUS => Codec::Opus,
+        Id::WAVPACK => Codec::WavPack,
+        Id::APE => Codec::Ape,
+        Id::DSD_LSBF | Id::DSD_MSBF | Id::DSD_LSBF_PLANAR | Id::DSD_MSBF_PLANAR => Codec::Dsd,
+        Id::MP3 => Codec::Mp3,
+        Id::AAC => Codec::Aac,
+        Id::ALAC => Codec::Alac,
+        Id::FLAC => Codec::Flac,
+        Id::VORBIS => Codec::Vorbis,
+        _ => Codec::Other,
     }
 }
 
