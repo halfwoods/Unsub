@@ -15,6 +15,8 @@ mod queue;
 mod remote;
 mod sharing;
 mod sync;
+#[cfg(test)]
+mod test_support;
 
 use antistreaming_playback::Player;
 use tauri::Manager;

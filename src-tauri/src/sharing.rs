@@ -595,7 +595,61 @@ pub async fn sharing_update(state: State<'_, SharingState>, settings: SharingSet
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, encode, track_id};
+    use super::{LibrarySource, decode, encode, track_id};
+    use crate::test_support::track;
+    use antistreaming_library::{Library, MediaKind, Track};
+    use antistreaming_subsonic::{Server, ServerConfig};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    /// What another AntiStreaming Mac does with this one's shared library, end to end through
+    /// the real pieces: this library's source behind the Subsonic server, and the remote client
+    /// signing in, paging every song and fetching one byte for byte.
+    #[test]
+    fn another_mac_can_sign_in_list_and_fetch_this_library() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../crates/playback/tests/fixtures");
+        let song = |id: i64, file: &str, codec: &str| Track {
+            path: fixtures.join(file).to_string_lossy().into_owned(),
+            file_size: std::fs::metadata(fixtures.join(file)).unwrap().len(),
+            title: format!("Tone {id}"),
+            ..track(id, codec, MediaKind::Music)
+        };
+        let mut library = Library::open_in_memory().unwrap();
+        library.import_tracks(&[song(1, "sine.flac", "FLAC"), song(2, "sine.mp3", "MP3"), song(3, "sine-aac.m4a", "AAC")]).unwrap();
+        let config = ServerConfig {
+            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            username: "antistreaming".into(),
+            password: "k3Xq9vR2".into(),
+            api_key: None,
+            default_max_kbps: None,
+        };
+        let server = Server::start(config, Arc::new(LibrarySource { library: Mutex::new(library) })).unwrap();
+        let url = format!("http://{}", server.local_addr());
+
+        assert!(antistreaming_remote::Client::new(&url, "antistreaming", "wrong").ping().is_err());
+        let client = antistreaming_remote::Client::new(&url, "antistreaming", "k3Xq9vR2");
+        client.ping().unwrap();
+
+        // One song per page, the way the app pages: until an empty page comes back.
+        let mut songs = Vec::new();
+        loop {
+            let page = client.songs(u32::try_from(songs.len()).unwrap(), 1).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            songs.extend(page);
+        }
+        let mut titles: Vec<&str> = songs.iter().map(|s| s.title.as_str()).collect();
+        titles.sort_unstable();
+        assert_eq!(titles, ["Tone 1", "Tone 2", "Tone 3"]);
+
+        let cache = tempfile::tempdir().unwrap();
+        let flac = songs.iter().find(|s| s.suffix.as_deref() == Some("flac")).unwrap();
+        let fetched = client.download_to_cache(&flac.id, cache.path()).unwrap();
+        assert_eq!(std::fs::read(fetched).unwrap(), std::fs::read(fixtures.join("sine.flac")).unwrap());
+        server.stop();
+    }
 
     #[test]
     fn ids_round_trip_including_control_characters() {
