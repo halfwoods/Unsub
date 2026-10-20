@@ -1,12 +1,23 @@
 name: CI
 
+# Nothing in the build or the tests reads these paths, so a docs-only change skips the three-platform run.
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".claude/**"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".claude/**"
 
+# One key for push and pull_request: head_ref is the PR's branch, ref_name is the pushed branch, so a
+# branch with an open PR never runs twice at once, and a newer push cancels the superseded run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
