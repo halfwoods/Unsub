@@ -149,7 +149,7 @@ impl Decoder {
 
 /// Whether symphonia failing with `error` means it cannot read this kind of file, as opposed to
 /// the file being unreachable.
-fn can_fall_back(error: &Error) -> bool {
+pub(crate) fn can_fall_back(error: &Error) -> bool {
     matches!(
         error,
         Error::NoAudioTrack | Error::Unsupported(_) | Error::Panicked(_) | Error::Decode(_)

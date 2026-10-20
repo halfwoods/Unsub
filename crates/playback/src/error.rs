@@ -22,6 +22,8 @@ pub enum Error {
     TagsWrite(#[from] lofty::error::FileEncodingError),
     #[error("file contains no decodable audio")]
     Empty,
+    #[error("live stream: {0}")]
+    Stream(String),
     #[error("cannot measure loudness: {0}")]
     Loudness(#[from] ebur128::Error),
     #[error("unsupported audio: {0}")]

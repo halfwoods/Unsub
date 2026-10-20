@@ -7,7 +7,9 @@ use std::sync::Once;
 use ffmpeg_next::format::{self, Sample, sample::Type};
 use ffmpeg_next::software::resampling;
 use ffmpeg_next::util::error::EAGAIN;
-use ffmpeg_next::{ChannelLayout as FfmpegLayout, Error as FfmpegError, codec, frame, log, media};
+use ffmpeg_next::{
+    ChannelLayout as FfmpegLayout, Error as FfmpegError, Packet, codec, frame, log, media,
+};
 
 use crate::decoder::{Backend, Codec, Info, Source};
 use crate::mix::ChannelLayout;
@@ -15,6 +17,10 @@ use crate::{Error, Result};
 
 /// `AV_NOPTS_VALUE`: a timestamp the container did not provide.
 const NO_TIMESTAMP: i64 = i64::MIN;
+
+/// How many packets in a row may be unreadable before the input is given up on. A demuxer can
+/// resync after a damaged one, but one that cannot would otherwise be asked again for ever.
+const MAX_UNREADABLE_PACKETS: usize = 1_000;
 
 /// Prepares FFmpeg's global state, once.
 pub(crate) fn init() {
@@ -36,6 +42,11 @@ pub struct FfmpegSource {
     info: Info,
     /// Built from the first decoded frame, so it matches exactly what the decoder produces.
     converter: Option<resampling::Context>,
+    /// What `converter` converts from: sample format, channels, speaker mask and rate.
+    converting: Option<(Sample, u16, u64, u32)>,
+    /// Whether a change in the audio's format partway through is followed (a live stream's
+    /// station switching rate) rather than being an error (a file that is not what it says).
+    adaptive: bool,
     samples: Vec<f32>,
     /// Frame position a seek asked for; earlier frames are dropped since seeks land before it.
     skip_to: Option<u64>,
@@ -49,8 +60,11 @@ pub struct FfmpegSource {
 impl FfmpegSource {
     pub fn open(path: &Path) -> Result<FfmpegSource> {
         init();
+        FfmpegSource::from_input(format::input(path)?, false)
+    }
 
-        let input = format::input(path)?;
+    /// Decodes an already opened input. `adaptive` is for live streams, whose format can change.
+    pub fn from_input(input: format::context::Input, adaptive: bool) -> Result<FfmpegSource> {
         let stream = input
             .streams()
             .best(media::Type::Audio)
@@ -77,7 +91,7 @@ impl FfmpegSource {
             container: "ffmpeg",
             sample_rate,
             channels,
-            layout: ChannelLayout::from_mask(speaker_mask(&decoder), channels),
+            layout: ChannelLayout::from_mask(speaker_mask(decoder.channel_layout()), channels),
             bit_depth: bit_depth(&decoder),
             duration_ms,
         };
@@ -93,6 +107,8 @@ impl FfmpegSource {
             decoder,
             info,
             converter: None,
+            converting: None,
+            adaptive,
             samples: Vec::new(),
             skip_to: None,
             landed: None,
@@ -104,23 +120,32 @@ impl FfmpegSource {
 
     /// Hands the decoder more input: the next packet of the audio stream, or the end marker.
     fn feed(&mut self) -> Result<()> {
-        match self.input.packets().next() {
-            Some((stream, packet)) if stream.index() == self.stream_index => {
-                if self.skip_to.is_some() && self.landed.is_none() {
-                    self.landed = packet
-                        .pts()
-                        .map(|pts| self.stream_ticks_to_frames(pts - self.start_time));
+        let mut packet = Packet::empty();
+        let mut unreadable = 0;
+        loop {
+            match packet.read(&mut self.input) {
+                Ok(()) => break,
+                Err(FfmpegError::Eof) => {
+                    self.decoder.send_eof()?;
+                    self.sent_eof = true;
+                    return Ok(());
                 }
-                match self.decoder.send_packet(&packet) {
-                    // A damaged packet costs a few milliseconds of audio, not the whole track.
-                    Ok(()) | Err(FfmpegError::InvalidData) => {}
-                    Err(error) => return Err(error.into()),
+                Err(FfmpegError::InvalidData) if unreadable < MAX_UNREADABLE_PACKETS => {
+                    unreadable += 1;
                 }
+                Err(error) => return Err(error.into()),
             }
-            Some(_) => {}
-            None => {
-                self.decoder.send_eof()?;
-                self.sent_eof = true;
+        }
+        if packet.stream() == self.stream_index {
+            if self.skip_to.is_some() && self.landed.is_none() {
+                self.landed = packet
+                    .pts()
+                    .map(|pts| self.stream_ticks_to_frames(pts - self.start_time));
+            }
+            match self.decoder.send_packet(&packet) {
+                // A damaged packet costs a few milliseconds of audio, not the whole track.
+                Ok(()) | Err(FfmpegError::InvalidData) => {}
+                Err(error) => return Err(error.into()),
             }
         }
         Ok(())
@@ -128,23 +153,36 @@ impl FfmpegSource {
 
     /// Converts a decoded frame to interleaved f32 in `self.samples`.
     fn convert(&mut self, decoded: &frame::Audio) -> Result<()> {
+        let layout = if decoded.channel_layout().is_empty() {
+            FfmpegLayout::default(i32::from(decoded.channels()))
+        } else {
+            decoded.channel_layout()
+        };
+        let now = (
+            decoded.format(),
+            decoded.channels(),
+            speaker_mask(layout),
+            decoded.rate(),
+        );
+        // The first frame says what the audio really is, which a live stream's probing, done
+        // ahead of where playback starts, can have got wrong.
+        if self.adaptive && self.converting.is_none_or(|before| before != now) {
+            self.converter = None;
+            self.info.sample_rate = decoded.rate();
+            self.info.channels = decoded.channels();
+            self.info.layout = ChannelLayout::from_mask(speaker_mask(layout), decoded.channels());
+        }
+        self.converting = Some(now);
         let converter = match &mut self.converter {
             Some(converter) => converter,
-            None => {
-                let layout = if decoded.channel_layout().is_empty() {
-                    FfmpegLayout::default(i32::from(decoded.channels()))
-                } else {
-                    decoded.channel_layout()
-                };
-                self.converter.insert(resampling::Context::get(
-                    decoded.format(),
-                    layout,
-                    decoded.rate(),
-                    Sample::F32(Type::Packed),
-                    layout,
-                    decoded.rate(),
-                )?)
-            }
+            None => self.converter.insert(resampling::Context::get(
+                decoded.format(),
+                layout,
+                decoded.rate(),
+                Sample::F32(Type::Packed),
+                layout,
+                decoded.rate(),
+            )?),
         };
         let mut converted = frame::Audio::empty();
         converter.run(decoded, &mut converted)?;
@@ -202,13 +240,13 @@ impl Source for FfmpegSource {
     }
 
     fn read_chunk(&mut self) -> Result<Option<&[f32]>> {
-        let channels = usize::from(self.info.channels);
         loop {
             let mut decoded = frame::Audio::empty();
             match self.decoder.receive_frame(&mut decoded) {
                 Ok(()) => {
                     self.decoded_any = true;
                     self.convert(&decoded)?;
+                    let channels = usize::from(self.info.channels);
                     let frames = self.samples.len() / channels;
                     let skip = self.frames_to_skip(&decoded, frames);
                     if skip < frames {
@@ -264,9 +302,8 @@ fn stream_duration_ms(duration: i64, time_base: ffmpeg_next::Rational) -> Option
 }
 
 /// The speaker bit mask, or zero when the decoder only knows how many channels there are.
-fn speaker_mask(decoder: &codec::decoder::Audio) -> u64 {
+fn speaker_mask(layout: FfmpegLayout) -> u64 {
     use ffmpeg_next::ffi::{AVChannelLayout, AVChannelOrder};
-    let layout = decoder.channel_layout();
     if layout.is_empty() {
         return 0;
     }

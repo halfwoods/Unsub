@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -7,9 +8,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::crossfade::Holdback;
-use crate::decoder::Decoder;
+use crate::decoder::{Decoder, Info};
 use crate::gain::Gain;
 use crate::host::{DeviceState, Host};
+use crate::live::{LiveDecoder, LiveFeed, LiveFormat, Message, Polled, Step};
 use crate::mix::{ChannelLayout, Mixer};
 use crate::output::{Controls, Format, Output, Request, Sink};
 use crate::player::{PlaybackState, PlaybackStatus, PlayerEvent, Shared};
@@ -28,6 +30,7 @@ const DRAIN_GRACE: Duration = Duration::from_millis(50);
 pub(crate) enum Command {
     Play(i64, PathBuf, TrackOptions),
     QueueNext(i64, PathBuf, TrackOptions),
+    PlayLive(i64, Box<dyn Read + Send>, LiveFormat, TrackOptions),
     ClearNext,
     Pause,
     Resume,
@@ -298,11 +301,17 @@ fn amplitude(gain: Option<Gain>, exact: bool) -> f32 {
     }
 }
 
-/// One open output stream and the track timeline playing through it.
+/// One open output stream and the timeline playing through it.
 struct Session {
     output: Output,
-    feed: Feed,
+    input: Input,
     timeline: Timeline,
+}
+
+/// Where a session's audio comes from.
+enum Input {
+    Track(Feed),
+    Live(LiveFeed),
 }
 
 impl Session {
@@ -312,29 +321,96 @@ impl Session {
         let format = output.format();
         let exact = output.request().exact;
         Ok(Session {
-            feed: Feed::new(decoder, format, 0, exact, track.options.gain)?,
+            input: Input::Track(Feed::new(decoder, format, 0, exact, track.options.gain)?),
             timeline: Timeline::new(format.sample_rate, track, 0, position_ms),
             output,
         })
     }
 
+    /// Plays a live stream through `output`, silent until enough of it has been decoded.
+    /// `elapsed_ms` is how long it has already been heard, for a stream moved to a new output.
+    fn live(output: Output, feed: LiveFeed, track: TrackInfo, elapsed_ms: u64) -> Session {
+        output.set_paused(true);
+        Session {
+            timeline: Timeline::new(output.format().sample_rate, track, 0, elapsed_ms),
+            input: Input::Live(feed),
+            output,
+        }
+    }
+
     /// Whether this output can carry `decoder` as it is, with no reopening.
     fn fits(&self, decoder: &Decoder, exact: bool) -> bool {
-        self.output.request().exact == exact && self.feed.accepts(decoder)
+        match &self.input {
+            Input::Track(feed) => self.output.request().exact == exact && feed.accepts(decoder),
+            Input::Live(_) => false,
+        }
     }
 
     /// Decodes into the ring until it is full, handing over to `next` when this track ends.
     /// `crossfade_ms` is how long the end of this track should fade into the start of the next.
-    fn fill(&mut self, next: &mut Option<Queued>, crossfade_ms: u32) -> Result<()> {
-        self.feed.set_crossfade(crossfade_ms);
-        self.feed.fill(&mut self.output, &mut self.timeline, next)
+    /// A live stream is held back until `live_buffer_ms` of it are waiting.
+    fn fill(
+        &mut self,
+        next: &mut Option<Queued>,
+        crossfade_ms: u32,
+        live_buffer_ms: u32,
+    ) -> Result<Step> {
+        match &mut self.input {
+            Input::Track(feed) => {
+                feed.set_crossfade(crossfade_ms);
+                feed.fill(&mut self.output, &mut self.timeline, next)?;
+                Ok(Step::Unchanged)
+            }
+            Input::Live(feed) => {
+                let rate = u64::from(self.output.format().sample_rate);
+                let buffer = (rate * u64::from(live_buffer_ms) / 1000) as usize;
+                let consumed = self.output.consumed();
+                feed.fill(&mut self.output, consumed, buffer)
+            }
+        }
+    }
+
+    fn is_live(&self) -> bool {
+        matches!(self.input, Input::Live(_))
+    }
+
+    fn is_buffering(&self) -> bool {
+        matches!(&self.input, Input::Live(feed) if feed.is_buffering())
+    }
+
+    /// The sample rate of the audio being decoded, which a live stream can change.
+    fn source_rate(&self) -> u32 {
+        match &self.input {
+            Input::Live(feed) => feed.info().sample_rate,
+            Input::Track(_) => self.timeline.current().sample_rate,
+        }
+    }
+
+    /// Why a live stream is over, once what it had decoded has been heard.
+    fn live_ended(&self) -> Option<String> {
+        match &self.input {
+            Input::Live(feed) => feed.finished(self.output.consumed()).map(str::to_owned),
+            Input::Track(_) => None,
+        }
+    }
+
+    /// The format a live stream has changed to, if the output has to be reopened for it.
+    fn live_reopen(&mut self) -> Option<Info> {
+        match &mut self.input {
+            Input::Live(feed) => feed.take_reopen(self.output.consumed()),
+            Input::Track(_) => None,
+        }
     }
 
     /// Restarts on a new track, already at `position_ms`, after the output has been flushed.
+    /// Only called when [`Session::fits`] said it could be, which no live stream does.
     fn restart(&mut self, queued: Queued, position_ms: u64) {
+        let Input::Track(feed) = &mut self.input else {
+            return;
+        };
         let frame = self.output.consumed();
-        self.feed.decoder = queued.decoder;
-        self.feed.rewind(frame, queued.track.options.gain);
+        feed.decoder = queued.decoder;
+        feed.rewind(frame, queued.track.options.gain);
         self.timeline = Timeline::new(
             self.output.format().sample_rate,
             queued.track,
@@ -350,14 +426,26 @@ impl Session {
             .id
     }
 
-    /// Everything decoded has been heard and nothing follows.
+    /// Everything decoded has been heard and nothing follows. A live stream ends differently:
+    /// see [`Session::live_ended`].
     fn finished(&self) -> bool {
-        self.feed.eof
-            && !self.feed.is_staging()
-            && self.feed.holdback.is_empty()
+        let Input::Track(feed) = &self.input else {
+            return false;
+        };
+        feed.eof
+            && !feed.is_staging()
+            && feed.holdback.is_empty()
             && self.timeline.upcoming().is_none()
-            && self.output.consumed() >= self.feed.produced
+            && self.output.consumed() >= feed.produced
     }
+}
+
+/// A live stream whose first audio has not arrived, so the output cannot be opened yet: that
+/// takes the stream's sample rate and channels.
+struct Connecting {
+    id: i64,
+    options: TrackOptions,
+    decoder: LiveDecoder,
 }
 
 pub(crate) struct Engine {
@@ -374,6 +462,7 @@ pub(crate) struct Engine {
     bit_perfect: bool,
     state: PlaybackState,
     session: Option<Session>,
+    connecting: Option<Connecting>,
     next: Option<Queued>,
     /// Identifies the current stream so a late error from a replaced one is ignored.
     generation: u64,
@@ -399,6 +488,7 @@ impl Engine {
             bit_perfect: false,
             state: PlaybackState::Stopped,
             session: None,
+            connecting: None,
             next: None,
             generation: 0,
             next_position_event: Instant::now(),
@@ -407,7 +497,7 @@ impl Engine {
 
     pub(crate) fn run(mut self) {
         'engine: loop {
-            let first = if self.session.is_some() {
+            let first = if self.session.is_some() || self.connecting.is_some() {
                 match self.commands.recv_timeout(TICK) {
                     Ok(command) => Some(command),
                     Err(RecvTimeoutError::Timeout) => None,
@@ -437,8 +527,11 @@ impl Engine {
         match command {
             Command::Play(id, path, options) => self.play(id, path, options),
             Command::QueueNext(id, path, options) => self.queue_next(id, path, options),
+            Command::PlayLive(id, source, hint, options) => {
+                self.play_live(id, source, hint, options);
+            }
             Command::ClearNext => self.clear_next(),
-            Command::Pause => self.set_paused(true),
+            Command::Pause => self.pause(),
             Command::Resume => self.set_paused(false),
             Command::Stop => self.stop(),
             Command::Seek(position_ms) => self.seek(position_ms),
@@ -489,16 +582,20 @@ impl Engine {
                 session
                     .output
                     .set_paused(self.state == PlaybackState::Paused);
-                session.fill(&mut self.next, crossfade_ms)?;
+                session.fill(&mut self.next, crossfade_ms, 0)?;
             }
             None => {
                 self.release();
-                let output = self.open_output(&queued.decoder)?;
+                let source = Format {
+                    sample_rate: queued.decoder.sample_rate(),
+                    channels: queued.decoder.channels(),
+                };
+                let output = self.open_output(source, queued.decoder.bit_depth())?;
                 let mut session = Session::new(output, queued, position_ms)?;
                 session
                     .output
                     .set_paused(self.state == PlaybackState::Paused);
-                session.fill(&mut self.next, crossfade_ms)?;
+                session.fill(&mut self.next, crossfade_ms, 0)?;
                 // The ring is primed first so the first callback already has audio.
                 session.output.start()?;
                 self.session = Some(session);
@@ -507,18 +604,15 @@ impl Engine {
         Ok(())
     }
 
-    /// Opens an output for `decoder`, bit-perfect if wanted and the device allows, and says so
-    /// when it does not.
-    fn open_output(&mut self, decoder: &Decoder) -> Result<Output> {
+    /// Opens an output for audio in the `source` format, bit-perfect if wanted and the device
+    /// allows, and says so when it does not.
+    fn open_output(&mut self, source: Format, bit_depth: Option<u32>) -> Result<Output> {
         if self.device.is_none() {
             self.device = self.host.capture();
         }
         let request = Request {
-            source: Format {
-                sample_rate: decoder.sample_rate(),
-                channels: decoder.channels(),
-            },
-            bit_depth: decoder.bit_depth(),
+            source,
+            bit_depth,
             exact: self.bit_perfect,
         };
         if request.exact {
@@ -566,6 +660,10 @@ impl Engine {
     }
 
     fn queue_next(&mut self, id: i64, path: PathBuf, options: TrackOptions) {
+        // Nothing follows a live stream: it has no end to follow.
+        if self.is_live() {
+            return;
+        }
         match Queued::open(self.open, id, path, options) {
             Ok(queued) => {
                 self.next = Some(queued);
@@ -596,6 +694,20 @@ impl Engine {
         }
     }
 
+    /// Pausing a live stream stops it, since it cannot be resumed where it was left; playing it
+    /// again is up to the caller, with a fresh connection.
+    fn pause(&mut self) {
+        if self.is_live() {
+            self.stop();
+        } else {
+            self.set_paused(true);
+        }
+    }
+
+    fn is_live(&self) -> bool {
+        self.connecting.is_some() || self.session.as_ref().is_some_and(Session::is_live)
+    }
+
     fn set_paused(&mut self, paused: bool) {
         let (from, to) = if paused {
             (PlaybackState::Playing, PlaybackState::Paused)
@@ -619,8 +731,8 @@ impl Engine {
         }
         self.release();
         self.state = PlaybackState::Stopped;
-        self.announce();
         self.restore_device();
+        self.announce();
     }
 
     fn seek(&mut self, position_ms: u64) {
@@ -645,6 +757,9 @@ impl Engine {
 
     /// Moves the audible track to a new output, for a change of mode, resuming where it was.
     fn reopen_output(&mut self) -> Result<()> {
+        if self.session.as_ref().is_some_and(Session::is_live) {
+            return self.reopen_live(None);
+        }
         let Some(session) = self.session.as_mut() else {
             return Ok(());
         };
@@ -691,6 +806,10 @@ impl Engine {
         let Some(session) = self.session.as_mut() else {
             return Ok(());
         };
+        // A live stream has nowhere to seek to, and nothing queued behind it.
+        let Input::Track(feed) = &mut session.input else {
+            return Ok(());
+        };
         // Fade out first: the position is read once the fade has finished, so a restart at the
         // current position resumes exactly where the listener stopped hearing.
         session.output.flush()?;
@@ -704,11 +823,11 @@ impl Engine {
 
         let upcoming = session.timeline.take_upcoming();
         if upcoming.is_some() {
-            session.feed.decoder = (self.open)(&audible.path)?;
+            feed.decoder = (self.open)(&audible.path)?;
         }
-        let landed_ms = session.feed.decoder.seek(position_ms)?;
+        let landed_ms = feed.decoder.seek(position_ms)?;
         // With a handoff pending the feed had moved on to the next track's gain.
-        session.feed.rewind(frame, audible.options.gain);
+        feed.rewind(frame, audible.options.gain);
         session.timeline.reanchor(frame, landed_ms);
         self.next_position_event = Instant::now();
 
@@ -724,14 +843,19 @@ impl Engine {
 
     fn tick(&mut self) {
         let crossfade_ms = self.shared.crossfade_ms.load(Ordering::Relaxed);
+        let live_buffer_ms = self.shared.live_buffer_ms.load(Ordering::Relaxed);
+        self.poll_connecting();
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        if let Err(error) = session.fill(&mut self.next, crossfade_ms) {
-            let feeding = session.feeding_id();
-            self.fail(Some(feeding), error);
-            return;
-        }
+        let step = match session.fill(&mut self.next, crossfade_ms, live_buffer_ms) {
+            Ok(step) => step,
+            Err(error) => {
+                let feeding = session.feeding_id();
+                self.fail(Some(feeding), error);
+                return;
+            }
+        };
 
         let consumed = session.output.consumed();
         if let Some(transition) = session.timeline.advance(consumed) {
@@ -746,6 +870,20 @@ impl Engine {
             self.finish_track();
             return;
         }
+        let id = session.timeline.current().id;
+        if let Some(reason) = session.live_ended() {
+            self.live_ended(id, reason);
+            return;
+        }
+        if let Some(info) = session.live_reopen() {
+            if let Err(error) = self.reopen_live(Some(info)) {
+                self.fail(Some(id), error);
+            }
+            return;
+        }
+        if step != Step::Unchanged {
+            self.buffering_changed(step, id);
+        }
 
         self.publish();
         if self.state == PlaybackState::Playing && Instant::now() >= self.next_position_event {
@@ -759,6 +897,147 @@ impl Engine {
             }
             self.next_position_event = Instant::now() + POSITION_INTERVAL;
         }
+    }
+
+    /// Starts a live stream. Nothing is audible until its first audio has arrived and enough of
+    /// it has been decoded, so the status is "buffering" from the start.
+    fn play_live(
+        &mut self,
+        id: i64,
+        source: Box<dyn Read + Send>,
+        hint: LiveFormat,
+        options: TrackOptions,
+    ) {
+        self.next = None;
+        let decoder = match LiveDecoder::spawn(source, hint) {
+            Ok(decoder) => decoder,
+            Err(error) => return self.fail(Some(id), error),
+        };
+        self.release();
+        self.connecting = Some(Connecting {
+            id,
+            options,
+            decoder,
+        });
+        self.state = PlaybackState::Playing;
+        self.next_position_event = Instant::now();
+        (self.emit)(PlayerEvent::Buffering { id });
+        self.announce();
+    }
+
+    /// Opens the output once a connecting stream has said what format it is in.
+    fn poll_connecting(&mut self) {
+        let Some(connecting) = self.connecting.take() else {
+            return;
+        };
+        let id = connecting.id;
+        match connecting.decoder.poll() {
+            Polled::Pending => self.connecting = Some(connecting),
+            // The format is always announced before any audio.
+            Polled::Ready(Message::Pcm(_)) => self.connecting = Some(connecting),
+            Polled::Ready(Message::Format(info)) => {
+                if let Err(error) = self.start_live(connecting, info) {
+                    self.fail(Some(id), error);
+                }
+            }
+            Polled::Ready(Message::Ended(error)) => {
+                let reason =
+                    error.map_or_else(|| "The stream ended.".to_owned(), |e| e.to_string());
+                self.live_ended(id, reason);
+            }
+            Polled::Gone => self.live_ended(id, "The audio decoder stopped.".to_owned()),
+        }
+    }
+
+    fn start_live(&mut self, connecting: Connecting, info: Info) -> Result<()> {
+        let Connecting {
+            id,
+            options,
+            decoder,
+        } = connecting;
+        let source = Format {
+            sample_rate: info.sample_rate,
+            channels: info.channels,
+        };
+        let output = self.open_output(source, info.bit_depth)?;
+        let feed = LiveFeed::new(decoder, info, output.format(), output.request().exact)?;
+        let track = TrackInfo {
+            id,
+            path: PathBuf::new(),
+            duration_ms: 0,
+            sample_rate: info.sample_rate,
+            // Sound Check never applies to a live stream.
+            options: TrackOptions {
+                gain: None,
+                ..options
+            },
+        };
+        let session = Session::live(output, feed, track, 0);
+        session.output.start()?;
+        self.session = Some(session);
+        self.announce();
+        Ok(())
+    }
+
+    /// A live stream started or stopped waiting for more audio.
+    fn buffering_changed(&mut self, step: Step, id: i64) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        // Holding the output fades it out, and releasing it fades it back in, rather than
+        // cutting the sound when the stream runs dry.
+        session.output.set_paused(step == Step::Buffering);
+        if step == Step::Buffering {
+            (self.emit)(PlayerEvent::Buffering { id });
+        }
+        self.announce();
+    }
+
+    /// The live stream is over, and everything it had decoded has been heard.
+    fn live_ended(&mut self, id: i64, reason: String) {
+        self.release();
+        self.state = PlaybackState::Stopped;
+        self.restore_device();
+        (self.emit)(PlayerEvent::LiveEnded { id, reason });
+        self.announce();
+    }
+
+    /// Moves a live stream to a newly opened output, for a change of mode or because the stream
+    /// itself changed format (`changed`). What was queued for the old output is dropped, and the
+    /// stream buffers again, which also rejoins it at the live edge.
+    fn reopen_live(&mut self, changed: Option<Info>) -> Result<()> {
+        let Some(session) = self.session.take() else {
+            return Ok(());
+        };
+        let Session {
+            output,
+            input: Input::Live(mut feed),
+            timeline,
+        } = session
+        else {
+            return Ok(());
+        };
+        if output.flush().is_ok() {
+            thread::sleep(DRAIN_GRACE);
+        }
+        let elapsed_ms = timeline.position_ms(output.consumed());
+        let track = timeline.current().clone();
+        drop(output);
+
+        let info = changed.unwrap_or(*feed.info());
+        let source = Format {
+            sample_rate: info.sample_rate,
+            channels: info.channels,
+        };
+        let output = self.open_output(source, info.bit_depth)?;
+        feed.retarget(output.format(), output.request().exact, info)?;
+        let id = track.id;
+        let session = Session::live(output, feed, track, elapsed_ms);
+        session.output.start()?;
+        self.session = Some(session);
+        (self.emit)(PlayerEvent::Buffering { id });
+        self.announce();
+        Ok(())
     }
 
     /// The last queued frame has been played: move to the next track or stop.
@@ -778,8 +1057,8 @@ impl Engine {
             None => {
                 self.release();
                 self.state = PlaybackState::Stopped;
-                self.announce();
                 self.restore_device();
+                self.announce();
             }
         }
     }
@@ -792,6 +1071,7 @@ impl Engine {
 
     /// Fades out and closes the stream, giving the device time to play out its buffer.
     fn release(&mut self) {
+        self.connecting = None;
         if let Some(session) = self.session.take() {
             // A failed flush means the callback is gone, so there is nothing left to fade.
             if session.output.flush().is_ok() {
@@ -810,14 +1090,16 @@ impl Engine {
         } else {
             self.release();
         }
+        self.connecting = None;
         self.next = None;
         self.state = PlaybackState::Stopped;
         self.report(track_id, &error);
-        self.announce();
         self.restore_device();
+        self.announce();
     }
 
-    /// Puts the output device back as it was before playback changed it.
+    /// Puts the output device back as it was before playback changed it. Done before the stop is
+    /// announced, so that whoever hears that playback stopped finds the device already restored.
     fn restore_device(&mut self) {
         if let Some(device) = self.device.take() {
             device.restore();
@@ -837,7 +1119,17 @@ impl Engine {
 
     fn status(&self) -> PlaybackStatus {
         let Some(session) = &self.session else {
-            return PlaybackStatus::stopped(self.shared.volume.get());
+            let stopped = PlaybackStatus::stopped(self.shared.volume.get());
+            return match &self.connecting {
+                Some(connecting) => PlaybackStatus {
+                    state: self.state,
+                    track_id: Some(connecting.id),
+                    live: true,
+                    buffering: true,
+                    ..stopped
+                },
+                None => stopped,
+            };
         };
         let track = session.timeline.current();
         let info = session.output.info();
@@ -846,7 +1138,7 @@ impl Engine {
             track_id: Some(track.id),
             position_ms: session.timeline.position_ms(session.output.consumed()),
             duration_ms: track.duration_ms,
-            sample_rate: Some(track.sample_rate),
+            sample_rate: Some(session.source_rate()),
             output_sample_rate: Some(session.output.format().sample_rate),
             volume: if info.bit_perfect {
                 1.0
@@ -861,6 +1153,8 @@ impl Engine {
                 .filter(|_| !info.bit_perfect)
                 .map(Gain::applied_db),
             eq_active: !info.bit_perfect && self.shared.equalizer.is_on(),
+            live: session.is_live(),
+            buffering: session.is_buffering(),
         }
     }
 
@@ -1144,6 +1438,7 @@ mod tests {
                 volume,
                 equalizer: Arc::default(),
                 crossfade_ms: AtomicU32::new(0),
+                live_buffer_ms: AtomicU32::new(0),
                 bit_perfect: AtomicBool::new(false),
             });
             let (host, _) = crate::host::simulated::Simulated::new(Default::default());

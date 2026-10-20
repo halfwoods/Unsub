@@ -75,4 +75,15 @@ else
   echo "afconvert not found: keeping the committed gapless-itunes.m4a" >&2
 fi
 
+# Live-stream fixtures, for the formats the engine reads from a reader that cannot seek: ADTS, two
+# consecutive one-second MPEG-TS segments as HLS serves them (the muxer leaves a stub of a third,
+# which is dropped), a fragmented mp4, and a 48 kHz segment and mp3 and a 22 kHz Ogg to change rate mid-stream.
+gen live-adts.aac 44100 stereo 1 -c:a aac -b:a 64k -f adts
+gen 'live-seg%d.ts' 44100 stereo 2 -c:a aac -b:a 64k -f segment -segment_time 1 -segment_format mpegts
+rm -f live-seg2.ts
+gen live-48k.ts 48000 stereo 1 -c:a aac -b:a 64k -f mpegts
+gen live-fragmented.mp4 44100 stereo 1 -c:a aac -b:a 64k -movflags empty_moov+frag_keyframe+default_base_moof -f mp4
+gen live-48k.mp3 48000 stereo 1 -c:a libmp3lame -b:a 64k
+gen live-22k.ogg 22050 stereo 1 -c:a vorbis -strict -2 -q:a 4
+
 printf 'This is not audio.\n' > not-audio.txt

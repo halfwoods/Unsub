@@ -1152,3 +1152,781 @@ mod crossfade {
         );
     }
 }
+
+mod live {
+    use std::io::{self, Read};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use super::*;
+    use crate::{LiveFormat, TrackOptions};
+
+    fn bytes(name: &str) -> Vec<u8> {
+        std::fs::read(fixture(name)).unwrap()
+    }
+
+    /// How a `Trickle` ends once its bytes are used up.
+    #[derive(Clone, Copy)]
+    enum Then {
+        Eof,
+        Fail(io::ErrorKind),
+    }
+
+    /// A connection: bytes in small pieces, with stalls at chosen offsets, ending as told.
+    struct Trickle {
+        data: Vec<u8>,
+        at: usize,
+        piece: usize,
+        stalls: Vec<(usize, Duration)>,
+        then: Then,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl Trickle {
+        fn new(data: Vec<u8>) -> Trickle {
+            Trickle {
+                data,
+                at: 0,
+                piece: 1_024,
+                stalls: Vec::new(),
+                then: Then::Eof,
+                dropped: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        fn stalling(mut self, at: usize, for_how_long: Duration) -> Trickle {
+            self.stalls.push((at, for_how_long));
+            self
+        }
+
+        fn ending(mut self, then: Then) -> Trickle {
+            self.then = then;
+            self
+        }
+
+        fn watched(&self) -> Arc<AtomicBool> {
+            Arc::clone(&self.dropped)
+        }
+    }
+
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if let Some(stall) = self.stalls.iter().position(|&(at, _)| at <= self.at) {
+                std::thread::sleep(self.stalls.remove(stall).1);
+            }
+            if self.at >= self.data.len() {
+                return match self.then {
+                    Then::Eof => Ok(0),
+                    Then::Fail(kind) => Err(io::Error::new(kind, "the connection dropped")),
+                };
+            }
+            let count = self.piece.min(buf.len()).min(self.data.len() - self.at);
+            buf[..count].copy_from_slice(&self.data[self.at..self.at + count]);
+            self.at += count;
+            Ok(count)
+        }
+    }
+
+    impl Drop for Trickle {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn play(rig: &Rig, source: impl Read + Send + 'static, hint: LiveFormat) {
+        rig.player
+            .play_live(1, Box::new(source), hint, TrackOptions::default());
+    }
+
+    impl Rig {
+        fn until_live_ended(&mut self) -> String {
+            match self.until("the live stream to end", |e| {
+                matches!(e, PlayerEvent::LiveEnded { .. })
+            }) {
+                PlayerEvent::LiveEnded { reason, .. } => reason,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    /// What FFmpeg makes of a fixture read as a file, for the formats live streams hand to it.
+    #[cfg(feature = "ffmpeg")]
+    fn decode_with_ffmpeg(name: &str) -> Vec<f32> {
+        use crate::decoder::Source;
+        let mut source = crate::ffmpeg_source::FfmpegSource::open(&fixture(name)).unwrap();
+        let mut samples = Vec::new();
+        while let Some(chunk) = source.read_chunk().unwrap() {
+            samples.extend_from_slice(chunk);
+        }
+        samples
+    }
+
+    /// Every format a live stream can be in, with the file it is played from.
+    fn formats() -> Vec<(&'static str, LiveFormat)> {
+        let always = [
+            ("sine.mp3", LiveFormat::Mp3),
+            ("live-adts.aac", LiveFormat::AacAdts),
+            ("sine.ogg", LiveFormat::Ogg),
+            ("sine.flac", LiveFormat::Flac),
+        ];
+        // The rest are read by FFmpeg alone.
+        #[cfg(feature = "ffmpeg")]
+        let ffmpeg_only = [
+            ("sine.opus", LiveFormat::Opus),
+            ("live-seg0.ts", LiveFormat::MpegTs),
+            ("live-fragmented.mp4", LiveFormat::Fmp4),
+        ];
+        #[cfg(not(feature = "ffmpeg"))]
+        let ffmpeg_only = [];
+        always.into_iter().chain(ffmpeg_only).collect()
+    }
+
+    /// What the same file decodes to when read as a file.
+    fn as_a_file(file: &str, hint: LiveFormat) -> Vec<f32> {
+        match hint {
+            // symphonia would read fragmented mp4 as a file, and mistake transport streams
+            // for something else, but live streams of them go to FFmpeg.
+            #[cfg(feature = "ffmpeg")]
+            LiveFormat::Fmp4 | LiveFormat::MpegTs => decode_with_ffmpeg(file),
+            _ => decode(file),
+        }
+    }
+
+    /// Plays `file` as a live stream hinted as `hint` and checks the device got what a file
+    /// of it gives.
+    fn assert_plays_as_a_file(file: &str, hint: LiveFormat, told_as: LiveFormat) {
+        let mut rig = rig(Config::default());
+        play(&rig, Trickle::new(bytes(file)), told_as);
+        rig.until_live_ended();
+        rig.until_stopped();
+        assert_played(&rig.heard(), &as_a_file(file, hint), 0, 2_000);
+        assert!(
+            !rig.seen.iter().any(|event| matches!(
+                event,
+                PlayerEvent::TrackStarted { .. } | PlayerEvent::TrackEnded { .. }
+            )),
+            "a station is not a play: {file} {:?}",
+            rig.seen
+        );
+    }
+
+    #[test]
+    fn every_format_plays_as_it_would_from_a_file() {
+        for (file, hint) in formats() {
+            assert_plays_as_a_file(file, hint, hint);
+        }
+    }
+
+    #[test]
+    fn a_stream_of_unknown_type_is_recognised_from_its_first_bytes() {
+        for (file, hint) in formats() {
+            assert_plays_as_a_file(file, hint, LiveFormat::Unknown);
+        }
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn a_wrong_hint_gives_way_to_what_the_bytes_plainly_are() {
+        // Transport streams and Ogg are unmistakable; and what symphonia cannot read falls back.
+        assert_plays_as_a_file("live-seg0.ts", LiveFormat::MpegTs, LiveFormat::Mp3);
+        assert_plays_as_a_file("sine.opus", LiveFormat::Opus, LiveFormat::Ogg);
+        assert_plays_as_a_file("sine.ogg", LiveFormat::Ogg, LiveFormat::Opus);
+        assert_plays_as_a_file("live-fragmented.mp4", LiveFormat::Fmp4, LiveFormat::AacAdts);
+    }
+
+    /// A file removed when dropped.
+    #[cfg(feature = "ffmpeg")]
+    struct Scratch(PathBuf);
+
+    #[cfg(feature = "ffmpeg")]
+    impl Scratch {
+        fn new(name: &str, contents: &[u8]) -> Scratch {
+            let path = std::env::temp_dir()
+                .join(format!("antistreaming-live-{}-{name}", std::process::id()));
+            std::fs::write(&path, contents).unwrap();
+            Scratch(path)
+        }
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn transport_stream_segments_one_after_another_play_as_one_stream() {
+        let both = [bytes("live-seg0.ts"), bytes("live-seg1.ts")].concat();
+        // Decoded as one stream, the second segment carries on from the first, which is not what
+        // decoding each alone gives; the whole thing as a file is the same thing.
+        let joined = Scratch::new("joined.ts", &both);
+        let expected = {
+            use crate::decoder::Source;
+            let mut source = crate::ffmpeg_source::FfmpegSource::open(&joined.0).unwrap();
+            let mut samples = Vec::new();
+            while let Some(chunk) = source.read_chunk().unwrap() {
+                samples.extend_from_slice(chunk);
+            }
+            samples
+        };
+
+        let mut rig = rig(Config::default());
+        play(&rig, Trickle::new(both), LiveFormat::MpegTs);
+        rig.until_live_ended();
+        rig.until_stopped();
+
+        assert!(
+            expected.len() > 2 * 44_100 * 19 / 10,
+            "two segments of audio"
+        );
+        assert_played(&rig.heard(), &expected, 0, 2_000);
+    }
+
+    #[test]
+    fn a_stream_joined_in_the_middle_of_a_frame_starts_at_the_next_one() {
+        let mid = bytes("sine.mp3")[100..].to_vec();
+        let mut rig = rig(Config::default());
+        play(&rig, Trickle::new(mid), LiveFormat::Mp3);
+        rig.until_live_ended();
+        rig.until_stopped();
+
+        let heard = rig.heard();
+        let peak = heard.iter().fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        let sounding = heard.iter().filter(|s| s.abs() > 0.01).count();
+        assert!((0.45..0.55).contains(&peak), "{peak}");
+        assert!(
+            sounding > 2 * 40_000,
+            "nearly all of the second is heard: {sounding}"
+        );
+        assert!(
+            !rig.seen
+                .iter()
+                .any(|e| matches!(e, PlayerEvent::Error { .. }))
+        );
+    }
+
+    /// What the events say about buffering: `buffering` each time it is reported, `playing` each
+    /// time it is over, and `ended` for the end of the stream.
+    fn buffering_story(rig: &Rig) -> Vec<&'static str> {
+        let mut story = Vec::new();
+        for event in &rig.seen {
+            let word = match event {
+                PlayerEvent::Buffering { .. } => "buffering",
+                PlayerEvent::StateChanged(status) if status.live && !status.buffering => "playing",
+                PlayerEvent::LiveEnded { .. } => "ended",
+                _ => continue,
+            };
+            if story.last() != Some(&word) {
+                story.push(word);
+            }
+        }
+        story
+    }
+
+    /// The sound in `heard`, with silences of a few hundred frames or more taken out.
+    fn without_silences(heard: &[f32]) -> Vec<f32> {
+        let mut sound = Vec::new();
+        let mut quiet = 0;
+        for &sample in heard {
+            quiet = if sample == 0.0 { quiet + 1 } else { 0 };
+            sound.push(sample);
+            if quiet == 600 {
+                sound.truncate(sound.len() - 600);
+            } else if quiet > 600 {
+                sound.pop();
+            }
+        }
+        sound
+    }
+
+    #[test]
+    fn running_dry_holds_playback_and_reports_buffering_until_there_is_enough_again() {
+        let mut rig = rig(Config {
+            speed: 10,
+            ..Config::default()
+        });
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        // About 0.4 s of audio, then nothing for most of a second, then the rest.
+        let stream = Trickle::new(bytes("sine.mp3")).stalling(3_200, Duration::from_millis(900));
+        play(&rig, stream, LiveFormat::Mp3);
+        rig.until_live_ended();
+        rig.until_stopped();
+
+        assert_eq!(
+            buffering_story(&rig),
+            ["buffering", "playing", "buffering", "playing", "ended"]
+        );
+        // Nothing was skipped or repeated: the audio on both sides of the gap is the file's.
+        let expected = decode("sine.mp3");
+        let sound = without_silences(&rig.heard());
+        for from in [10_000, expected.len() - 20_000] {
+            let at = find(&sound, &expected[from..from + 256]).expect("that stretch was played");
+            assert!(
+                sound[at..at + 4_000] == expected[from..from + 4_000],
+                "from {from}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_plays_until_two_seconds_are_decoded_unless_the_stream_ends_first() {
+        let mut rig = rig(Config::default());
+        // A second of audio, which is less than the two that are waited for, and then a quiet
+        // spell before the stream ends.
+        let data = bytes("sine.mp3");
+        let end = data.len();
+        play(
+            &rig,
+            Trickle::new(data).stalling(end, Duration::from_millis(1_200)),
+            LiveFormat::Mp3,
+        );
+        rig.until("buffering", |e| matches!(e, PlayerEvent::Buffering { .. }));
+
+        std::thread::sleep(Duration::from_millis(600));
+        let status = rig.player.status();
+        assert!(status.live && status.buffering, "{status:?}");
+        assert_eq!(status.position_ms, 0);
+        assert!(
+            rig.heard().iter().all(|&sample| sample == 0.0),
+            "silent so far"
+        );
+
+        rig.until_live_ended();
+        assert!(
+            rig.heard().iter().any(|&sample| sample != 0.0),
+            "what arrived was played"
+        );
+    }
+
+    #[test]
+    fn a_change_of_sample_rate_partway_through_is_followed_by_resampling() {
+        let ogg = (
+            [bytes("sine.ogg"), bytes("live-22k.ogg")].concat(),
+            LiveFormat::Ogg,
+        );
+        #[cfg(feature = "ffmpeg")]
+        let streams = [
+            ogg,
+            (
+                [bytes("live-seg0.ts"), bytes("live-48k.ts")].concat(),
+                LiveFormat::MpegTs,
+            ),
+        ];
+        #[cfg(not(feature = "ffmpeg"))]
+        let streams = [ogg];
+        for (data, hint) in streams {
+            let mut rig = rig(Config::default());
+            play(&rig, Trickle::new(data), hint);
+            rig.until_live_ended();
+            rig.until_stopped();
+
+            assert_eq!(rig.opened(), [(44_100, false)], "one stream throughout");
+            let heard = rig.heard();
+            let left: Vec<f32> = heard.iter().step_by(2).copied().collect();
+            let start = left.iter().position(|&s| s != 0.0).unwrap();
+            let sounding = left.iter().filter(|s| s.abs() > 0.01).count();
+            assert!(
+                (84_000..90_000).contains(&sounding),
+                "two seconds: {sounding}"
+            );
+            // Over the second part, a 440 Hz tone crosses zero about 880 times a second; played
+            // without resampling, 48 kHz audio on a 44.1 kHz device would make it 958.
+            let window = &left[start + 55_000..start + 85_000];
+            let crossings = window
+                .windows(2)
+                .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+                .count();
+            let wanted = 880.0 * window.len() as f64 / 44_100.0;
+            assert!(
+                (crossings as f64 - wanted).abs() < 0.04 * wanted,
+                "{crossings} vs {wanted}"
+            );
+            assert!(
+                !rig.seen
+                    .iter()
+                    .any(|e| matches!(e, PlayerEvent::Error { .. }))
+            );
+        }
+    }
+
+    #[test]
+    fn an_mp3_stream_that_changes_rate_is_given_up_on_with_a_reason_not_left_silent() {
+        // symphonia's MP3 reader takes frames of another rate for junk and searches the rest of
+        // the stream for ones it likes; after a while with nothing to show for it, the stream
+        // ends and the caller can connect again, to a stream that starts afresh in the new rate.
+        let data = [bytes("sine.mp3"), bytes("live-48k.mp3").repeat(50)].concat();
+        let mut rig = rig(Config::default());
+        play(&rig, Trickle::new(data), LiveFormat::Mp3);
+        let reason = rig.until_live_ended();
+        rig.until_stopped();
+
+        assert!(reason.contains("stopped producing audio"), "{reason}");
+        let sounding = rig.heard().iter().filter(|s| s.abs() > 0.01).count();
+        assert!(
+            (80_000..90_000).contains(&sounding),
+            "the first second was played: {sounding}"
+        );
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn the_status_follows_the_streams_sample_rate() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        let both = [bytes("live-seg0.ts"), bytes("live-48k.ts")].concat();
+        play(&rig, Trickle::new(both), LiveFormat::MpegTs);
+        rig.await_status("the first part", |s| {
+            s.live && s.sample_rate == Some(44_100)
+        });
+        rig.await_status("the second part", |s| {
+            s.live && s.sample_rate == Some(48_000)
+        });
+        assert_eq!(rig.player.status().output_sample_rate, Some(44_100));
+        rig.until_live_ended();
+    }
+
+    #[cfg(feature = "ffmpeg")]
+    #[test]
+    fn a_bit_perfect_stream_reopens_the_device_for_a_change_of_rate() {
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        let both = [bytes("live-seg0.ts"), bytes("live-48k.ts")].concat();
+        play(&rig, Trickle::new(both), LiveFormat::MpegTs);
+        rig.until_live_ended();
+        rig.until_stopped();
+
+        assert_eq!(rig.opened(), [(44_100, true), (48_000, true)]);
+        assert!(rig.notices().is_empty(), "{:?}", rig.notices());
+        let sounding = rig.heard().iter().filter(|s| s.abs() > 0.01).count();
+        assert!(
+            sounding > 2 * 2 * 40_000,
+            "both parts were played: {sounding}"
+        );
+    }
+
+    #[test]
+    fn a_lossless_stream_switches_a_bit_perfect_device_to_its_rate() {
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        play(
+            &rig,
+            Trickle::new(bytes("sine-24bit-96k.flac")),
+            LiveFormat::Flac,
+        );
+        rig.await_status("bit-perfect", |s| s.live && s.bit_perfect);
+        let status = rig.player.status();
+        assert_eq!(status.output_sample_rate, Some(96_000));
+        assert_eq!(status.volume, 1.0);
+        rig.until_live_ended();
+        rig.until_stopped();
+
+        assert_eq!(rig.opened(), [(96_000, true)]);
+        assert_played(&rig.heard(), &decode("sine-24bit-96k.flac"), 0, 2_000);
+    }
+
+    #[test]
+    fn switching_bit_perfect_mode_moves_a_live_stream_to_a_new_output_and_buffers_again() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        let data = bytes("sine.mp3");
+        let end = data.len();
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        play(
+            &rig,
+            Trickle::new(data).stalling(end, Duration::from_secs(2)),
+            LiveFormat::Mp3,
+        );
+        rig.await_status("playing", |s| {
+            s.live && !s.buffering && s.position_ms >= 200
+        });
+
+        rig.player.set_bit_perfect(true);
+        rig.await_status("bit-perfect", |s| s.live && s.bit_perfect);
+        let status = rig.player.status();
+        assert!(
+            status.buffering,
+            "the stream was moved and starts afresh: {status:?}"
+        );
+        assert_eq!(rig.opened(), [(44_100, false), (44_100, true)]);
+        // The time already heard is not forgotten.
+        assert!(status.position_ms >= 200, "{status:?}");
+        let story = rig.settle().len();
+        assert!(story > 0);
+    }
+
+    #[test]
+    fn a_dropped_connection_ends_the_stream_once_what_arrived_has_played() {
+        #[cfg(feature = "ffmpeg")]
+        let cases = [
+            ("sine.mp3", LiveFormat::Mp3),
+            ("live-seg0.ts", LiveFormat::MpegTs),
+        ];
+        #[cfg(not(feature = "ffmpeg"))]
+        let cases = [("sine.mp3", LiveFormat::Mp3)];
+        for (file, hint) in cases {
+            let data = bytes(file)[..6_000].to_vec();
+            let mut rig = rig(Config::default());
+            play(
+                &rig,
+                Trickle::new(data).ending(Then::Fail(io::ErrorKind::ConnectionReset)),
+                hint,
+            );
+            let reason = rig.until_live_ended();
+            rig.until_stopped();
+
+            assert!(!reason.is_empty(), "{file}");
+            let peak = rig
+                .heard()
+                .iter()
+                .fold(0.0_f32, |peak, s| peak.max(s.abs()));
+            assert!(peak > 0.3, "{file}: what had arrived was played ({peak})");
+            let status = rig.player.status();
+            assert!(
+                !status.live && status.state == PlaybackState::Stopped,
+                "{status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reason_a_stream_ended_is_given() {
+        let mut dropped = rig(Config::default());
+        let data = bytes("sine.mp3")[..4_000].to_vec();
+        play(
+            &dropped,
+            Trickle::new(data).ending(Then::Fail(io::ErrorKind::TimedOut)),
+            LiveFormat::Mp3,
+        );
+        assert!(
+            dropped
+                .until_live_ended()
+                .contains("the connection dropped")
+        );
+
+        let mut finished = rig(Config::default());
+        play(&finished, Trickle::new(bytes("sine.mp3")), LiveFormat::Mp3);
+        assert_eq!(finished.until_live_ended(), "The stream ended.");
+    }
+
+    #[test]
+    fn streams_that_are_not_audio_or_not_there_end_with_a_reason_instead_of_hanging() {
+        let nothing_at_all = Trickle::new(Vec::new());
+        let refused = Trickle::new(Vec::new()).ending(Then::Fail(io::ErrorKind::ConnectionRefused));
+        let noise = Trickle::new(bytes("not-audio.txt").repeat(400));
+        let streams: [Box<dyn Read + Send>; 3] =
+            [Box::new(nothing_at_all), Box::new(refused), Box::new(noise)];
+        for source in streams {
+            let mut rig = rig(Config::default());
+            rig.player
+                .play_live(1, source, LiveFormat::Mp3, TrackOptions::default());
+            let reason = rig.until_live_ended();
+            rig.until_stopped();
+            assert!(!reason.is_empty());
+            assert!(!rig.player.status().live);
+            assert!(rig.heard().iter().all(|&s| s == 0.0), "nothing to hear");
+        }
+    }
+
+    #[test]
+    fn a_reader_that_panics_is_a_stream_that_ended_not_a_dead_engine() {
+        struct Panics;
+        impl Read for Panics {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                panic!("the network library fell over");
+            }
+        }
+        let mut rig = rig(Config::default());
+        play(&rig, Panics, LiveFormat::Mp3);
+        assert!(rig.until_live_ended().contains("crashed"));
+        // The engine carries on.
+        rig.player.play(2, fixture("sine.flac"));
+        rig.until_playing(2);
+    }
+
+    /// A stream that goes on for as long as the test needs: a second of audio, then a long wait.
+    fn endless() -> Trickle {
+        let data = bytes("sine.mp3");
+        let end = data.len();
+        Trickle::new(data).stalling(end, Duration::from_millis(1_500))
+    }
+
+    #[test]
+    fn seeking_a_live_stream_does_nothing_and_the_time_counts_up() {
+        let rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        play(&rig, endless(), LiveFormat::Mp3);
+        rig.await_status("some of it played", |s| s.live && s.position_ms >= 300);
+
+        rig.player.seek(60_000);
+        std::thread::sleep(Duration::from_millis(300));
+        let status = rig.player.status();
+        assert!(status.live && status.duration_ms == 0, "{status:?}");
+        assert!(
+            (300..1_100).contains(&status.position_ms),
+            "still where it was, counting up: {status:?}"
+        );
+        assert!(
+            !rig.seen
+                .iter()
+                .any(|e| matches!(e, PlayerEvent::Error { .. }))
+        );
+    }
+
+    #[test]
+    fn pausing_a_live_stream_stops_it_and_lets_go_of_the_connection() {
+        let rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        let stream = endless();
+        let dropped = stream.watched();
+        play(&rig, stream, LiveFormat::Mp3);
+        rig.await_status("playing", |s| {
+            s.live && !s.buffering && s.position_ms >= 100
+        });
+
+        rig.player.pause();
+        rig.await_status("stopped", |s| s.state == PlaybackState::Stopped);
+        let status = rig.player.status();
+        assert!(!status.live && status.track_id.is_none(), "{status:?}");
+
+        // Nothing to resume: it stays stopped.
+        rig.player.resume();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(rig.player.status().state, PlaybackState::Stopped);
+
+        // The connection is released as soon as the reader lets the decoder go.
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while !dropped.load(Ordering::Relaxed) {
+            assert!(Instant::now() < deadline, "the stream was never let go");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn a_stream_still_connecting_shows_as_buffering_and_can_be_stopped_or_replaced() {
+        let rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        // The first byte is a long time coming.
+        let slow = Trickle::new(bytes("sine.mp3")).stalling(0, Duration::from_millis(1_500));
+        let dropped = slow.watched();
+        play(&rig, slow, LiveFormat::Mp3);
+        rig.await_status("connecting", |s| s.track_id == Some(1));
+        let status = rig.player.status();
+        assert!(status.live && status.buffering, "{status:?}");
+        assert_eq!(status.state, PlaybackState::Playing);
+        assert_eq!(status.sample_rate, None);
+
+        rig.player.pause();
+        rig.await_status("stopped", |s| s.state == PlaybackState::Stopped);
+        assert!(!rig.player.status().live);
+
+        // Replacing one that is still connecting lets the first go too.
+        rig.player.play(2, fixture("sine.flac"));
+        rig.await_status("the track", |s| s.track_id == Some(2));
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while !dropped.load(Ordering::Relaxed) {
+            assert!(Instant::now() < deadline, "the stream was never let go");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn nothing_is_queued_behind_a_live_stream() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        play(&rig, endless(), LiveFormat::Mp3);
+        rig.player.queue_next(2, fixture("sine.flac"));
+        rig.until_live_ended();
+        rig.until_stopped();
+        rig.settle();
+
+        assert!(
+            !rig.seen
+                .iter()
+                .any(|e| matches!(e, PlayerEvent::TrackStarted { .. })),
+            "the queued track never began: {:?}",
+            rig.seen
+        );
+    }
+
+    #[test]
+    fn playing_a_track_replaces_a_live_stream_and_the_other_way_round() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.set_live_buffer(Duration::from_millis(250));
+        let stream = endless();
+        let dropped = stream.watched();
+        play(&rig, stream, LiveFormat::Mp3);
+        rig.await_status("live", |s| s.live && !s.buffering);
+
+        rig.player.play(2, fixture("sine.flac"));
+        rig.until_playing(2);
+        let status = rig.player.status();
+        assert!(!status.live && status.duration_ms == 1_000, "{status:?}");
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while !dropped.load(Ordering::Relaxed) {
+            assert!(Instant::now() < deadline, "the stream was never let go");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // And a station can follow a track, which is not announced as having ended.
+        rig.player.play_live(
+            3,
+            Box::new(endless()),
+            LiveFormat::Mp3,
+            TrackOptions::default(),
+        );
+        rig.await_status("live again", |s| s.live && s.track_id == Some(3));
+        assert!(
+            !rig.seen
+                .iter()
+                .any(|e| matches!(e, PlayerEvent::TrackEnded { track_id: 2 }))
+        );
+    }
+
+    #[test]
+    fn sound_check_does_not_touch_a_live_stream() {
+        let mut rig = rig(Config::default());
+        let loud = crate::Gain {
+            db: -12.0,
+            peak_dbtp: -6.0,
+        };
+        rig.player.play_live(
+            1,
+            Box::new(Trickle::new(bytes("sine.flac"))),
+            LiveFormat::Flac,
+            loud,
+        );
+        rig.until_live_ended();
+        rig.until_stopped();
+        assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+        assert!(rig.seen.iter().all(|e| !matches!(e,
+            PlayerEvent::StateChanged(s) if s.gain_db.is_some())));
+    }
+
+    #[cfg(not(feature = "ffmpeg"))]
+    #[test]
+    fn a_stream_only_ffmpeg_reads_ends_with_a_reason_when_it_is_left_out() {
+        let mut rig = rig(Config::default());
+        play(&rig, Trickle::new(bytes("sine.opus")), LiveFormat::Opus);
+        assert!(rig.until_live_ended().contains("ffmpeg"));
+    }
+}

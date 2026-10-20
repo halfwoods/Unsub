@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -12,10 +13,16 @@ use crate::engine::{Command, Engine};
 use crate::equalizer::{EqControl, Equalizer};
 use crate::gain::Volume;
 use crate::host::{Host, SystemHost};
+use crate::live::LiveFormat;
 use crate::timeline::TrackOptions;
 
 const MIN_CROSSFADE_MS: u128 = 1_000;
 const MAX_CROSSFADE_MS: u128 = 12_000;
+
+/// How much of a live stream is decoded before it starts, unless asked otherwise.
+const DEFAULT_LIVE_BUFFER_MS: u32 = 2_000;
+const MIN_LIVE_BUFFER_MS: u128 = 250;
+const MAX_LIVE_BUFFER_MS: u128 = 30_000;
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +57,12 @@ pub struct PlaybackStatus {
     pub gain_db: Option<f32>,
     /// Whether the equalizer is shaping the sound: one is set and the stream is not bit-perfect.
     pub eq_active: bool,
+    /// Whether this is a live stream: it has no duration (`duration_ms` is zero), cannot seek,
+    /// and `position_ms` is how long it has been heard.
+    pub live: bool,
+    /// Whether a live stream is waiting for enough audio to play, as it does for the first
+    /// couple of seconds and after running dry. The state is still playing.
+    pub buffering: bool,
 }
 
 impl PlaybackStatus {
@@ -66,6 +79,8 @@ impl PlaybackStatus {
             output_format: None,
             gain_db: None,
             eq_active: false,
+            live: false,
+            buffering: false,
         }
     }
 }
@@ -101,6 +116,18 @@ pub enum PlayerEvent {
     Notice {
         message: String,
     },
+    /// A live stream is waiting for audio: when it is started, and again each time it runs dry.
+    /// Playback resumes by itself, announced by a [`PlayerEvent::StateChanged`] with
+    /// `buffering` false.
+    Buffering {
+        id: i64,
+    },
+    /// A live stream is over, because the station closed it or it failed, and playback has
+    /// stopped. Whether to connect again is up to the caller.
+    LiveEnded {
+        id: i64,
+        reason: String,
+    },
 }
 
 /// State the engine thread publishes and the [`Player`] reads.
@@ -111,6 +138,8 @@ pub(crate) struct Shared {
     pub equalizer: Arc<EqControl>,
     /// Crossfade length in milliseconds, zero for none.
     pub crossfade_ms: AtomicU32,
+    /// How much of a live stream to decode before playing it, in milliseconds.
+    pub live_buffer_ms: AtomicU32,
     pub status: Mutex<PlaybackStatus>,
     /// Whether the open stream is bit-perfect, so a volume change can say it is ignored.
     pub bit_perfect: AtomicBool,
@@ -143,6 +172,7 @@ impl Player {
             volume,
             equalizer: Arc::new(EqControl::default()),
             crossfade_ms: AtomicU32::new(0),
+            live_buffer_ms: AtomicU32::new(DEFAULT_LIVE_BUFFER_MS),
             bit_perfect: AtomicBool::new(false),
         });
 
@@ -174,6 +204,50 @@ impl Player {
     /// `options`.
     pub fn play_with(&self, track_id: i64, path: PathBuf, options: impl Into<TrackOptions>) {
         self.send(Command::Play(track_id, path, options.into()));
+    }
+
+    /// Plays a live stream, such as an internet radio station, replacing whatever is playing.
+    /// `source` is read on a thread of its own, so it may block; `hint` says what it is (it may
+    /// also be [`LiveFormat::Unknown`], to be worked out from the first bytes).
+    ///
+    /// A live stream is in a mode of its own:
+    /// - There is no duration (`duration_ms` is zero, and `live` is set in the status), and
+    ///   [`Player::seek`] does nothing. `position_ms` counts up from zero as it is heard.
+    /// - Nothing is queued behind it, so [`Player::queue_next`] is ignored while it plays, and
+    ///   nothing is crossfaded into it or out of it. Sound Check never applies to it, whatever
+    ///   `options` says; there is no loudness to go by.
+    /// - Playback starts once about two seconds are decoded (see [`Player::set_live_buffer`]),
+    ///   announced by [`PlayerEvent::Buffering`], and holds again whenever the stream runs dry.
+    /// - Pausing stops it: a live stream cannot be resumed where it was left, so [`Player::pause`]
+    ///   discards the buffer and drops `source`, and listening again means calling `play_live`
+    ///   with a new connection. [`Player::resume`] has nothing to resume.
+    /// - When `source` ends or fails, what had been decoded plays out, and then playback stops
+    ///   with [`PlayerEvent::LiveEnded`]; the caller decides whether to reconnect.
+    /// - [`PlayerEvent::TrackStarted`] and [`PlayerEvent::TrackEnded`] are not sent, so that a
+    ///   station is never counted as a play. Follow [`PlayerEvent::StateChanged`] instead.
+    /// - The equalizer, the volume and bit-perfect mode apply as they do to files. A bit-perfect
+    ///   stream whose format changes partway through reopens the device to match.
+    ///
+    /// Formats and bit rates may change partway through, as some stations do between segments or
+    /// after reconnecting; the audio carries on, resampled if need be.
+    pub fn play_live(
+        &self,
+        track_id: i64,
+        source: Box<dyn Read + Send>,
+        hint: LiveFormat,
+        options: impl Into<TrackOptions>,
+    ) {
+        self.send(Command::PlayLive(track_id, source, hint, options.into()));
+    }
+
+    /// How much of a live stream is decoded before it plays, and again after it runs dry:
+    /// between a quarter of a second and half a minute, two seconds unless set. More rides out
+    /// longer stalls at the cost of a longer wait.
+    pub fn set_live_buffer(&self, buffer: Duration) {
+        let ms = buffer
+            .as_millis()
+            .clamp(MIN_LIVE_BUFFER_MS, MAX_LIVE_BUFFER_MS) as u32;
+        self.shared.live_buffer_ms.store(ms, Ordering::Relaxed);
     }
 
     /// Plays `path` straight after the current track, without a gap when the format matches.
@@ -352,5 +426,44 @@ mod tests {
         assert_eq!(set(Some(Duration::from_secs(5))), 5_000);
         assert_eq!(set(Some(Duration::from_secs(60))), 12_000);
         assert_eq!(set(None), 0);
+    }
+
+    #[test]
+    fn the_live_buffer_is_held_to_a_quarter_second_to_half_a_minute() {
+        let (host, _) = crate::host::simulated::Simulated::new(Default::default());
+        let player = Player::with_host(|_| {}, move || Box::new(host)).unwrap();
+        assert_eq!(player.shared.live_buffer_ms.load(Ordering::Relaxed), 2_000);
+        let set = |buffer| {
+            player.set_live_buffer(buffer);
+            player.shared.live_buffer_ms.load(Ordering::Relaxed)
+        };
+        assert_eq!(set(Duration::from_millis(10)), 250);
+        assert_eq!(set(Duration::from_secs(5)), 5_000);
+        assert_eq!(set(Duration::from_secs(600)), 30_000);
+    }
+
+    #[test]
+    fn live_streams_report_themselves_in_the_status_and_events() {
+        let mut status = PlaybackStatus::stopped(0.5);
+        status.live = true;
+        status.buffering = true;
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(
+            (&json["live"], &json["buffering"]),
+            (&true.into(), &true.into())
+        );
+
+        assert_eq!(
+            serde_json::to_value(PlayerEvent::Buffering { id: 4 }).unwrap(),
+            serde_json::json!({ "type": "buffering", "id": 4 })
+        );
+        assert_eq!(
+            serde_json::to_value(PlayerEvent::LiveEnded {
+                id: 4,
+                reason: "The stream ended.".into()
+            })
+            .unwrap(),
+            serde_json::json!({ "type": "liveEnded", "id": 4, "reason": "The stream ended." })
+        );
     }
 }

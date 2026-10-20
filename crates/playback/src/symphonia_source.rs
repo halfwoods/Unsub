@@ -2,13 +2,13 @@ use std::fs::File;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use symphonia::core::audio::Channels;
+use symphonia::core::audio::{AudioSpec, Channels};
 use symphonia::core::codecs::audio::well_known::CODEC_ID_ALAC;
 use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::{Error as SymphoniaError, SeekErrorKind};
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Duration, Time, TimeBase, Timestamp};
 
@@ -18,7 +18,8 @@ use crate::{Error, Result, mp4};
 
 /// Decodes everything symphonia can read.
 pub struct SymphoniaSource {
-    path: PathBuf,
+    /// The file being read, which seeking reopens; `None` for a live stream, which has no seeking.
+    path: Option<PathBuf>,
     format: Box<dyn FormatReader>,
     codec: Box<dyn AudioDecoder>,
     track_id: u32,
@@ -53,9 +54,28 @@ impl SymphoniaSource {
         if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
             hint.with_extension(extension);
         }
+        SymphoniaSource::from_stream(source, &hint, Some(path), wrap)
+    }
 
+    /// Reads a live stream: one that cannot seek, never reports a length, and may change its
+    /// sample rate or channels partway through, which [`Source::info`] then reflects.
+    pub fn open_live(source: Box<dyn MediaSource>, extension: Option<&str>) -> Result<Self> {
+        let mut hint = Hint::new();
+        if let Some(extension) = extension {
+            hint.with_extension(extension);
+        }
+        let source = MediaSourceStream::new(source, Default::default());
+        SymphoniaSource::from_stream(source, &hint, None, |reader| reader)
+    }
+
+    fn from_stream(
+        source: MediaSourceStream<'static>,
+        hint: &Hint,
+        path: Option<&Path>,
+        wrap: impl FnOnce(Box<dyn FormatReader>) -> Box<dyn FormatReader>,
+    ) -> Result<SymphoniaSource> {
         let format = symphonia::default::get_probe().probe(
-            &hint,
+            hint,
             source,
             FormatOptions::default(),
             MetadataOptions::default(),
@@ -110,9 +130,9 @@ impl SymphoniaSource {
 
         // mp3 (LAME header) and ogg trim their delay and padding inside symphonia; for mp4 it
         // only parses the edit list, so apply it here. A track symphonia did trim is left alone.
-        let trim = (format.format_info().short_name == "isomp4" && track.delay.is_none())
-            .then(|| mp4::read_trim(path, track.id))
-            .flatten();
+        let trim = path
+            .filter(|_| format.format_info().short_name == "isomp4" && track.delay.is_none())
+            .and_then(|path| mp4::read_trim(path, track.id));
         let origin_ts = trim
             .as_ref()
             .map_or(0, |trim| i64::try_from(trim.start).unwrap_or(0));
@@ -133,7 +153,7 @@ impl SymphoniaSource {
 
         Ok(SymphoniaSource {
             track_id: track.id,
-            path: path.to_path_buf(),
+            path: path.map(Path::to_path_buf),
             format: wrap(format),
             codec,
             time_base,
@@ -165,6 +185,14 @@ impl SymphoniaSource {
                 Err(SymphoniaError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
                     return self.end_of_stream();
                 }
+                // A live stream that starts a new section, as a chained Ogg stream does.
+                Err(SymphoniaError::ResetRequired) if self.path.is_none() => {
+                    self.restart_decoder()?;
+                    continue;
+                }
+                Err(SymphoniaError::IoError(error)) if self.path.is_none() => {
+                    return Err(error.into());
+                }
                 Err(error) => return Err(error.into()),
             };
             self.pristine = false;
@@ -174,8 +202,16 @@ impl SymphoniaSource {
 
             match self.codec.decode(&packet) {
                 Ok(decoded) => {
+                    let spec = decoded.spec().clone();
                     decoded.copy_to_vec_interleaved(&mut self.samples);
                     self.decoded_any = true;
+                    if self.path.is_none() {
+                        self.info = follow(self.info, &spec);
+                    }
+                }
+                Err(SymphoniaError::ResetRequired) if self.path.is_none() => {
+                    self.restart_decoder()?;
+                    continue;
                 }
                 // A damaged packet costs a few milliseconds of audio, not the whole track.
                 Err(SymphoniaError::DecodeError(_) | SymphoniaError::IoError(_)) => continue,
@@ -218,11 +254,32 @@ impl SymphoniaSource {
         }
     }
 
+    /// Builds the decoder again from the reader's current track, after the stream has begun a
+    /// new section that may differ in codec or format.
+    fn restart_decoder(&mut self) -> Result<()> {
+        let track = self
+            .format
+            .default_track(TrackType::Audio)
+            .ok_or(Error::NoAudioTrack)?;
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .ok_or(Error::NoAudioTrack)?;
+        self.codec = symphonia::default::get_codecs()
+            .make_audio_decoder(params, &AudioDecoderOptions::default())?;
+        self.track_id = track.id;
+        Ok(())
+    }
+
     fn seek_position(&mut self, position_ms: u64) -> Result<u64> {
+        let Some(path) = &self.path else {
+            return Err(Error::Unsupported("a live stream cannot seek"));
+        };
         // symphonia's readers can lose their place when seeking after reads (mp4 once it has hit
         // the end, flac inside its buffer), so only a freshly opened reader is trusted to seek.
         if !self.pristine {
-            *self = SymphoniaSource::open_with(&self.path, |reader| reader)?;
+            *self = SymphoniaSource::open_with(path, |reader| reader)?;
         }
         self.pristine = false;
         self.seeked = true;
@@ -281,6 +338,30 @@ impl Source for SymphoniaSource {
 
     fn seek_to(&mut self, position_ms: u64) -> Result<u64> {
         self.seek_position(position_ms)
+    }
+}
+
+/// `info` with the sample rate and channels of audio that has just been decoded, for a live
+/// stream whose format can change from one packet to the next.
+fn follow(info: Info, spec: &AudioSpec) -> Info {
+    let count = u16::try_from(spec.channels().count())
+        .ok()
+        .filter(|&count| count > 0);
+    let Some(channels) = count else {
+        return info;
+    };
+    if spec.rate() == info.sample_rate && channels == info.channels {
+        return info;
+    }
+    let speakers = match spec.channels() {
+        Channels::Positioned(position) => position.bits(),
+        _ => 0,
+    };
+    Info {
+        sample_rate: spec.rate(),
+        channels,
+        layout: ChannelLayout::from_mask(speakers, channels),
+        ..info
     }
 }
 
