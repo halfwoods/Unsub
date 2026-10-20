@@ -7,12 +7,17 @@ use std::path::Path;
 
 use plist::Value;
 
+use crate::itunesdb::artwork::ArtworkFormat;
+
 #[derive(Debug, Default)]
 pub(crate) struct SysInfo {
     pub(crate) model_num_str: Option<String>,
     pub(crate) firewire_guid: Option<String>,
     pub(crate) serial_number: Option<String>,
     pub(crate) db_version: Option<i64>,
+    /// The album-art formats the iPod lists, if it lists any this crate can write.
+    pub(crate) artwork_formats: Option<Vec<ArtworkFormat>>,
+    pub(crate) supports_sparse_artwork: bool,
 }
 
 pub(crate) fn read(device_dir: &Path) -> SysInfo {
@@ -51,6 +56,11 @@ fn apply_plist(info: &mut SysInfo, plist: &Value) {
     }
     info.serial_number = string("SerialNumber");
     info.db_version = dict.get("DBVersion").and_then(Value::as_signed_integer);
+    info.artwork_formats = crate::itunesdb::artwork::formats_in(plist);
+    info.supports_sparse_artwork = dict
+        .get("SupportsSparseArtwork")
+        .and_then(Value::as_boolean)
+        == Some(true);
 }
 
 fn non_empty(value: &str) -> Option<String> {

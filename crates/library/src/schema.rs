@@ -89,6 +89,14 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE tracks ADD COLUMN in_cloud INTEGER NOT NULL DEFAULT 0;",
     "ALTER TABLE tracks ADD COLUMN missing INTEGER NOT NULL DEFAULT 0;
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;",
+    // Track loudness on the LUFS scale; the album columns hold what the file's
+    // own tags state. `loudness_state` is the analyzer's, opaque to the library.
+    "ALTER TABLE tracks ADD COLUMN loudness_lufs REAL;
+    ALTER TABLE tracks ADD COLUMN true_peak_dbtp REAL;
+    ALTER TABLE tracks ADD COLUMN loudness_source TEXT;
+    ALTER TABLE tracks ADD COLUMN album_loudness_lufs REAL;
+    ALTER TABLE tracks ADD COLUMN album_true_peak_dbtp REAL;
+    ALTER TABLE tracks ADD COLUMN loudness_state BLOB;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

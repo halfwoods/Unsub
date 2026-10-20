@@ -22,6 +22,11 @@ pub struct ServerConfig {
     pub password: String,
     /// Enables OpenSubsonic `apiKey` authentication when set.
     pub api_key: Option<String>,
+    /// Stream to clients at no more than this many kbps unless they ask otherwise: a song whose
+    /// bitrate is higher is converted, one that is not is sent as it is. A client's own
+    /// `maxBitRate` takes its place, and `format=raw` switches the cap off. `None` or 0 means no
+    /// cap. Changing it means restarting the server.
+    pub default_max_kbps: Option<u32>,
 }
 
 impl fmt::Debug for ServerConfig {
@@ -32,6 +37,7 @@ impl fmt::Debug for ServerConfig {
             .field("username", &self.username)
             .field("password", &"<redacted>")
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("default_max_kbps", &self.default_max_kbps)
             .finish()
     }
 }

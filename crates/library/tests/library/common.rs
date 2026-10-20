@@ -103,6 +103,7 @@ pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) 
         enabled: true,
         in_cloud: false,
         missing: false,
+        loudness: None,
         sort_title: None,
         sort_artist: None,
         sort_album: None,
@@ -121,10 +122,21 @@ pub fn library_of(tracks: &[Track]) -> Library {
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
     conn.execute_batch(
-        "DROP TABLE settings;
-         ALTER TABLE tracks DROP COLUMN missing;",
+        "ALTER TABLE tracks DROP COLUMN loudness_lufs;
+         ALTER TABLE tracks DROP COLUMN true_peak_dbtp;
+         ALTER TABLE tracks DROP COLUMN loudness_source;
+         ALTER TABLE tracks DROP COLUMN album_loudness_lufs;
+         ALTER TABLE tracks DROP COLUMN album_true_peak_dbtp;
+         ALTER TABLE tracks DROP COLUMN loudness_state;",
     )
     .unwrap();
+    if version < 6 {
+        conn.execute_batch(
+            "DROP TABLE settings;
+             ALTER TABLE tracks DROP COLUMN missing;",
+        )
+        .unwrap();
+    }
     if version < 5 {
         conn.execute_batch("ALTER TABLE tracks DROP COLUMN in_cloud;")
             .unwrap();

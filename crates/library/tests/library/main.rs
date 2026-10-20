@@ -7,6 +7,7 @@ mod delete;
 mod duplicates;
 mod edit;
 mod import;
+mod loudness;
 mod matching;
 mod missing;
 mod mixes;

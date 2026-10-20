@@ -238,6 +238,7 @@ fn the_prepared_file_is_what_gets_copied_and_the_source_survives() {
         std::slice::from_ref(&flac_like),
         &[],
         &mut |_| Ok(transcoded.clone()),
+        &mut no_cover,
         &mut |_| {},
     )
     .unwrap();

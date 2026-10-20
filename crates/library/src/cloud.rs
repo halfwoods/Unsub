@@ -210,6 +210,7 @@ pub(crate) fn placeholder_meta(path: &Path, root: Option<&Path>) -> TrackMeta {
             MediaKind::Music
         },
         compilation: false,
+        loudness: None,
         sort_title: None,
         sort_artist: None,
         sort_album: None,

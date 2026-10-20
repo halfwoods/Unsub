@@ -42,6 +42,54 @@ impl FakeIpod {
         fs::write(self.mount.join("iPod_Control/Device/SysInfo"), text).unwrap();
     }
 
+    /// A SysInfoExtended that lists its own album-art format (RGB565, little endian), the way a
+    /// real iPod's does, and says it supports sparse artwork.
+    pub fn write_sysinfo_extended_with_album_art(
+        &self,
+        firewire_guid: &str,
+        db_version: i64,
+        (format_id, width, height): (u32, u32, u32),
+        row_bytes_alignment: u32,
+    ) {
+        let plist = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>FireWireGUID</key>
+	<string>{firewire_guid}</string>
+	<key>DBVersion</key>
+	<integer>{db_version}</integer>
+	<key>SupportsSparseArtwork</key>
+	<true/>
+	<key>AlbumArt</key>
+	<array>
+		<dict>
+			<key>FormatId</key>
+			<integer>{format_id}</integer>
+			<key>RenderWidth</key>
+			<integer>{width}</integer>
+			<key>RenderHeight</key>
+			<integer>{height}</integer>
+			<key>PixelFormat</key>
+			<string>4C353635</string>
+			<key>RowBytesAlignment</key>
+			<integer>{row_bytes_alignment}</integer>
+			<key>BackColor</key>
+			<string>FFFFFFFF</string>
+		</dict>
+	</array>
+</dict>
+</plist>
+"#
+        );
+        fs::write(
+            self.mount.join("iPod_Control/Device/SysInfoExtended"),
+            plist,
+        )
+        .unwrap();
+    }
+
     pub fn write_sysinfo_extended(&self, firewire_guid: &str, serial: &str, db_version: i64) {
         let plist = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>

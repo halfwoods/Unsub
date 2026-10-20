@@ -180,6 +180,7 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
         // Songs on an iPod are on the iPod's own disk, never in iCloud or missing from the library.
         in_cloud: false,
         missing: false,
+        loudness: None,
         compilation: track.compilation,
         sort_title: track.sort_title.clone(),
         sort_artist: track.sort_artist.clone(),

@@ -9,6 +9,7 @@ mod playlists;
 mod robustness;
 mod sync;
 mod tracks;
+mod verify;
 
 use antistreaming_ipod::{Ipod, open as open_ipod};
 use chrono::{DateTime, Local, NaiveDate, TimeZone};

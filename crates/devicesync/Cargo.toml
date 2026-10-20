@@ -10,5 +10,16 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# Windows only: finding the USB device behind a drive letter and asking it to eject.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+] }
+
 [dev-dependencies]
 tempfile = "3"

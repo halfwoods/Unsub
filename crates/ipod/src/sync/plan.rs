@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::mapping::Mapping;
 use super::{SyncPlan, SyncPlaylist, SyncTrack, checksum_key};
 use crate::database::{Database, IpodTrack};
 use crate::device::{Ipod, database_path};
 use crate::error::{Error, Result};
+use crate::itunesdb::artwork::Artwork;
 
 /// Working space the database rewrite needs on top of the music: the new database, its backup and
 /// (once) the original copy, so three times the current size, plus slack for the bookkeeping file.
@@ -14,6 +15,55 @@ pub(super) fn reserve_bytes(mount: &Path, ipod: &Ipod) -> u64 {
     let database_len =
         fs::metadata(database_path(mount, ipod.database)).map_or(0, |meta| meta.len());
     3 * database_len + (8 << 20)
+}
+
+/// How a sync gets its space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Space {
+    /// There is room for everything while the old tracks are still on the iPod.
+    Fits,
+    /// There is room only once the tracks being removed are gone, so they go first.
+    AfterRemovals,
+    /// Not enough even then; carries the free space counting what removals would free.
+    Short { available: u64 },
+}
+
+pub(super) fn space(needed: u64, reserve: u64, available: u64, freed: u64) -> Space {
+    let needed = needed.saturating_add(reserve);
+    if needed <= available {
+        Space::Fits
+    } else if freed > 0 && needed <= available.saturating_add(freed) {
+        Space::AfterRemovals
+    } else {
+        Space::Short {
+            available: available.saturating_add(freed),
+        }
+    }
+}
+
+/// Bytes the given files occupy now. A file that is already gone frees nothing.
+pub(super) fn freed_bytes(files: impl IntoIterator<Item = PathBuf>) -> u64 {
+    files
+        .into_iter()
+        .filter_map(|file| fs::metadata(file).ok())
+        .map(|meta| meta.len())
+        .sum()
+}
+
+/// Space the thumbnails of the covers in `tracks` will take, counting each album once: tracks of
+/// an album share one image on the iPods that support that. A track with a cover key is assumed
+/// to have a cover; the estimate errs high.
+pub(super) fn artwork_bytes<'a>(
+    artwork: Option<&Artwork>,
+    tracks: impl IntoIterator<Item = &'a SyncTrack>,
+) -> u64 {
+    let Some(artwork) = artwork else { return 0 };
+    let albums: HashSet<&str> = tracks
+        .into_iter()
+        .filter(|track| track.artwork_key.is_some())
+        .map(|track| track.album.as_str())
+        .collect();
+    albums.len() as u64 * artwork.bytes_per_image()
 }
 
 /// Works out what a sync would change. Nothing on the iPod is touched.
@@ -30,7 +80,9 @@ pub fn plan_sync(
 ) -> Result<SyncPlan> {
     checksum_key(ipod)?;
     let mapping = Mapping::load(&ipod.mount_path)?;
+    let artwork = Artwork::for_device(&ipod.mount_path, ipod.model.as_ref());
     let dbid_of = mapping.dbid_by_library_id();
+    let art_key_of = mapping.artwork_key_by_library_id();
     let library_id_of = mapping.library_id_by_dbid();
     let on_ipod: HashMap<u64, &IpodTrack> = current
         .tracks
@@ -40,6 +92,7 @@ pub fn plan_sync(
 
     let mut wanted = HashSet::new();
     let (mut add, mut update, mut bytes_needed) = (Vec::new(), Vec::new(), 0u64);
+    let mut needing_art = Vec::new();
     for track in tracks
         .iter()
         .filter(|track| wanted.insert(track.library_id))
@@ -54,13 +107,25 @@ pub fn plan_sync(
                     .len();
                 bytes_needed += size;
                 add.push(track.library_id);
+                needing_art.push(track);
             }
-            Some(on_ipod) if differs(track, on_ipod) => update.push(track.library_id),
-            Some(_) => {}
+            Some(on_ipod) => {
+                // A different key means the cover was added or changed since it was last written.
+                let new_art = artwork.is_some()
+                    && track.artwork_key.is_some()
+                    && art_key_of.get(&track.library_id) != Some(&track.artwork_key);
+                if differs(track, on_ipod) || new_art {
+                    update.push(track.library_id);
+                }
+                if new_art {
+                    needing_art.push(track);
+                }
+            }
         }
     }
+    bytes_needed += artwork_bytes(artwork.as_ref(), needing_art);
 
-    let remove = current
+    let remove: Vec<u32> = current
         .tracks
         .iter()
         .filter(|track| {
@@ -70,16 +135,29 @@ pub fn plan_sync(
         })
         .map(|track| track.id)
         .collect();
+    let freed = freed_bytes(
+        current
+            .tracks
+            .iter()
+            .filter(|track| remove.contains(&track.id))
+            .map(|track| track.path.clone()),
+    );
 
     let available = fs4::available_space(&ipod.mount_path)
         .map_err(|source| Error::io(&ipod.mount_path, source))?;
-    let fits = bytes_needed.saturating_add(reserve_bytes(&ipod.mount_path, ipod)) <= available;
+    let space = space(
+        bytes_needed,
+        reserve_bytes(&ipod.mount_path, ipod),
+        available,
+        freed,
+    );
     Ok(SyncPlan {
         add,
         update,
         remove,
         bytes_needed,
-        fits,
+        fits: !matches!(space, Space::Short { .. }),
+        removals_first: space == Space::AfterRemovals,
     })
 }
 

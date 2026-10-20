@@ -59,6 +59,7 @@ fn a_second_sync_adds_removes_and_updates_only_what_changed() {
         &wanted,
         &[],
         &mut copy_as_is,
+        &mut no_cover,
         &mut |_| {},
     )
     .unwrap();
@@ -117,7 +118,8 @@ fn syncing_again_with_nothing_changed_plans_nothing() {
             update: vec![],
             remove: vec![],
             bytes_needed: 0,
-            fits: true
+            fits: true,
+            removals_first: false,
         }
     );
 }
@@ -146,9 +148,18 @@ fn a_forged_plan_cannot_remove_a_track_the_app_did_not_add() {
         remove: vec![foreign],
         bytes_needed: 0,
         fits: true,
+        removals_first: false,
     };
 
-    let result = apply_sync(&ipod, &forged, &[], &[], &mut copy_as_is, &mut |_| {});
+    let result = apply_sync(
+        &ipod,
+        &forged,
+        &[],
+        &[],
+        &mut copy_as_is,
+        &mut no_cover,
+        &mut |_| {},
+    );
 
     assert!(matches!(result, Err(Error::Conflict(_))), "{result:?}");
     assert_eq!(db_bytes(&fake), before);

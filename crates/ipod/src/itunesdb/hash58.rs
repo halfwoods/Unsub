@@ -136,6 +136,23 @@ pub(crate) fn seal(file: &mut [u8], firewire_id: &[u8; 8]) -> Result<()> {
     Ok(())
 }
 
+/// Whether the checksum stored in `file` is the one this device's GUID produces, i.e. whether a
+/// database written by iTunes passes the same check the iPod applies. `None` if the file is too
+/// short to hold one.
+pub(crate) fn verify(file: &[u8], firewire_id: &[u8; 8]) -> Option<bool> {
+    let stored = file.get(HASH_AT..HASH_AT + HASH_LEN)?.to_vec();
+    let mut zeroed = file.to_vec();
+    put(&mut zeroed, DB_ID_AT, &[0; 8]);
+    put(&mut zeroed, UNKNOWN_AT, &[0; UNKNOWN_LEN]);
+    put(&mut zeroed, HASH_AT, &[0; HASH_LEN]);
+    Some(hash(firewire_id, &zeroed)[..] == stored[..])
+}
+
+/// The hashing scheme recorded in the mhbd header (0 none, 1 HASH58, 2 HASH72, 3 HASHAB).
+pub(crate) fn scheme(file: &[u8]) -> Option<u16> {
+    crate::bytes::u16_at(file, HASHING_SCHEME_AT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,6 +225,24 @@ mod tests {
             &[0xaa; UNKNOWN_LEN]
         );
         assert_eq!(&file[HASHING_SCHEME_AT..HASHING_SCHEME_AT + 2], &[1, 0]);
+    }
+
+    #[test]
+    fn a_sealed_file_verifies_and_a_damaged_one_does_not() {
+        let id = [0x00, 0x0a, 0x27, 0x00, 0x1a, 0x2b, 0x3c, 0x4d];
+        let mut file = vec![0x55; 300];
+        file[..4].copy_from_slice(b"mhbd");
+        seal(&mut file, &id).unwrap();
+
+        assert_eq!(verify(&file, &id), Some(true));
+        assert_eq!(
+            verify(&file, &[1; 8]),
+            Some(false),
+            "another iPod's GUID does not verify"
+        );
+        file[200] ^= 1;
+        assert_eq!(verify(&file, &id), Some(false));
+        assert_eq!(verify(&file[..0x40], &id), None);
     }
 
     #[test]

@@ -441,6 +441,7 @@ fn new_track(
         enabled: true,
         in_cloud: false,
         missing: false,
+        loudness: meta.loudness,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,

@@ -151,7 +151,8 @@ fn empty_file_streams_as_empty_and_rejects_any_range() {
 
 #[test]
 fn download_serves_the_original_file_with_ranges_and_a_filename() {
-    let h = Harness::start();
+    // Even a server that converts and has a cap never converts a download.
+    let h = Harness::start_converting(Some(64), Transcode::Canned);
     let reply = h.get("download", "id=s-1&maxBitRate=64&format=mp3");
     assert_eq!(reply.status, 200);
     assert_eq!(reply.body, file_bytes(0..LEN));
@@ -159,11 +160,9 @@ fn download_serves_the_original_file_with_ranges_and_a_filename() {
         reply.header("content-disposition"),
         Some("attachment; filename=\"song1.mp3\"; filename*=UTF-8''song1%2Emp3")
     );
-    // The source is asked for the raw file whatever transcoding the client requested.
-    assert_eq!(
-        h.source.calls.lock().unwrap().open_stream,
-        [("s-1".to_owned(), None, None)]
-    );
+    // The source is asked for the stored file whatever conversion the client requested.
+    assert_eq!(h.source.calls.lock().unwrap().open_stream, ["s-1"]);
+    assert!(h.source.calls.lock().unwrap().transcoded.is_empty());
 
     let reply = ranged(&h, "download", "bytes=10-19");
     assert_eq!((reply.status, reply.body), (206, file_bytes(10..20)));
@@ -186,26 +185,6 @@ fn download_encodes_non_ascii_file_names() {
 fn stream_has_no_content_disposition() {
     let h = Harness::start();
     assert_eq!(stream(&h, "id=s-1").header("content-disposition"), None);
-}
-
-#[test]
-fn bitrate_and_format_reach_the_source_and_raw_means_untouched() {
-    let h = Harness::start();
-    stream(&h, "id=s-1&maxBitRate=128&format=mp3");
-    stream(&h, "id=s-1&maxBitRate=0&format=raw");
-    stream(&h, "id=s-1&format=RAW");
-    stream(&h, "id=s-1");
-    let calls = &h.source.calls.lock().unwrap().open_stream;
-    let id = |bitrate, format: Option<&str>| ("s-1".to_owned(), bitrate, format.map(str::to_owned));
-    assert_eq!(
-        *calls,
-        [
-            id(Some(128), Some("mp3")),
-            id(None, None),
-            id(None, None),
-            id(None, None)
-        ]
-    );
 }
 
 #[test]

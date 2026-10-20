@@ -33,6 +33,7 @@ fn config(bind: std::net::SocketAddr) -> ServerConfig {
         username: USER.into(),
         password: PASSWORD.into(),
         api_key: None,
+        default_max_kbps: None,
     }
 }
 

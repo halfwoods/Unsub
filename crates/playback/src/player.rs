@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::Result;
 use crate::engine::{Command, Engine};
-use crate::gain::Volume;
+use crate::gain::{Gain, Volume};
 use crate::host::{Host, SystemHost};
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -38,6 +38,10 @@ pub struct PlaybackStatus {
     pub bit_perfect: bool,
     /// What the device is being fed, e.g. "24-bit 96 kHz".
     pub output_format: Option<String>,
+    /// The Sound Check gain being applied to the audible track, after it has been held back to
+    /// keep the track from clipping. `None` when the track has none, and always in bit-perfect
+    /// mode, which plays the file's samples untouched.
+    pub gain_db: Option<f32>,
 }
 
 impl PlaybackStatus {
@@ -52,6 +56,7 @@ impl PlaybackStatus {
             volume,
             bit_perfect: false,
             output_format: None,
+            gain_db: None,
         }
     }
 }
@@ -146,13 +151,25 @@ impl Player {
 
     /// Replaces whatever is playing, and clears any queued next track.
     pub fn play(&self, track_id: i64, path: PathBuf) {
-        self.send(Command::Play(track_id, path));
+        self.play_with(track_id, path, None);
+    }
+
+    /// [`Player::play`] with a Sound Check adjustment for the track. It is not applied in
+    /// bit-perfect mode.
+    pub fn play_with(&self, track_id: i64, path: PathBuf, gain: Option<Gain>) {
+        self.send(Command::Play(track_id, path, gain));
     }
 
     /// Plays `path` straight after the current track, without a gap when the format matches.
     /// Replaces any previously queued track.
     pub fn queue_next(&self, track_id: i64, path: PathBuf) {
-        self.send(Command::QueueNext(track_id, path));
+        self.queue_next_with(track_id, path, None);
+    }
+
+    /// [`Player::queue_next`] with a Sound Check adjustment for the track, which takes effect on
+    /// its first sample, whether it follows gaplessly or after a gap.
+    pub fn queue_next_with(&self, track_id: i64, path: PathBuf, gain: Option<Gain>) {
+        self.send(Command::QueueNext(track_id, path, gain));
     }
 
     pub fn clear_next(&self) {

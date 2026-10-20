@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::decoder::Decoder;
+use crate::gain::Gain;
 use crate::host::{DeviceState, Host};
 use crate::mix::{ChannelLayout, Mixer};
 use crate::output::{Format, Output, Request, Sink};
@@ -24,8 +25,8 @@ const POSITION_INTERVAL: Duration = Duration::from_millis(250);
 const DRAIN_GRACE: Duration = Duration::from_millis(50);
 
 pub(crate) enum Command {
-    Play(i64, PathBuf),
-    QueueNext(i64, PathBuf),
+    Play(i64, PathBuf, Option<Gain>),
+    QueueNext(i64, PathBuf, Option<Gain>),
     ClearNext,
     Pause,
     Resume,
@@ -52,13 +53,14 @@ struct Queued {
 }
 
 impl Queued {
-    fn open(open: Opener, id: i64, path: PathBuf) -> Result<Queued> {
+    fn open(open: Opener, id: i64, path: PathBuf, gain: Option<Gain>) -> Result<Queued> {
         let decoder = open(&path)?;
         let track = TrackInfo {
             id,
             path,
             duration_ms: decoder.duration_ms().unwrap_or(0),
             sample_rate: decoder.sample_rate(),
+            gain,
         };
         Ok(Queued { track, decoder })
     }
@@ -73,6 +75,9 @@ struct Feed {
     /// In bit-perfect mode a change of bit depth needs a different device format.
     depth: Option<u32>,
     exact: bool,
+    /// Linear scale of the track being decoded. It changes with the track, so a gapless
+    /// boundary is also a change of gain on exactly the boundary frame.
+    amplitude: f32,
     resampler: Option<Resampler>,
     staging: Vec<f32>,
     /// Samples of `staging` already handed to the ring.
@@ -84,7 +89,13 @@ struct Feed {
 }
 
 impl Feed {
-    fn new(decoder: Decoder, output: Format, produced: u64, exact: bool) -> Result<Feed> {
+    fn new(
+        decoder: Decoder,
+        output: Format,
+        produced: u64,
+        exact: bool,
+        gain: Option<Gain>,
+    ) -> Result<Feed> {
         let source = Format {
             sample_rate: decoder.sample_rate(),
             channels: decoder.channels(),
@@ -99,6 +110,7 @@ impl Feed {
             layout: decoder.channel_layout(),
             depth: decoder.bit_depth(),
             exact,
+            amplitude: amplitude(gain, exact),
             decoder,
             source,
             resampler,
@@ -145,6 +157,11 @@ impl Feed {
                 self.eof = true;
             }
         }
+        if self.amplitude != 1.0 {
+            for sample in &mut self.staging[before..] {
+                *sample *= self.amplitude;
+            }
+        }
         self.produced += ((self.staging.len() - before) / self.out_channels) as u64;
         Ok(())
     }
@@ -172,19 +189,23 @@ impl Feed {
             let Some(queued) = next.take_if(|queued| self.accepts(&queued.decoder)) else {
                 return Ok(());
             };
+            let gain = queued.track.gain;
             timeline.schedule(self.produced, queued.track);
-            self.continue_with(queued.decoder);
+            self.continue_with(queued.decoder, gain);
         }
     }
 
     /// Continues with the next track straight after the current one's last frame.
-    fn continue_with(&mut self, decoder: Decoder) {
+    fn continue_with(&mut self, decoder: Decoder, gain: Option<Gain>) {
         self.decoder = decoder;
+        self.amplitude = amplitude(gain, self.exact);
         self.eof = false;
     }
 
     /// Discards everything decoded so far; the ring must already be empty at stream frame `frame`.
-    fn rewind(&mut self, frame: u64) {
+    /// `gain` is the one of the track the decoder is now on.
+    fn rewind(&mut self, frame: u64, gain: Option<Gain>) {
+        self.amplitude = amplitude(gain, self.exact);
         self.staging.clear();
         self.staged = 0;
         self.produced = frame;
@@ -192,6 +213,15 @@ impl Feed {
         if let Some(resampler) = self.resampler.as_mut() {
             resampler.reset();
         }
+    }
+}
+
+/// The scale Sound Check's `gain` makes to a track's samples. A bit-perfect stream carries the
+/// file's samples untouched, so there it is none.
+fn amplitude(gain: Option<Gain>, exact: bool) -> f32 {
+    match gain {
+        Some(gain) if !exact => gain.amplitude(),
+        _ => 1.0,
     }
 }
 
@@ -209,7 +239,7 @@ impl Session {
         let format = output.format();
         let exact = output.request().exact;
         Ok(Session {
-            feed: Feed::new(decoder, format, 0, exact)?,
+            feed: Feed::new(decoder, format, 0, exact, track.gain)?,
             timeline: Timeline::new(format.sample_rate, track, 0, position_ms),
             output,
         })
@@ -229,7 +259,7 @@ impl Session {
     fn restart(&mut self, queued: Queued, position_ms: u64) {
         let frame = self.output.consumed();
         self.feed.decoder = queued.decoder;
-        self.feed.rewind(frame);
+        self.feed.rewind(frame, queued.track.gain);
         self.timeline = Timeline::new(
             self.output.format().sample_rate,
             queued.track,
@@ -329,8 +359,8 @@ impl Engine {
 
     fn handle(&mut self, command: Command) -> ControlFlow<()> {
         match command {
-            Command::Play(id, path) => self.play(id, path),
-            Command::QueueNext(id, path) => self.queue_next(id, path),
+            Command::Play(id, path, gain) => self.play(id, path, gain),
+            Command::QueueNext(id, path, gain) => self.queue_next(id, path, gain),
             Command::ClearNext => self.clear_next(),
             Command::Pause => self.set_paused(true),
             Command::Resume => self.set_paused(false),
@@ -347,9 +377,9 @@ impl Engine {
         ControlFlow::Continue(())
     }
 
-    fn play(&mut self, id: i64, path: PathBuf) {
+    fn play(&mut self, id: i64, path: PathBuf, gain: Option<Gain>) {
         self.next = None;
-        let started = Queued::open(self.open, id, path).and_then(|queued| self.start(queued));
+        let started = Queued::open(self.open, id, path, gain).and_then(|queued| self.start(queued));
         if let Err(error) = started {
             self.fail(Some(id), error);
         }
@@ -457,8 +487,8 @@ impl Engine {
         )
     }
 
-    fn queue_next(&mut self, id: i64, path: PathBuf) {
-        match Queued::open(self.open, id, path) {
+    fn queue_next(&mut self, id: i64, path: PathBuf, gain: Option<Gain>) {
+        match Queued::open(self.open, id, path, gain) {
             Ok(queued) => {
                 self.next = Some(queued);
                 // A handoff already decoded into the ring cannot be unpicked, so rewind to the
@@ -549,11 +579,11 @@ impl Engine {
         };
         let upcoming = session.timeline.take_upcoming();
 
-        let mut queued = Queued::open(self.open, audible.id, audible.path)?;
+        let mut queued = Queued::open(self.open, audible.id, audible.path, audible.gain)?;
         let landed_ms = queued.decoder.seek(position_ms)?;
         self.release();
         if let Some(track) = upcoming.filter(|_| self.next.is_none()) {
-            match Queued::open(self.open, track.id, track.path) {
+            match Queued::open(self.open, track.id, track.path, track.gain) {
                 Ok(requeued) => self.next = Some(requeued),
                 Err(error) => self.report(Some(track.id), &error),
             }
@@ -599,13 +629,14 @@ impl Engine {
             session.feed.decoder = (self.open)(&audible.path)?;
         }
         let landed_ms = session.feed.decoder.seek(position_ms)?;
-        session.feed.rewind(frame);
+        // With a handoff pending the feed had moved on to the next track's gain.
+        session.feed.rewind(frame, audible.gain);
         session.timeline.reanchor(frame, landed_ms);
         self.next_position_event = Instant::now();
 
         // A newer queue entry wins over the one that was decoded ahead.
         if let Some(track) = upcoming.filter(|_| keep_upcoming && self.next.is_none()) {
-            match Queued::open(self.open, track.id, track.path) {
+            match Queued::open(self.open, track.id, track.path, track.gain) {
                 Ok(queued) => self.next = Some(queued),
                 Err(error) => self.report(Some(track.id), &error),
             }
@@ -745,6 +776,10 @@ impl Engine {
             },
             bit_perfect: info.bit_perfect,
             output_format: Some(info.label.clone()),
+            gain_db: track
+                .gain
+                .filter(|_| !info.bit_perfect)
+                .map(Gain::applied_db),
         }
     }
 
@@ -832,7 +867,11 @@ mod tests {
     }
 
     fn queued(id: i64, name: &str) -> Queued {
-        Queued::open(Decoder::open, id, fixture(name)).unwrap()
+        queued_with(id, name, None)
+    }
+
+    fn queued_with(id: i64, name: &str, gain: Option<Gain>) -> Queued {
+        Queued::open(Decoder::open, id, fixture(name), gain).unwrap()
     }
 
     fn decode(name: &str) -> Vec<f32> {
@@ -845,9 +884,18 @@ mod tests {
     }
 
     fn start(first: &str, format: Format) -> (Feed, Timeline) {
-        let Queued { track, decoder } = queued(1, first);
+        start_with(first, format, false, None)
+    }
+
+    fn start_with(
+        first: &str,
+        format: Format,
+        exact: bool,
+        gain: Option<Gain>,
+    ) -> (Feed, Timeline) {
+        let Queued { track, decoder } = queued_with(1, first, gain);
         (
-            Feed::new(decoder, format, 0, false).unwrap(),
+            Feed::new(decoder, format, 0, exact, gain).unwrap(),
             Timeline::new(format.sample_rate, track, 0, 0),
         )
     }
@@ -971,7 +1019,7 @@ mod tests {
         assert!(feed.produced > 1_024, "decoded ahead of the device");
 
         device.queue.clear();
-        feed.rewind(5_000);
+        feed.rewind(5_000, None);
         assert_eq!(
             (feed.produced, feed.is_staging(), feed.eof),
             (5_000, false, false)
@@ -982,7 +1030,7 @@ mod tests {
     fn a_decoder_panic_mid_stream_is_an_error_from_fill() {
         let decoder =
             Decoder::open_with(&fixture("sine.flac"), Faulty::wrap(Fault::NextPacket)).unwrap();
-        let mut feed = Feed::new(decoder, STEREO_44K, 0, false).unwrap();
+        let mut feed = Feed::new(decoder, STEREO_44K, 0, false, None).unwrap();
         let (_, mut timeline) = start("sine.flac", STEREO_44K);
         let mut device = Device::new(4_096, STEREO_44K);
 
@@ -1032,7 +1080,7 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::Play(7, fixture("sine.flac")))
+                .handle(Command::Play(7, fixture("sine.flac"), None))
                 .is_continue()
         );
 
@@ -1052,7 +1100,7 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::Play(8, fixture("missing.flac")))
+                .handle(Command::Play(8, fixture("missing.flac"), None))
                 .is_continue()
         );
         let events = harness.events();
@@ -1076,7 +1124,7 @@ mod tests {
         assert!(
             harness
                 .engine
-                .handle(Command::QueueNext(9, fixture("sine.flac")))
+                .handle(Command::QueueNext(9, fixture("sine.flac"), None))
                 .is_continue()
         );
 
@@ -1118,5 +1166,162 @@ mod tests {
             (0.10 + c * 0.15 + c * 0.30) * gain,
         );
         assert!((left - want_left).abs() < 1e-3 && (right - want_right).abs() < 1e-3);
+    }
+
+    /// The fixtures are 440 Hz sines peaking at 0.5 (-6.02 dBFS).
+    const SINE_PEAK_DBTP: f32 = -6.02;
+
+    fn gain(db: f32) -> Gain {
+        Gain {
+            db,
+            peak_dbtp: SINE_PEAK_DBTP,
+        }
+    }
+
+    fn scaled(samples: &[f32], gain: Option<Gain>) -> Vec<f32> {
+        let amplitude = gain.map_or(1.0, Gain::amplitude);
+        samples.iter().map(|sample| sample * amplitude).collect()
+    }
+
+    #[test]
+    fn each_track_is_scaled_by_its_own_gain_and_the_change_lands_on_the_boundary_frame() {
+        let (quiet, loud) = (gain(-6.0), gain(3.0));
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, Some(quiet));
+        let mut next = Some(queued_with(2, "sine.mp3", Some(loud)));
+        let mut device = Device::new(4_096, STEREO_44K);
+
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+
+        let expected = [
+            scaled(&decode("sine.flac"), Some(quiet)),
+            scaled(&decode("sine.mp3"), Some(loud)),
+        ]
+        .concat();
+        assert!(
+            heard.samples == expected,
+            "the first sample of the second track is the first one at its gain"
+        );
+        assert_eq!(heard.transitions, [(1, 2, 44_100)]);
+    }
+
+    #[test]
+    fn a_track_without_gain_after_one_with_it_returns_to_unity() {
+        let boosted = gain(4.0);
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, Some(boosted));
+        let mut next = Some(queued(2, "sine.mp3"));
+        let mut device = Device::new(500_000, STEREO_44K);
+
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+
+        let expected = [
+            scaled(&decode("sine.flac"), Some(boosted)),
+            decode("sine.mp3"),
+        ]
+        .concat();
+        assert!(heard.samples == expected);
+    }
+
+    #[test]
+    fn the_gain_changes_on_the_converted_boundary_frame_when_resampling() {
+        let (mut plain_feed, mut plain_timeline) = start("sine-22k.aiff", STEREO_48K);
+        let mut next = Some(queued(2, "sine-22k.aiff"));
+        let mut device = Device::new(4_096, STEREO_48K);
+        let plain = play_out(&mut plain_feed, &mut plain_timeline, &mut next, &mut device);
+
+        let (quiet, loud) = (gain(-9.0), gain(2.0));
+        let (mut feed, mut timeline) = start_with("sine-22k.aiff", STEREO_48K, false, Some(quiet));
+        let mut next = Some(queued_with(2, "sine-22k.aiff", Some(loud)));
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+
+        // The resampler's last frames of the first track belong to it, not to the next.
+        let boundary = 2 * 48_000;
+        let expected = [
+            scaled(&plain.samples[..boundary], Some(quiet)),
+            scaled(&plain.samples[boundary..], Some(loud)),
+        ]
+        .concat();
+        assert!(heard.samples == expected);
+        assert_eq!(heard.transitions, [(1, 2, 48_000)]);
+    }
+
+    #[test]
+    fn a_boost_is_held_back_so_the_peak_ends_at_minus_one_dbtp() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, Some(gain(12.0)));
+        let mut device = Device::new(4_096, STEREO_44K);
+
+        let heard = play_out(&mut feed, &mut timeline, &mut None, &mut device);
+
+        let peak = |samples: &[f32]| samples.iter().fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        let before = peak(&decode("sine.flac"));
+        let after = peak(&heard.samples);
+        let wanted = 10f32.powf(-1.0 / 20.0);
+        assert!(
+            (after - wanted).abs() < 1e-3,
+            "peak {after}, wanted {wanted}"
+        );
+        assert!(
+            (after / before - 10f32.powf((-1.0 - SINE_PEAK_DBTP) / 20.0)).abs() < 1e-3,
+            "a +12 dB request became +{} dB",
+            -1.0 - SINE_PEAK_DBTP
+        );
+    }
+
+    #[test]
+    fn a_bit_perfect_feed_leaves_the_samples_alone() {
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, true, Some(gain(-6.0)));
+        // A bit-perfect stream only continues into a track of the same bit depth.
+        let mut next = Some(queued_with(2, "sine.flac", Some(gain(3.0))));
+        let mut device = Device::new(4_096, STEREO_44K);
+
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+
+        let expected = [decode("sine.flac"), decode("sine.flac")].concat();
+        assert!(heard.samples == expected);
+        assert_eq!(heard.transitions, [(1, 2, 44_100)]);
+    }
+
+    #[test]
+    fn rewinding_puts_back_the_gain_of_the_track_being_replayed() {
+        let (quiet, loud) = (gain(-6.0), gain(3.0));
+        let (mut feed, mut timeline) = start_with("sine.flac", STEREO_44K, false, Some(quiet));
+        let mut next = Some(queued_with(2, "sine.mp3", Some(loud)));
+        let mut device = Device::new(500_000, STEREO_44K);
+        feed.fill(&mut device, &mut timeline, &mut next).unwrap();
+        assert_eq!(timeline.upcoming().map(|track| track.id), Some(2));
+
+        // What `Engine::reposition` does for a seek with a handoff pending.
+        device.queue.clear();
+        feed.decoder = Decoder::open(&fixture("sine.flac")).unwrap();
+        feed.rewind(0, timeline.current().gain);
+        timeline.take_upcoming();
+        feed.fill(&mut device, &mut timeline, &mut None).unwrap();
+
+        let replayed: Vec<f32> = device.queue.drain(..).collect();
+        assert!(replayed == scaled(&decode("sine.flac"), Some(quiet)));
+    }
+
+    #[test]
+    fn the_status_reports_the_applied_gain_of_the_audible_track_only_outside_bit_perfect() {
+        let mut harness = Harness::new(Decoder::open);
+        let quiet = gain(-6.0);
+        let play = Command::Play(1, fixture("sine.flac"), Some(quiet));
+        assert!(harness.engine.handle(play).is_continue());
+        assert_eq!(harness.engine.status().gain_db, Some(-6.0));
+
+        assert!(
+            harness
+                .engine
+                .handle(Command::SetBitPerfect(true))
+                .is_continue()
+        );
+        assert_eq!(harness.engine.status().gain_db, None);
+        assert!(
+            harness
+                .engine
+                .handle(Command::SetBitPerfect(false))
+                .is_continue()
+        );
+        assert_eq!(harness.engine.status().gain_db, Some(-6.0));
+        assert!(harness.engine.handle(Command::Shutdown).is_break());
     }
 }

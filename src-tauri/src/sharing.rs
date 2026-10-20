@@ -1,10 +1,12 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use antistreaming_library::{AlbumSummary, Library, MediaKind, SortKey, Track, TrackQuery};
-use antistreaming_subsonic::{Album, AlbumListKind, Artist, Genre, MusicSource, Playlist, SearchResult, Server, ServerConfig, Song, Stream};
+use antistreaming_playback::{Target, TranscodeOptions};
+use antistreaming_subsonic::{
+    Album, AlbumListKind, Artist, Genre, MusicSource, Playlist, SearchResult, Server, ServerConfig, Song, Stream, StreamFormat,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -12,7 +14,11 @@ use crate::error::{CommandError, CommandResult};
 
 type SourceResult<T> = antistreaming_subsonic::Result<T>;
 
-fn source_err(error: antistreaming_library::Error) -> antistreaming_subsonic::Error {
+/// What a phone gets when it asks for a format but no rate: good on cellular, fine on headphones.
+const STREAM_KBPS: u32 = 192;
+const OPUS_STREAM_KBPS: u32 = 128;
+
+fn source_err(error: impl std::fmt::Display) -> antistreaming_subsonic::Error {
     antistreaming_subsonic::Error::Source(error.to_string())
 }
 
@@ -283,18 +289,33 @@ impl MusicSource for LibrarySource {
         Ok(art.map_err(source_err)?.map(|art| (art.mime, art.bytes)))
     }
 
-    fn open_stream(&self, song_id: &str, _max_bitrate_kbps: Option<u32>, _format: Option<&str>) -> SourceResult<Option<Stream>> {
-        // Originals only for now; on-the-fly transcoding for cellular arrives with the iPod transcoder.
+    fn open_stream(&self, song_id: &str) -> SourceResult<Option<Stream>> {
         let Some(id) = track_id(song_id) else { return Ok(None) };
         let track = self.library().track(id).map_err(source_err)?;
         Ok(track.map(|t| Stream::File { content_type: content_type(&t.codec).to_owned(), path: PathBuf::from(t.path) }))
     }
 
-    fn scrobble(&self, song_id: &str, at_unix: Option<i64>, submission: bool) -> SourceResult<()> {
-        // "Now playing" pings aren't plays; only finished-song submissions count, as in iTunes.
-        let (Some(id), true) = (track_id(song_id), submission) else { return Ok(()) };
-        let at = at_unix.unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64));
-        self.library().record_play(id, at).map_err(source_err)
+    /// Converts as the phone streams, so a lossless library plays over cellular. Rates are kept to
+    /// what each encoder accepts.
+    fn transcoded(&self, song_id: &str, format: StreamFormat, max_kbps: Option<u32>) -> Option<SourceResult<(Box<dyn std::io::Read + Send>, &'static str)>> {
+        let track = match self.library().track(track_id(song_id)?) {
+            Ok(track) => track?,
+            Err(error) => return Some(Err(source_err(error))),
+        };
+        let target = match format {
+            StreamFormat::Mp3 => Target::Mp3 { kbps: max_kbps.unwrap_or(STREAM_KBPS).clamp(32, 320) },
+            StreamFormat::Aac => Target::Aac { kbps: max_kbps.unwrap_or(STREAM_KBPS).clamp(32, 320) },
+            StreamFormat::Opus => Target::Opus { kbps: max_kbps.unwrap_or(OPUS_STREAM_KBPS).clamp(16, 256) },
+            StreamFormat::Flac => Target::Flac,
+        };
+        let options = TranscodeOptions { target, max_sample_rate: None, max_bit_depth: None, keep_tags: false };
+        Some(antistreaming_playback::transcode_stream(Path::new(&track.path), &options).map_err(source_err))
+    }
+
+    /// Phones report finished songs; each counts as a play, as on the Mac.
+    fn scrobble(&self, song_id: &str, time_ms: i64) -> SourceResult<()> {
+        let Some(id) = track_id(song_id) else { return Ok(()) };
+        self.library().record_play(id, time_ms / 1000).map_err(source_err)
     }
 }
 
@@ -305,13 +326,17 @@ pub struct SharingSettings {
     pub port: u16,
     pub username: String,
     pub password: String,
+    /// "Stream at most N kbps" for phones that don't ask for a rate; `None` sends originals.
+    /// Defaulted so settings saved before it existed still load.
+    #[serde(default)]
+    pub max_kbps: Option<u32>,
 }
 
 impl Default for SharingSettings {
     /// Off until the user turns it on; 4533 is Navidrome's port, which many apps suggest by default.
     fn default() -> Self {
         let password: String = std::iter::repeat_with(fastrand::alphanumeric).take(12).collect();
-        Self { enabled: false, port: 4533, username: "antistreaming".to_owned(), password }
+        Self { enabled: false, port: 4533, username: "antistreaming".to_owned(), password, max_kbps: None }
     }
 }
 
@@ -371,6 +396,7 @@ impl SharingState {
                     username: settings.username.clone(),
                     password: settings.password.clone(),
                     api_key: None,
+                    default_max_kbps: settings.max_kbps,
                 };
                 Server::start(config, Arc::new(LibrarySource { library: Mutex::new(library) })).map_err(|e| e.to_string())
             });

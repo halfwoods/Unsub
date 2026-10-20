@@ -21,6 +21,10 @@ pub(super) struct Mapping {
     version: u32,
     pub(super) tracks: Vec<MappedTrack>,
     pub(super) playlists: Vec<MappedPlaylist>,
+    /// Album art this app put in the ArtworkDB, so later syncs can reuse it and, once nothing
+    /// refers to it, remove it. Absent in files written before artwork was supported.
+    #[serde(default)]
+    pub(super) artwork: Vec<MappedImage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +33,10 @@ pub(super) struct MappedTrack {
     pub(super) library_id: i64,
     /// The iPod's persistent 64-bit track id, which survives the renumbering of 32-bit ids.
     pub(super) dbid: u64,
+    /// The cover identity the library gave this track when its art was last handled, so a changed
+    /// cover is noticed without loading it. Absent in files written before artwork was supported.
+    #[serde(default)]
+    pub(super) artwork_key: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,12 +46,25 @@ pub(super) struct MappedPlaylist {
     pub(super) id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct MappedImage {
+    /// SHA-1 of the album name and cover bytes it was made from.
+    pub(super) key: String,
+    pub(super) image_id: u32,
+}
+
 impl Mapping {
-    pub(super) fn new(tracks: Vec<MappedTrack>, playlists: Vec<MappedPlaylist>) -> Self {
+    pub(super) fn new(
+        tracks: Vec<MappedTrack>,
+        playlists: Vec<MappedPlaylist>,
+        artwork: Vec<MappedImage>,
+    ) -> Self {
         Self {
             version: VERSION,
             tracks,
             playlists,
+            artwork,
         }
     }
 
@@ -58,7 +79,7 @@ impl Mapping {
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(Self::new(Vec::new(), Vec::new()));
+                return Ok(Self::new(Vec::new(), Vec::new(), Vec::new()));
             }
             Err(source) => return Err(Error::io(path, source)),
         };
@@ -81,6 +102,13 @@ impl Mapping {
         self.tracks
             .iter()
             .map(|track| (track.library_id, track.dbid))
+            .collect()
+    }
+
+    pub(super) fn artwork_key_by_library_id(&self) -> HashMap<i64, Option<u64>> {
+        self.tracks
+            .iter()
+            .map(|track| (track.library_id, track.artwork_key))
             .collect()
     }
 

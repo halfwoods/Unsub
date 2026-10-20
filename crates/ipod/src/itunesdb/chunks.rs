@@ -1,7 +1,7 @@
 //! Bounds-checked access to the chunk framing shared by every iTunesDB record: a four-byte tag,
 //! then `header_len` and `total_len` as little-endian `u32`. Nothing here indexes a slice directly.
 
-use crate::bytes::{tag_at, u8_at, u32_at, u64_at};
+use crate::bytes::{tag_at, u8_at, u16_at, u32_at, u64_at};
 use crate::error::{Error, Result};
 
 pub(super) const MHBD: [u8; 4] = *b"mhbd";
@@ -76,6 +76,10 @@ impl<'a> Chunk<'a> {
         u8_at(self.header, at)
     }
 
+    pub(super) fn u16(&self, at: usize) -> Option<u16> {
+        u16_at(self.header, at)
+    }
+
     pub(super) fn u32(&self, at: usize) -> Option<u32> {
         u32_at(self.header, at)
     }
@@ -94,7 +98,12 @@ pub(super) struct ListHead {
 }
 
 impl ListHead {
-    fn read(data: &[u8], offset: usize, limit: usize, expected: [u8; 4]) -> Result<Self> {
+    pub(super) fn read(
+        data: &[u8],
+        offset: usize,
+        limit: usize,
+        expected: [u8; 4],
+    ) -> Result<Self> {
         let window = window(data, offset, limit)?;
         let (tag, header_len, count) = prefix(window, offset)?;
         if tag != expected {

@@ -19,6 +19,27 @@ pub enum AlbumListKind {
     ByGenre,
 }
 
+/// A format a client can ask `stream` to convert to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamFormat {
+    Mp3,
+    /// AAC-LC, as ADTS when streamed.
+    Aac,
+    Opus,
+    Flac,
+}
+
+impl StreamFormat {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Mp3 => "mp3",
+            Self::Aac => "aac",
+            Self::Opus => "opus",
+            Self::Flac => "flac",
+        }
+    }
+}
+
 /// Audio to send to a client.
 pub enum Stream {
     /// A file on disk; the server handles `Range` requests itself.
@@ -78,15 +99,39 @@ pub trait MusicSource: Send + Sync + 'static {
     /// Returns `(mime type, image bytes)`, scaled to fit `size` pixels when given.
     fn cover_art(&self, id: &str, size: Option<u32>) -> Result<Option<(String, Vec<u8>)>>;
 
-    /// The raw file unless the client asked for a lower bitrate or another format; the host may
-    /// transcode.
-    fn open_stream(
+    /// The song exactly as stored. This is what `download` sends and what `stream` sends when no
+    /// conversion is wanted or [`MusicSource::transcoded`] does not do one.
+    fn open_stream(&self, song_id: &str) -> Result<Option<Stream>>;
+
+    /// The song converted to `format`, for a client that asked for it (`format`) or for a lower
+    /// bitrate (`max_kbps`), or because the server's default cap applies. It is only called when the
+    /// song needs converting: the format differs, or its bitrate exceeds `max_kbps`. `max_kbps` is
+    /// `None` when no cap applies, and lossless targets ignore it.
+    ///
+    /// Returns the converted bytes and their content type. They are sent chunked, without a length
+    /// and without `Range` support. `None` means this source cannot convert, and the original is
+    /// sent instead. `Some(Err(_))` is a failure and is reported to the client; answer `None` for
+    /// "cannot" so playback still works.
+    fn transcoded(
         &self,
         song_id: &str,
-        max_bitrate_kbps: Option<u32>,
-        format: Option<&str>,
-    ) -> Result<Option<Stream>>;
+        format: StreamFormat,
+        max_kbps: Option<u32>,
+    ) -> Option<Result<(Box<dyn Read + Send>, &'static str)>> {
+        let _ = (song_id, format, max_kbps);
+        None
+    }
 
-    /// `at_unix` is seconds since the epoch. `submission` is false for a "now playing" ping.
-    fn scrobble(&self, song_id: &str, at_unix: Option<i64>, submission: bool) -> Result<()>;
+    /// The client played the song. `time_ms` is when, in milliseconds since the Unix epoch, as the
+    /// client reported it (the current time if it did not).
+    fn scrobble(&self, song_id: &str, time_ms: i64) -> Result<()> {
+        let _ = (song_id, time_ms);
+        Ok(())
+    }
+
+    /// The client has started playing the song. `client` is the name it gave (`c`).
+    fn now_playing(&self, song_id: &str, client: &str) -> Result<()> {
+        let _ = (song_id, client);
+        Ok(())
+    }
 }

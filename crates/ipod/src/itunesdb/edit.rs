@@ -195,6 +195,19 @@ impl RawTrack {
         track
     }
 
+    /// Points the track at its image in the ArtworkDB (libgpod's `itdb_track_set_thumbnails`).
+    pub(crate) fn link_artwork(&mut self, image_id: u32, source_len: u32) {
+        self.set_u16(at::ARTWORK_COUNT, 1);
+        self.set_u32(at::ARTWORK_SIZE, source_len);
+        self.set_u8(at::HAS_ARTWORK, 1);
+        self.set_u32(at::MHII_LINK, image_id);
+    }
+
+    /// The image this track links to, 0 for none.
+    pub(crate) fn artwork_link(&self) -> u32 {
+        crate::bytes::u32_at(&self.header, at::MHII_LINK).unwrap_or(0)
+    }
+
     /// Writes the editable fields; everything else in the record is left as it was.
     pub(crate) fn apply(&mut self, metadata: &Metadata) {
         self.set_text(mhod::TITLE, Some(&metadata.title));

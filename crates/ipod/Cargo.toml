@@ -8,6 +8,7 @@ license.workspace = true
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 flate2 = "1.1.10"
 fs4 = { version = "1.1.0", features = ["sync"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 plist = { version = "1.10.1", default-features = false }
 serde.workspace = true
 serde_json.workspace = true

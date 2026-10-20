@@ -10,7 +10,7 @@ use std::{
 use crate::{
     Device, DeviceKind, DeviceRoot, Error, FsStorage, MtpBackend, MtpDevice, MtpStorageInfo,
     PlaylistFormat, Profile, RESERVE_BYTES, Result, Storage, SyncItem, SyncPlan, SyncPlaylist,
-    SyncProgress, SyncStage, Target, apply, apply_with,
+    SyncProgress, SyncStage, SyncSummary, Target, apply, apply_with,
     manifest::Manifest,
     plan, plan_with,
     testing::{Faulty, Library, MemoryStorage},
@@ -109,6 +109,7 @@ fn copy_source(item: &SyncItem, _: &Profile) -> io::Result<PathBuf> {
 struct Run {
     plan: SyncPlan,
     events: Vec<SyncProgress>,
+    summary: SyncSummary,
 }
 
 /// Plans and applies, copying sources as they are.
@@ -141,7 +142,7 @@ fn try_sync(
 ) -> Result<Run> {
     let plan = plan_with(target(storage, profile), items, playlists)?;
     let mut events = Vec::new();
-    apply_with(
+    let summary = apply_with(
         target(storage, profile),
         &plan,
         items,
@@ -153,7 +154,11 @@ fn try_sync(
         },
         cancel,
     )?;
-    Ok(Run { plan, events })
+    Ok(Run {
+        plan,
+        events,
+        summary,
+    })
 }
 
 fn rockbox() -> Profile {
@@ -192,6 +197,14 @@ mod first_sync {
                 run.plan.unchanged
             ),
             (0, 0, 0)
+        );
+        assert_eq!(
+            run.summary,
+            SyncSummary {
+                copied: 3,
+                removed: 0,
+                skipped: vec![]
+            }
         );
         assert!(run.plan.fits);
         assert_eq!(
@@ -285,6 +298,7 @@ mod resync {
         let items = synced(&player, &library);
         let before = player.tree();
         let run = sync(&player.storage, &rockbox(), &items, &[]);
+        assert_eq!(run.summary, SyncSummary::default());
         assert_eq!(
             (
                 run.plan.add.len(),
@@ -304,6 +318,7 @@ mod resync {
         let mut items = synced(&player, &library);
         items[1] = library.modified(&items[1]);
         let run = sync(&player.storage, &rockbox(), &items, &[]);
+        assert_eq!((run.summary.copied, run.summary.removed), (1, 0));
         assert_eq!(
             paths(&run.plan.update),
             ["Music/Artist/Album/1-02 Two.flac"]
@@ -342,6 +357,7 @@ mod resync {
 
         // Track 1 and track 3 leave the library.
         let run = sync(&player.storage, &rockbox(), &items[1..2], &[]);
+        assert_eq!((run.summary.copied, run.summary.removed), (0, 2));
         assert_eq!(
             run.plan
                 .remove
@@ -403,6 +419,7 @@ mod resync {
         let mut items = synced(&player, &library);
         items[0].title = "One (Remastered)".to_owned();
         let run = sync(&player.storage, &rockbox(), &items, &[]);
+        assert_eq!((run.summary.copied, run.summary.removed), (1, 0));
         assert_eq!(run.plan.update.len(), 1);
         assert_eq!(
             run.plan.update[0].replaces.as_deref(),
@@ -816,6 +833,14 @@ mod conversion {
         .unwrap();
 
         assert_eq!(run.plan.add.len(), 3);
+        assert_eq!(
+            run.summary,
+            SyncSummary {
+                copied: 2,
+                removed: 0,
+                skipped: vec![(2, "cannot decode".to_owned())]
+            }
+        );
         assert_eq!(
             player.manifest().items.keys().copied().collect::<Vec<_>>(),
             [1, 3]

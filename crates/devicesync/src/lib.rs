@@ -13,9 +13,12 @@
 //!
 //! Apple-firmware iPods are the iPod crate's business and are not reported by [`discover`].
 
+#![deny(unsafe_code)]
+
 mod apply;
 mod device;
 mod discover;
+mod eject;
 mod error;
 mod inventory;
 mod layout;
@@ -30,9 +33,10 @@ mod storage;
 #[cfg(test)]
 mod testing;
 
-pub use apply::{SyncProgress, SyncStage, apply, apply_with};
+pub use apply::{SyncProgress, SyncStage, SyncSummary, apply, apply_with};
 pub use device::{DEFAULT_LAYOUT, Device, DeviceKind, DeviceRoot, PlaylistFormat, Profile};
 pub use discover::{MARKER_FILE, discover, mark_device};
+pub use eject::eject;
 pub use error::{Error, Result};
 pub use model::{SyncItem, SyncPlaylist};
 pub use mtp::{MtpBackend, MtpDevice, MtpStorageInfo};

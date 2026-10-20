@@ -208,6 +208,8 @@ struct Pending {
     track: Track,
     overrides: TrackOverrides,
     new_path: Option<PathBuf>,
+    /// The file on disk was rewritten, so its size and time have changed.
+    rewritten: bool,
 }
 
 impl Library {
@@ -290,6 +292,7 @@ impl Library {
                 track,
                 overrides,
                 new_path,
+                rewritten: in_file,
             });
         }
 
@@ -298,6 +301,7 @@ impl Library {
             mut track,
             overrides,
             new_path,
+            rewritten,
         } in pending
         {
             if let Some(new_path) = &new_path {
@@ -309,6 +313,15 @@ impl Library {
                     params![track.id, text],
                 )?;
                 track.path = text.to_owned();
+            }
+            if rewritten {
+                // Only the tags changed, so a loudness measurement of the audio
+                // still holds. The store keeps one while a file's size and time
+                // are unchanged, so tell it the new ones first.
+                tx.execute(
+                    "UPDATE tracks SET file_size = ?2, date_modified = ?3 WHERE id = ?1",
+                    params![track.id, track.file_size, track.date_modified],
+                )?;
             }
             if edits.touches_tags() || edits.kind.is_some() {
                 write_tracks(&tx, WriteMode::RefreshTags, [&track])?;

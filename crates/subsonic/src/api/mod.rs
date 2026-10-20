@@ -1,6 +1,7 @@
 //! Request handling: parse, authenticate, dispatch to an endpoint, render the reply.
 
 mod browse;
+mod delivery;
 mod lists;
 mod media;
 mod playlists;

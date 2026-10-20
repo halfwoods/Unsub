@@ -2,6 +2,8 @@
 
 mod common;
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use antistreaming_subsonic::AlbumListKind;
 use common::*;
 use serde_json::json;
@@ -762,30 +764,84 @@ fn unknown_cover_art_is_404_with_a_subsonic_error() {
 }
 
 #[test]
-fn scrobble_submission_defaults_to_true_and_time_is_converted_to_seconds() {
+fn scrobble_submission_defaults_to_true_and_passes_the_time_in_milliseconds() {
     let h = Harness::start();
     xml_ok(&h.get("scrobble", "id=s-1&time=1700000123456"));
-    h.json("scrobble", "id=s-2&submission=false");
     h.json("scrobble", "id=s-3&time=5000&submission=true");
-    let scrobbles = &h.source.calls.lock().unwrap().scrobbles;
-    assert_eq!(scrobbles[0], ("s-1".to_owned(), Some(1_700_000_123), true));
-    assert_eq!(scrobbles[1], ("s-2".to_owned(), None, false));
-    assert_eq!(scrobbles[2], ("s-3".to_owned(), Some(5), true));
+    let calls = h.source.calls.lock().unwrap();
+    assert_eq!(
+        calls.scrobbles,
+        [
+            ("s-1".to_owned(), 1_700_000_123_456),
+            ("s-3".to_owned(), 5_000)
+        ]
+    );
+    assert!(calls.now_playing.is_empty());
 }
 
 #[test]
-fn scrobble_pairs_repeated_ids_with_repeated_times() {
+fn scrobble_without_a_time_means_now() {
     let h = Harness::start();
-    h.json("scrobble", "id=s-1&time=1000&id=s-2&time=2000&id=s-3");
-    let scrobbles = &h.source.calls.lock().unwrap().scrobbles;
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    h.json("scrobble", "id=s-1");
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let scrobbles = h.source.calls.lock().unwrap().scrobbles.clone();
+    assert_eq!(scrobbles.len(), 1);
+    assert!((before..=after).contains(&scrobbles[0].1), "{scrobbles:?}");
+}
+
+#[test]
+fn submission_false_is_a_now_playing_ping_naming_the_client() {
+    let h = Harness::start();
+    xml_ok(&h.get("scrobble", "id=s-2&submission=false&time=1234"));
+    h.json("scrobble", "id=s-3&id=s-1&submission=FALSE");
+    let calls = h.source.calls.lock().unwrap();
     assert_eq!(
-        *scrobbles,
+        calls.now_playing,
         [
-            ("s-1".to_owned(), Some(1), true),
-            ("s-2".to_owned(), Some(2), true),
-            ("s-3".to_owned(), None, true)
+            ("s-2".to_owned(), "tests".to_owned()),
+            ("s-3".to_owned(), "tests".to_owned()),
+            ("s-1".to_owned(), "tests".to_owned())
         ]
     );
+    assert!(calls.scrobbles.is_empty(), "a ping is not a play");
+}
+
+#[test]
+fn now_playing_without_a_client_name_says_unknown() {
+    let h = Harness::start();
+    let url = format!(
+        "{}/rest/scrobble?u={USER}&p={PASSWORD}&v=1.16.1&id=s-1&submission=false",
+        h.base
+    );
+    xml_ok(&h.get_url(&url));
+    assert_eq!(
+        h.source.calls.lock().unwrap().now_playing,
+        [("s-1".to_owned(), "unknown".to_owned())]
+    );
+}
+
+#[test]
+fn scrobble_pairs_repeated_ids_with_repeated_times_and_fills_in_the_rest() {
+    let h = Harness::start();
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    h.json("scrobble", "id=s-1&time=1000&id=s-2&time=2000&id=s-3");
+    let scrobbles = h.source.calls.lock().unwrap().scrobbles.clone();
+    assert_eq!(
+        scrobbles[..2],
+        [("s-1".to_owned(), 1_000), ("s-2".to_owned(), 2_000)]
+    );
+    assert_eq!(scrobbles[2].0, "s-3");
+    assert!(scrobbles[2].1 >= before);
 }
 
 #[test]

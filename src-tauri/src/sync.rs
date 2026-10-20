@@ -253,9 +253,19 @@ fn sync_track(track: &Track, conversion: Conversion) -> SyncTrack {
         sort_artist: track.sort_artist.clone(),
         sort_album: track.sort_album.clone(),
         sort_album_artist: track.sort_album_artist.clone(),
-        artwork: None,
+        artwork_key: Some(artwork_key(track)),
         library_id: track.id,
     }
+}
+
+/// Covers live in the files (Get Info rewrites the file to change one), so the file's identity
+/// is the cover's: unchanged files are never re-read for artwork on later syncs. A Rust update
+/// that changes the hasher only costs one round of re-sent covers.
+fn artwork_key(track: &Track) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (&track.path, track.file_size, track.date_modified).hash(&mut hasher);
+    hasher.finish()
 }
 
 fn select(library: &Library, settings: &SyncSettings) -> antistreaming_library::Result<Chosen> {
@@ -449,11 +459,17 @@ fn run_player_sync(app: &AppHandle, player: &Player, cancel: &AtomicBool) -> Com
     let settings = app.state::<SyncState>().settings_for(&player.id);
     let chosen = select(&app.state::<LibraryState>().queries(), &settings)?;
     let work_dir = fresh_work_dir(app)?;
-    sync_to_player(player, &chosen, &work_dir, cancel, &mut |progress| {
+    let summary = sync_to_player(player, &chosen, &work_dir, cancel, &mut |progress| {
         let _ = app.emit(SYNC_EVENT, Some(PlayerSyncStatus { device_id: player.id.clone(), progress }));
     })?;
     app.state::<DevicesState>().rediscover_players();
     let _ = app.emit(devices::CHANGED_EVENT, ());
+    // Songs the player couldn't take are the one thing worth reporting after a good sync.
+    if !summary.skipped.is_empty() {
+        let count = summary.skipped.len();
+        let message = format!("Synced, but {count} {} couldn't be converted for the player", if count == 1 { "song" } else { "songs" });
+        let _ = app.emit(crate::playback::PLAYER_EVENT, antistreaming_playback::PlayerEvent::Notice { message });
+    }
     Ok(())
 }
 
@@ -463,7 +479,7 @@ fn sync_to_player(
     work_dir: &std::path::Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(antistreaming_devicesync::SyncProgress),
-) -> CommandResult<()> {
+) -> CommandResult<antistreaming_devicesync::SyncSummary> {
     let (items, playlists) = for_player(chosen);
     let plan = antistreaming_devicesync::plan(player, &items, &playlists).map_err(to_error)?;
     let targets: HashMap<i64, (Target, &'static str)> =
@@ -550,7 +566,10 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
     let mut progress = |progress: SyncProgress| {
         let _ = app.emit(SYNC_EVENT, Some(SyncStatus { device_id: device_id.to_owned(), progress }));
     };
-    let result = antistreaming_ipod::apply_sync(&ipod, &plan, &selection.tracks, &selection.playlists, &mut prepare, &mut progress);
+    let library = app.state::<LibraryState>();
+    let mut cover = |library_id: i64| library.artwork(library_id, None).map(|art| art.bytes);
+    let result =
+        antistreaming_ipod::apply_sync(&ipod, &plan, &selection.tracks, &selection.playlists, &mut prepare, &mut cover, &mut progress);
     if let Some(done) = previous {
         let _ = std::fs::remove_file(done);
     }
@@ -632,6 +651,7 @@ mod tests {
             enabled: true,
             in_cloud: false,
             missing: false,
+            loudness: None,
             compilation: false,
             sort_title: None,
             sort_artist: None,
@@ -781,7 +801,8 @@ mod tests {
             missing: 0,
         };
         let mut stages = Vec::new();
-        sync_to_player(&player, &chosen, work.path(), &AtomicBool::new(false), &mut |p| stages.push(p.stage)).unwrap();
+        let summary = sync_to_player(&player, &chosen, work.path(), &AtomicBool::new(false), &mut |p| stages.push(p.stage)).unwrap();
+        assert_eq!((summary.copied, summary.skipped.len()), (2, 0));
 
         let mut files: Vec<PathBuf> = walk(root.path()).into_iter().filter(|p| !p.to_string_lossy().contains(".antistreaming")).collect();
         files.sort();

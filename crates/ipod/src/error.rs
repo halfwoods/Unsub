@@ -26,6 +26,10 @@ pub enum Error {
     Conflict(String),
     #[error("unreadable sync bookkeeping: {0}")]
     Mapping(String),
+    /// The iPod was short of space, so the tracks being removed were deleted first; then the sync
+    /// stopped. The device is valid and has fewer tracks than before, never more.
+    #[error("removed {removed} track(s) to make room, then the sync failed: {source}")]
+    AfterRemovals { removed: usize, source: Box<Error> },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

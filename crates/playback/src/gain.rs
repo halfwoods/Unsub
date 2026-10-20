@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use serde::{Deserialize, Serialize};
+
 /// Time a full-scale gain change takes; short enough to feel instant, long enough to avoid clicks.
 const RAMP_SECONDS: f32 = 0.010;
 
@@ -25,6 +27,36 @@ fn sanitize(volume: f32) -> f32 {
         0.0
     } else {
         volume.clamp(0.0, 1.0)
+    }
+}
+
+/// Highest true peak a track may reach once Sound Check has adjusted it. There is no limiter
+/// behind it, and a little headroom keeps the converter from clipping on inter-sample overs.
+const CEILING_DBTP: f32 = -1.0;
+
+/// Sound Check's adjustment for one track, from its measured loudness.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gain {
+    /// The change that brings the track to the target loudness; positive boosts.
+    pub db: f32,
+    /// The track's own true peak in dBTP, which limits how far it can be boosted.
+    pub peak_dbtp: f32,
+}
+
+impl Gain {
+    /// What is really applied: `db`, held back so that the adjusted peak stays at or under
+    /// -1 dBTP. A track too close to full scale gets less boost than asked for, or a cut.
+    /// A gain that is not a number is ignored rather than passed on to the speakers.
+    pub fn applied_db(self) -> f32 {
+        if !self.db.is_finite() || self.peak_dbtp.is_nan() {
+            return 0.0;
+        }
+        self.db.min(CEILING_DBTP - self.peak_dbtp)
+    }
+
+    pub(crate) fn amplitude(self) -> f32 {
+        10f32.powf(self.applied_db() / 20.0)
     }
 }
 
@@ -114,5 +146,50 @@ mod tests {
             ramp.next(0.3);
         }
         assert_eq!(ramp.gain(), 0.3);
+    }
+
+    #[test]
+    fn a_boost_stops_where_the_peak_would_pass_minus_one_dbtp() {
+        let gain = |db, peak_dbtp| Gain { db, peak_dbtp }.applied_db();
+        assert_eq!(gain(12.0, -6.0), 5.0);
+        assert_eq!(gain(3.0, -6.0), 3.0, "a boost with room is left alone");
+        assert_eq!(gain(-8.0, -0.1), -8.0, "a cut never needs holding back");
+        assert!((gain(2.0, -0.5) + 0.5).abs() < 1e-6, "no room means a cut");
+        assert_eq!(gain(6.0, f32::NEG_INFINITY), 6.0, "silence cannot clip");
+    }
+
+    #[test]
+    fn a_gain_that_is_not_a_number_is_not_applied() {
+        for (db, peak_dbtp) in [(f32::NAN, -6.0), (f32::INFINITY, -6.0), (3.0, f32::NAN)] {
+            let gain = Gain { db, peak_dbtp };
+            assert_eq!(gain.applied_db(), 0.0, "{db} {peak_dbtp}");
+            assert_eq!(gain.amplitude(), 1.0);
+        }
+    }
+
+    #[test]
+    fn amplitude_is_the_decibel_gain_as_a_ratio() {
+        let amplitude = |db| {
+            Gain {
+                db,
+                peak_dbtp: -30.0,
+            }
+            .amplitude()
+        };
+        assert!((amplitude(6.0206) - 2.0).abs() < 1e-4);
+        assert!((amplitude(-20.0) - 0.1).abs() < 1e-6);
+        assert_eq!(amplitude(0.0), 1.0);
+    }
+
+    #[test]
+    fn gain_reads_camel_case_json() {
+        let gain: Gain = serde_json::from_str(r#"{"db": -3.5, "peakDbtp": -0.2}"#).unwrap();
+        assert_eq!(
+            gain,
+            Gain {
+                db: -3.5,
+                peak_dbtp: -0.2
+            }
+        );
     }
 }

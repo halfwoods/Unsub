@@ -11,6 +11,7 @@ mod error;
 mod ffmpeg_source;
 mod gain;
 mod host;
+mod loudness;
 mod mix;
 mod mp4;
 mod output;
@@ -26,6 +27,8 @@ mod wasapi_exclusive;
 
 pub use decoder::{Backend, Codec, Decoder};
 pub use error::{Error, Result};
+pub use gain::Gain;
+pub use loudness::{BlockHistogram, Loudness, album_loudness, analyze_loudness};
 pub use mix::ChannelLayout;
 pub use player::{PlaybackState, PlaybackStatus, Player, PlayerEvent};
 pub use transcode::{Target, TranscodeOptions, ipod_compatible, transcode_file, transcode_stream};

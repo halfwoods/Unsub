@@ -64,6 +64,7 @@ mod tests {
             username: "alice".into(),
             password: "sesame".into(),
             api_key: api_key.map(str::to_owned),
+            default_max_kbps: None,
         }
     }
 

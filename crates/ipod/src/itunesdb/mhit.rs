@@ -53,6 +53,9 @@ pub(super) mod at {
     /// libgpod: "what the heck is this?!" iTunes writes 0x808080808080 here.
     pub(in crate::itunesdb) const UNKNOWN_0X134: usize = 0x134;
     pub(in crate::itunesdb) const ARTWORK_LINK_FLAG: usize = 0x168;
+    pub(in crate::itunesdb) const ARTWORK_COUNT: usize = 124;
+    pub(in crate::itunesdb) const ARTWORK_SIZE: usize = 128;
+    pub(in crate::itunesdb) const MHII_LINK: usize = 0x160;
     pub(in crate::itunesdb) const ARTIST_ID: usize = 0x1e0;
     pub(in crate::itunesdb) const COMPOSER_ID: usize = 0x1f4;
 }

@@ -321,6 +321,7 @@ fn debug_output_of_the_config_redacts_secrets() {
         username: "alice".into(),
         password: "top-secret-password".into(),
         api_key: Some("top-secret-key".into()),
+        default_max_kbps: None,
     };
     let debug = format!("{config:?} {config:#?}");
     assert!(!debug.contains("top-secret"));

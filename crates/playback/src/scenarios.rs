@@ -596,3 +596,154 @@ mod bit_perfect {
         );
     }
 }
+
+mod sound_check {
+    use super::*;
+    use crate::Gain;
+
+    /// The fixtures are 440 Hz sines peaking at -6.02 dBFS.
+    const QUIET: Gain = Gain {
+        db: -6.0,
+        peak_dbtp: -6.02,
+    };
+    const LOUD: Gain = Gain {
+        db: 3.0,
+        peak_dbtp: -6.4,
+    };
+
+    fn scaled(name: &str, gain: Gain) -> Vec<f32> {
+        let amplitude = gain.amplitude();
+        decode(name)
+            .iter()
+            .map(|sample| sample * amplitude)
+            .collect()
+    }
+
+    #[test]
+    fn the_device_receives_each_track_at_its_own_gain_with_the_change_on_the_boundary() {
+        let mut rig = rig(Config::default());
+        rig.player.play_with(1, fixture("sine.flac"), Some(QUIET));
+        rig.player
+            .queue_next_with(2, fixture("sine.mp3"), Some(LOUD));
+        rig.until_stopped();
+
+        let both = [scaled("sine.flac", QUIET), scaled("sine.mp3", LOUD)].concat();
+        assert_played(&rig.heard(), &both, 0, 2_000);
+        assert_eq!(rig.opened().len(), 1, "the gain change keeps the stream");
+    }
+
+    #[test]
+    fn the_status_follows_the_audible_track_across_a_gapless_boundary() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play_with(1, fixture("sine.flac"), Some(QUIET));
+        rig.player
+            .queue_next_with(2, fixture("sine.mp3"), Some(LOUD));
+
+        rig.await_status("the first track's gain", |s| {
+            s.track_id == Some(1) && s.gain_db == Some(-6.0)
+        });
+        rig.await_status("the second track's gain", |s| {
+            s.track_id == Some(2) && s.gain_db == Some(3.0)
+        });
+        rig.until_stopped();
+        assert_eq!(rig.player.status().gain_db, None);
+    }
+
+    #[test]
+    fn a_boost_is_held_back_so_the_device_never_sees_more_than_minus_one_dbtp() {
+        let mut rig = rig(Config::default());
+        let greedy = Gain {
+            db: 12.0,
+            peak_dbtp: -6.02,
+        };
+        rig.player.play_with(1, fixture("sine.flac"), Some(greedy));
+        rig.until_playing(1);
+        let applied = rig.player.status().gain_db.expect("a gain is applied");
+        assert!((applied - 5.02).abs() < 1e-4, "{applied}");
+
+        rig.until_stopped();
+        let peak = rig
+            .heard()
+            .iter()
+            .fold(0.0_f32, |peak, s| peak.max(s.abs()));
+        let ceiling = 10f32.powf(-1.0 / 20.0);
+        assert!(
+            (peak - ceiling).abs() < 1e-3,
+            "peak {peak}, ceiling {ceiling}"
+        );
+    }
+
+    #[test]
+    fn a_seek_while_the_next_track_is_already_decoded_keeps_the_playing_tracks_gain() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play_with(1, fixture("sine.flac"), Some(QUIET));
+        rig.player
+            .queue_next_with(2, fixture("sine.mp3"), Some(LOUD));
+        // The ring holds half a second, so by now the whole first track is decoded and the
+        // second has been handed on to, with its louder gain, ahead of what is heard.
+        rig.await_status("most of the first track", |s| s.position_ms >= 650);
+
+        rig.player.seek(300);
+        rig.until_stopped();
+
+        let tail = [
+            scaled("sine.flac", QUIET)[2 * 13_230..].to_vec(),
+            scaled("sine.mp3", LOUD),
+        ]
+        .concat();
+        // The sine repeats every 2205 frames, so the end of the first track is told apart from
+        // what was heard before the seek by running on into the second track. From frame 40000
+        // of the first track on, everything was only ever heard after the seek.
+        let late = 2 * (40_000 - 13_230);
+        let join = 2 * (44_100 - 13_230);
+        let heard = rig.heard();
+        let at = find(&heard, &tail[join - 256..join + 256]).expect("the first track running on");
+        let start = at - (join - 256 - late);
+        let rest = &tail[late..];
+        assert!(
+            heard[start..start + rest.len() - 2_000] == rest[..rest.len() - 2_000],
+            "the rest of the first track is at its own gain and the second follows at its own"
+        );
+    }
+
+    #[test]
+    fn bit_perfect_plays_the_file_untouched_and_reports_no_gain() {
+        let mut rig = rig(Config::default());
+        rig.player.set_bit_perfect(true);
+        rig.player.play_with(1, fixture("sine.flac"), Some(QUIET));
+        rig.until_playing(1);
+        let status = rig.player.status();
+        assert!(status.bit_perfect);
+        assert_eq!(status.gain_db, None);
+
+        rig.until_stopped();
+        assert_played(&rig.heard(), &decode("sine.flac"), 0, 2_000);
+    }
+
+    #[test]
+    fn the_gain_comes_and_goes_with_bit_perfect_mode_on_the_same_track() {
+        let mut rig = rig(Config {
+            speed: 1,
+            ..Config::default()
+        });
+        rig.player.play_with(1, fixture("sine.flac"), Some(QUIET));
+        rig.until_playing(1);
+        assert_eq!(rig.player.status().gain_db, Some(-6.0));
+
+        rig.player.set_bit_perfect(true);
+        rig.await_status("bit-perfect", |s| s.bit_perfect);
+        assert_eq!(rig.player.status().gain_db, None);
+
+        rig.player.set_bit_perfect(false);
+        rig.await_status("normal output", |s| {
+            !s.bit_perfect && s.state == PlaybackState::Playing
+        });
+        assert_eq!(rig.player.status().gain_db, Some(-6.0));
+    }
+}

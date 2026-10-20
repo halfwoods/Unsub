@@ -57,6 +57,19 @@ pub struct SyncProgress {
     pub current: String,
 }
 
+/// What a finished sync did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncSummary {
+    /// Tracks copied to the device, new and updated.
+    pub copied: usize,
+    /// Tracks deleted from the device.
+    pub removed: usize,
+    /// Tracks `prepare` could not produce a file for, with its reason. They are not on the device,
+    /// and the next sync tries them again.
+    pub skipped: Vec<(i64, String)>,
+}
+
 type Prepare<'a> = &'a mut dyn FnMut(&SyncItem, &Profile) -> io::Result<std::path::PathBuf>;
 type Progress<'a> = &'a mut dyn FnMut(SyncProgress);
 
@@ -71,6 +84,8 @@ type Progress<'a> = &'a mut dyn FnMut(SyncProgress);
 ///
 /// Refuses, writing nothing, a plan that does not fit or that was made against a different state of
 /// the device.
+///
+/// Returns what was done. Playlists are not counted: they are rewritten every time.
 pub fn apply(
     device: &Device,
     plan: &SyncPlan,
@@ -79,7 +94,7 @@ pub fn apply(
     prepare: Prepare<'_>,
     progress: Progress<'_>,
     cancel: &AtomicBool,
-) -> Result<()> {
+) -> Result<SyncSummary> {
     let storage = storage::open(device)?;
     apply_with(
         Target {
@@ -104,7 +119,7 @@ pub fn apply_with(
     prepare: Prepare<'_>,
     progress: Progress<'_>,
     cancel: &AtomicBool,
-) -> Result<()> {
+) -> Result<SyncSummary> {
     let mut job = Job::start(target, plan, items, playlists, prepare, progress, cancel)?;
     let outcome = job.run();
     if outcome.is_err() {
@@ -112,7 +127,7 @@ pub fn apply_with(
         // from before the batch is what the next sync recovers from.
         let _ = job.commit_batch();
     }
-    outcome
+    outcome.map(|()| job.summary)
 }
 
 struct Job<'a> {
@@ -130,6 +145,7 @@ struct Job<'a> {
     dirty: bool,
     /// Files replaced by a renamed copy in this batch, to delete once the batch is recorded.
     replaced: Vec<String>,
+    summary: SyncSummary,
 }
 
 impl<'a> Job<'a> {
@@ -176,6 +192,7 @@ impl<'a> Job<'a> {
             cancel,
             dirty: false,
             replaced: Vec::new(),
+            summary: SyncSummary::default(),
         };
         job.validate_plan()?;
         job.recover()?;
@@ -270,7 +287,9 @@ impl<'a> Job<'a> {
                 current: file.path.clone(),
             });
         }
-        self.retire(paths)
+        self.retire(paths)?;
+        self.summary.removed = self.plan.remove.len();
+        Ok(())
     }
 
     /// Updates first, then additions, in batches. Before a batch the manifest says which paths it
@@ -321,6 +340,7 @@ impl<'a> Job<'a> {
                 total,
                 current: format!("{}: {why}", item.title),
             });
+            job.summary.skipped.push((item.library_id, why));
         };
         let prepared = match (self.prepare)(item, self.profile) {
             Ok(path) => path,
@@ -380,6 +400,7 @@ impl<'a> Job<'a> {
         );
         self.dirty = true;
         self.replaced.extend(file.replaces.clone());
+        self.summary.copied += 1;
         Ok(())
     }
 

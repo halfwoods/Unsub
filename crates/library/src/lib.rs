@@ -6,6 +6,7 @@ mod duplicates;
 mod edit;
 mod error;
 mod library;
+mod loudness;
 mod matching;
 mod missing;
 mod mix;
@@ -25,6 +26,9 @@ pub use cloud::{ensure_local, is_dataless};
 pub use edit::{EditReport, TrackEdits};
 pub use error::{Error, Result};
 pub use library::Library;
+pub use loudness::{
+    AlbumLoudness, Gain, GainMode, Loudness, LoudnessSource, TrackLoudness, itunes_soundcheck,
+};
 pub use model::{
     AlbumSummary, ArtistSummary, Artwork, ComposerSummary, ExternalStats, ExternalTrack,
     GenreSummary, LibraryStats, MatchQuality, MediaKind, Mix, Playlist, PlaylistKind, ScanProgress,

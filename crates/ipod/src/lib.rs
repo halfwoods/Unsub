@@ -15,6 +15,7 @@ mod play_counts;
 mod sync;
 mod sysinfo;
 mod time;
+mod verify;
 
 pub use database::{Database, IpodMediaKind, IpodPlaylist, IpodTrack, Usage, read_database};
 pub use device::{DatabaseFormat, Ipod, open};
@@ -24,5 +25,9 @@ pub use error::{Error, Result};
 pub use models::{IpodFamily, IpodModel, SyncSupport};
 pub use sync::{
     PlayDelta, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, apply_sync,
-    clear_play_counts, plan_sync, read_play_counts_for_sync_back,
+    artwork_supported, clear_play_counts, plan_sync, read_play_counts_for_sync_back,
+};
+pub use verify::{
+    ArtworkCheck, ChecksumCheck, ChunkCount, FieldDifference, HeaderChange, RecordDifference,
+    RoundtripReport, SectionSize, verify_roundtrip,
 };

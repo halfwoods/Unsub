@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::gain::Gain;
+
 /// What the engine needs to remember about a track once its decoder has moved on.
 #[derive(Clone, Debug)]
 pub struct TrackInfo {
@@ -7,6 +9,7 @@ pub struct TrackInfo {
     pub path: PathBuf,
     pub duration_ms: u64,
     pub sample_rate: u32,
+    pub gain: Option<Gain>,
 }
 
 pub struct Transition {
@@ -101,6 +104,7 @@ mod tests {
             path: PathBuf::from(format!("{id}.flac")),
             duration_ms,
             sample_rate: 44_100,
+            gain: None,
         }
     }
 

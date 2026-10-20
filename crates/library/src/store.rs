@@ -48,6 +48,11 @@ const COLUMNS: &[&str] = &[
     "enabled",
     "in_cloud",
     "missing",
+    "loudness_lufs",
+    "true_peak_dbtp",
+    "loudness_source",
+    "album_loudness_lufs",
+    "album_true_peak_dbtp",
     "artist_group",
     "album_group",
 ];
@@ -63,6 +68,13 @@ const KEPT_ON_REFRESH: &[&str] = &[
     "rating",
     "enabled",
 ];
+
+/// The columns holding the track's own measurement. A measurement made by this
+/// app outlives a re-read while the file is as it was: the audio can only have
+/// changed if its size or modification time did.
+const TRACK_LOUDNESS: &[&str] = &["loudness_lufs", "true_peak_dbtp", "loudness_source"];
+const KEEP_MEASUREMENT: &str = "(tracks.loudness_source = 'analyzed'
+    AND tracks.file_size = excluded.file_size AND tracks.date_modified = excluded.date_modified)";
 
 pub(crate) enum WriteMode {
     /// Rows come from re-reading files: SQLite assigns new ids, and a known
@@ -91,12 +103,27 @@ pub(crate) fn write_tracks<'a>(
         .map(|column| format!(":{column}"))
         .collect::<Vec<_>>()
         .join(", ");
-    let updates = COLUMNS
+    let refreshing = matches!(mode, WriteMode::RefreshTags);
+    let mut updates: Vec<String> = COLUMNS
         .iter()
         .filter(|column| !kept.contains(*column))
-        .map(|column| format!("{column} = excluded.{column}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .map(|column| {
+            if refreshing && TRACK_LOUDNESS.contains(column) {
+                format!("{column} = CASE WHEN {KEEP_MEASUREMENT} THEN tracks.{column} ELSE excluded.{column} END")
+            } else {
+                format!("{column} = excluded.{column}")
+            }
+        })
+        .collect();
+    // The analyzer's state belongs to its measurement and goes when that does.
+    updates.push(if refreshing {
+        format!(
+            "loudness_state = CASE WHEN {KEEP_MEASUREMENT} THEN tracks.loudness_state ELSE NULL END"
+        )
+    } else {
+        "loudness_state = NULL".to_owned()
+    });
+    let updates = updates.join(", ");
     let sql = format!(
         "INSERT INTO tracks ({}) VALUES ({placeholders})
          ON CONFLICT({conflict_target}) DO UPDATE SET {updates}",
@@ -174,6 +201,11 @@ pub(crate) fn write_tracks<'a>(
                 ":parser_version": if track.in_cloud { 0 } else { TAG_PARSER_VERSION },
                 ":in_cloud": track.in_cloud,
                 ":missing": track.missing,
+                ":loudness_lufs": track.loudness.as_ref().map(|l| l.lufs),
+                ":true_peak_dbtp": track.loudness.as_ref().and_then(|l| l.true_peak_dbtp),
+                ":loudness_source": track.loudness.as_ref().map(|l| l.source),
+                ":album_loudness_lufs": track.loudness.as_ref().and_then(|l| l.album_lufs),
+                ":album_true_peak_dbtp": track.loudness.as_ref().and_then(|l| l.album_true_peak_dbtp),
                 ":enabled": track.enabled,
                 ":artist_group": artist_group,
                 ":album_group": album_group,

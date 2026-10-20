@@ -1,6 +1,7 @@
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
+use crate::loudness::TrackLoudness;
 use crate::smart::SmartRules;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,7 +77,7 @@ impl Default for TrackQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: i64,
@@ -116,6 +117,9 @@ pub struct Track {
     /// The file was not found at `path` when last checked (`check_missing`); a
     /// rescan that finds it clears the flag, `relink` points the track elsewhere.
     pub missing: bool,
+    /// How loud the track is, once known: read from its tags at scan time or
+    /// measured by the app.
+    pub loudness: Option<TrackLoudness>,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,

@@ -5,6 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
 
 use crate::error::{Error, Result};
 use crate::library::Library;
+use crate::loudness::TrackLoudness;
 use crate::model::{LibraryStats, SortKey, Track, TrackQuery};
 use crate::normalize::fold;
 use crate::playlist::{members_sql, playlist_row};
@@ -16,7 +17,8 @@ pub(crate) const TRACK_COLUMNS: &str =
     track_number, track_count, disc_number, disc_count, duration_ms, bitrate_kbps, sample_rate,
     bit_depth, channels, codec, file_size, date_added, date_modified, play_count, last_played,
     skip_count, rating, kind, compilation, sort_title, sort_artist, sort_album, sort_album_artist,
-    enabled, in_cloud, missing";
+    enabled, in_cloud, missing, loudness_lufs, true_peak_dbtp, loudness_source,
+    album_loudness_lufs, album_true_peak_dbtp";
 
 impl Library {
     pub fn tracks(&self, query: &TrackQuery) -> Result<Vec<Track>> {
@@ -62,6 +64,20 @@ impl Library {
     }
 }
 
+/// A track has loudness once its own is known; an album figure alone says nothing about it.
+fn loudness_from_row(row: &Row<'_>) -> rusqlite::Result<Option<TrackLoudness>> {
+    let Some(lufs) = row.get::<_, Option<f64>>(35)? else {
+        return Ok(None);
+    };
+    Ok(Some(TrackLoudness {
+        lufs,
+        true_peak_dbtp: row.get(36)?,
+        source: row.get(37)?,
+        album_lufs: row.get(38)?,
+        album_true_peak_dbtp: row.get(39)?,
+    }))
+}
+
 /// Positional access: by-name lookup rescans the column list per field, which
 /// dominates the cost of materialising a 100k-row library.
 pub(crate) fn track_from_row(row: &Row<'_>) -> rusqlite::Result<Track> {
@@ -101,6 +117,7 @@ pub(crate) fn track_from_row(row: &Row<'_>) -> rusqlite::Result<Track> {
         enabled: row.get(32)?,
         in_cloud: row.get(33)?,
         missing: row.get(34)?,
+        loudness: loudness_from_row(row)?,
     })
 }
 

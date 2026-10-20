@@ -239,6 +239,7 @@ fn tracks(cd: &Inserted) -> Vec<Track> {
             enabled: cd.checked.contains(&track.number),
             in_cloud: false,
             missing: false,
+            loudness: None,
             compilation: false,
             sort_title: None,
             sort_artist: None,

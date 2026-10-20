@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -89,9 +90,51 @@ pub fn library_track(library: &Path, library_id: i64, title: &str) -> SyncTrack 
         sort_artist: Some("Bjork".to_owned()),
         sort_album: None,
         sort_album_artist: Some("Bjork".to_owned()),
-        artwork: None,
+        artwork_key: None,
         library_id,
     }
+}
+
+/// Where the reader says the track titled `title` lives on the iPod.
+pub fn track_path(fake: &FakeIpod, title: &str) -> PathBuf {
+    read_database(&opened(fake))
+        .unwrap()
+        .tracks
+        .iter()
+        .find(|track| track.title == title)
+        .unwrap_or_else(|| panic!("no track {title}"))
+        .path
+        .clone()
+}
+
+thread_local! {
+    static COVERS: RefCell<HashMap<i64, Vec<u8>>> = RefCell::new(HashMap::new());
+    static ASKED_FOR: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Gives the track a cover. The library hands `apply_sync` only a cheap key per track and the bytes
+/// on request, so the bytes live here (per test thread) and the key is a hash of them.
+pub fn register_cover(track: &mut SyncTrack, cover: Vec<u8>) {
+    let key = cover.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    track.artwork_key = Some(key);
+    COVERS.with(|covers| covers.borrow_mut().insert(track.library_id, cover));
+}
+
+/// The `cover` callback of `apply_sync`, answering from [`register_cover`] and noting each request.
+pub fn cover_provider(library_id: i64) -> Option<Vec<u8>> {
+    ASKED_FOR.with(|asked| asked.borrow_mut().push(library_id));
+    COVERS.with(|covers| covers.borrow().get(&library_id).cloned())
+}
+
+/// The library ids whose covers have been requested so far in this test, then forgotten.
+pub fn covers_asked_for() -> Vec<i64> {
+    ASKED_FOR.with(|asked| std::mem::take(&mut *asked.borrow_mut()))
+}
+
+pub fn no_cover(_: i64) -> Option<Vec<u8>> {
+    None
 }
 
 pub fn copy_as_is(track: &SyncTrack) -> io::Result<PathBuf> {
@@ -117,6 +160,7 @@ pub fn sync(
         tracks,
         playlists,
         &mut copy_as_is,
+        &mut cover_provider,
         &mut |_| {},
     )
     .unwrap();
@@ -124,7 +168,9 @@ pub fn sync(
 }
 
 mod add;
+pub mod artwork;
 mod faults;
 mod incremental;
 mod refusals;
 mod structure;
+mod swap;

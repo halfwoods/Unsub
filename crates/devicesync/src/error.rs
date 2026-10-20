@@ -13,6 +13,9 @@ pub enum Error {
     },
     #[error("{0}")]
     Unsupported(&'static str),
+    /// The system refused to eject the device, usually because something still has a file open.
+    #[error("could not eject {device}: {message}")]
+    Eject { device: String, message: String },
     /// The sync was stopped through its cancel flag. Everything copied before that is recorded.
     #[error("the sync was cancelled")]
     Cancelled,

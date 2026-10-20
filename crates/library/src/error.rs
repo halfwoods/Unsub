@@ -36,6 +36,8 @@ pub enum Error {
     InvalidArtwork(String),
     #[error("another track already uses the path {0}")]
     PathInUse(String),
+    #[error("not a believable loudness measurement: {0}")]
+    InvalidLoudness(String),
     #[error("choose a media folder first")]
     NoMediaFolder,
     #[error("could not move {} file(s) to the Trash", .0.len())]

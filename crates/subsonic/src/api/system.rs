@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde_json::json;
 
 use super::{Ctx, Reply};
@@ -52,8 +54,9 @@ pub fn extensions(ctx: &Ctx) -> Result<Reply> {
     Ok(Reply::Doc("openSubsonicExtensions", extensions.into()))
 }
 
-/// Subsonic sends `time` in milliseconds; the source takes seconds. Repeated `id`s pair up with
-/// repeated `time`s by position.
+/// A play is a `scrobble` with `submission=true` (the default) and a "now playing" ping is one with
+/// `submission=false`. Repeated `id`s pair up with repeated `time`s by position; `time` is in
+/// milliseconds, and the current time stands in for a missing one.
 pub async fn scrobble(ctx: &Ctx) -> Result<Reply> {
     let ids: Vec<String> = ctx.params.all("id").map(str::to_owned).collect();
     if ids.is_empty() {
@@ -71,11 +74,20 @@ pub async fn scrobble(ctx: &Ctx) -> Result<Reply> {
         .params
         .get("submission")
         .is_some_and(|value| value.eq_ignore_ascii_case("false"));
+    let client = ctx.params.get("c").unwrap_or("unknown").to_owned();
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
 
     ctx.source(move |source| {
         ids.iter().enumerate().try_for_each(|(position, id)| {
-            let at_unix = times.get(position).map(|millis| millis.div_euclid(1_000));
-            source.scrobble(id, at_unix, submission)
+            if submission {
+                source.scrobble(id, times.get(position).copied().unwrap_or(now_ms))
+            } else {
+                source.now_playing(id, &client)
+            }
         })
     })
     .await?;

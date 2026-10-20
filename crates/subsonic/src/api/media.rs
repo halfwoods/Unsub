@@ -19,7 +19,10 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 
-use super::{Ctx, Reply};
+use super::{
+    Ctx, Reply,
+    delivery::{self, Delivery},
+};
 use crate::{
     Error, Result, Stream,
     range::{self, ByteRange},
@@ -46,33 +49,56 @@ pub async fn cover_art(ctx: &Ctx) -> Result<Reply> {
     Ok(Reply::Raw((headers, Body::from(bytes)).into_response()))
 }
 
-/// `maxBitRate=0` and `format=raw` both mean "as stored".
+/// Sends the song as stored, or converted when the client's `format` and `maxBitRate`, or the
+/// server's default cap, call for it and the source can. A conversion is chunked: no length and no
+/// `Range`. Where the source cannot convert, the original goes out.
 pub async fn stream(ctx: &Ctx) -> Result<Reply> {
     let id = ctx.params.required("id")?.to_owned();
-    let max_bitrate = ctx
-        .params
-        .number::<u32>("maxBitRate")?
-        .filter(|&kbps| kbps > 0);
-    let format = ctx
-        .params
-        .get("format")
-        .filter(|format| !format.eq_ignore_ascii_case("raw"))
-        .map(str::to_owned);
-    let stream = ctx
-        .source(move |source| source.open_stream(&id, max_bitrate, format.as_deref()))
-        .await?
-        .ok_or(Error::NotFound)?;
-    deliver(stream, &ctx.headers, false).await
+    let request = delivery::Request {
+        format: ctx.params.get("format"),
+        max_bitrate: ctx
+            .params
+            .number::<u32>("maxBitRate")?
+            .filter(|&kbps| kbps > 0),
+        default_max: ctx.state.config.default_max_kbps,
+    };
+    if request.may_convert() {
+        let lookup = id.clone();
+        let song = ctx
+            .source(move |source| source.song(&lookup))
+            .await?
+            .ok_or(Error::NotFound)?;
+        if let Delivery::Convert { format, max_kbps } = delivery::choose(&request, &song) {
+            let wanted = id.clone();
+            let converted = ctx
+                .source(move |source| Ok(source.transcoded(&wanted, format, max_kbps)))
+                .await?;
+            if let Some(converted) = converted {
+                let (reader, content_type) = converted?;
+                let stream = Stream::Reader {
+                    reader,
+                    content_type: content_type.to_owned(),
+                    length: None,
+                };
+                return deliver(stream, &ctx.headers, false).await;
+            }
+        }
+    }
+    original(ctx, id, false).await
 }
 
-/// Always the original file, never a transcode.
+/// Always the original file, never a conversion.
 pub async fn download(ctx: &Ctx) -> Result<Reply> {
     let id = ctx.params.required("id")?.to_owned();
+    original(ctx, id, true).await
+}
+
+async fn original(ctx: &Ctx, id: String, attachment: bool) -> Result<Reply> {
     let stream = ctx
-        .source(move |source| source.open_stream(&id, None, None))
+        .source(move |source| source.open_stream(&id))
         .await?
         .ok_or(Error::NotFound)?;
-    deliver(stream, &ctx.headers, true).await
+    deliver(stream, &ctx.headers, attachment).await
 }
 
 async fn deliver(stream: Stream, request: &HeaderMap, attachment: bool) -> Result<Reply> {

@@ -6,18 +6,20 @@ use std::path::Path;
 
 use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
-use lofty::id3::v2::FrameId;
-use lofty::mp4::{Mp4Codec, Mp4File};
+use lofty::id3::v2::{Frame, FrameId, Id3v2Tag};
+use lofty::iff::aiff::AiffFile;
+use lofty::mp4::{AtomData, AtomIdent, Ilst, Mp4Codec, Mp4File};
 use lofty::mpeg::MpegFile;
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, Tag};
 
 use crate::error::{Error, Result};
+use crate::loudness::{self, TrackLoudness};
 use crate::model::MediaKind;
 
 /// Bump whenever `read` starts extracting something differently, so a rescan
 /// re-reads files whose size and mtime say they are unchanged.
-pub(crate) const TAG_PARSER_VERSION: u32 = 2;
+pub(crate) const TAG_PARSER_VERSION: u32 = 3;
 
 /// Everything derived from the file's contents; filesystem facts (size, mtime)
 /// are filled in by the scanner.
@@ -41,6 +43,7 @@ pub(crate) struct TrackMeta {
     pub codec: &'static str,
     pub kind: MediaKind,
     pub compilation: bool,
+    pub loudness: Option<TrackLoudness>,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
@@ -51,6 +54,8 @@ struct Parsed {
     file: TaggedFile,
     codec: &'static str,
     id3_podcast_frame: bool,
+    /// iTunes' Sound Check data, which only the concrete tag types expose.
+    itunnorm: Option<String>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
@@ -60,6 +65,7 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         file,
         codec,
         id3_podcast_frame,
+        itunnorm,
     } = parse(path, options)?;
     let properties = file.properties();
     let tag = file.primary_tag().or_else(|| file.first_tag());
@@ -102,6 +108,7 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         codec,
         kind: media_kind(path, tag, &genre, id3_podcast_frame),
         compilation: flag(tag, ItemKey::FlagCompilation),
+        loudness: loudness::from_tags(&file, itunnorm.as_deref()),
         sort_title: optional_text(tag, ItemKey::TrackTitleSortOrder),
         sort_artist: optional_text(tag, ItemKey::TrackArtistSortOrder),
         sort_album: optional_text(tag, ItemKey::AlbumTitleSortOrder),
@@ -120,12 +127,12 @@ fn parse(path: &Path, options: ParseOptions) -> Result<Parsed> {
     let codec = match probe.file_type() {
         Some(FileType::Mp4) => return parse_mp4(probe, options),
         Some(FileType::Mpeg) => return parse_mpeg(probe, options),
+        Some(FileType::Aiff) => return parse_aiff(probe, options),
         Some(FileType::Flac) => "FLAC",
         Some(FileType::Aac) => "AAC",
         Some(FileType::Vorbis) => "Vorbis",
         Some(FileType::Opus) => "Opus",
         Some(FileType::Wav) => "WAV",
-        Some(FileType::Aiff) => "AIFF",
         Some(FileType::WavPack) => "WavPack",
         Some(FileType::Ape) => "APE",
         _ => return Err(Error::UnsupportedFormat),
@@ -134,6 +141,7 @@ fn parse(path: &Path, options: ParseOptions) -> Result<Parsed> {
         file: probe.read()?,
         codec,
         id3_podcast_frame: false,
+        itunnorm: None,
     })
 }
 
@@ -147,10 +155,12 @@ fn parse_mp4(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Par
         Some(Mp4Codec::FLAC) => "FLAC",
         _ => "AAC",
     };
+    let itunnorm = mp4_itunnorm(mp4.ilst());
     Ok(Parsed {
         file: mp4.into(),
         codec,
         id3_podcast_frame: false,
+        itunnorm,
     })
 }
 
@@ -162,10 +172,48 @@ fn parse_mpeg(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Pa
     let id3_podcast_frame = mpeg
         .id3v2()
         .is_some_and(|tag| tag.get(&FrameId::Valid(Cow::Borrowed("PCST"))).is_some());
+    let itunnorm = id3_itunnorm(mpeg.id3v2());
     Ok(Parsed {
         file: mpeg.into(),
         codec: "MP3",
         id3_podcast_frame,
+        itunnorm,
+    })
+}
+
+/// AIFF is what iTunes' CD import makes when asked for lossless-uncompressed,
+/// and it keeps its ID3 tag, Sound Check data included.
+fn parse_aiff(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Parsed> {
+    let aiff = AiffFile::read_from(&mut probe.into_inner(), options)?;
+    let itunnorm = id3_itunnorm(aiff.id3v2());
+    Ok(Parsed {
+        file: aiff.into(),
+        codec: "AIFF",
+        id3_podcast_frame: false,
+        itunnorm,
+    })
+}
+
+/// A `COMM` frame described "iTunNORM". The generic tag keeps only comments
+/// with no description, so this reads the ID3 tag itself.
+fn id3_itunnorm(tag: Option<&Id3v2Tag>) -> Option<String> {
+    tag?.clone().into_iter().find_map(|frame| match frame {
+        Frame::Comment(comment) if comment.description.eq_ignore_ascii_case("iTunNORM") => {
+            Some(comment.content.into_owned())
+        }
+        _ => None,
+    })
+}
+
+/// The `----:com.apple.iTunes:iTunNORM` freeform atom.
+fn mp4_itunnorm(ilst: Option<&Ilst>) -> Option<String> {
+    let ident = AtomIdent::Freeform {
+        mean: Cow::Borrowed("com.apple.iTunes"),
+        name: Cow::Borrowed("iTunNORM"),
+    };
+    ilst?.get(&ident)?.data().find_map(|data| match data {
+        AtomData::UTF8(text) | AtomData::UTF16(text) => Some(text.clone()),
+        _ => None,
     })
 }
 

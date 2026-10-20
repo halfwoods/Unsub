@@ -11,7 +11,7 @@ use std::{
 
 use antistreaming_subsonic::{
     Album, AlbumListKind, Artist, Error, Genre, MusicSource, Playlist, Result, SearchResult,
-    Server, ServerConfig, Song, Stream,
+    Server, ServerConfig, Song, Stream, StreamFormat,
 };
 use serde_json::Value;
 
@@ -40,8 +40,6 @@ pub type AlbumListCall = (
     Option<(i32, i32)>,
 );
 pub type RandomSongsCall = (usize, Option<String>, Option<(i32, i32)>);
-pub type OpenStreamCall = (String, Option<u32>, Option<String>);
-pub type ScrobbleCall = (String, Option<i64>, bool);
 pub type SearchCall = (String, (usize, usize), (usize, usize), (usize, usize));
 
 /// What the server asked the source for, to check that request parameters arrive intact.
@@ -51,13 +49,53 @@ pub struct Calls {
     pub random_songs: Vec<RandomSongsCall>,
     pub search: Vec<SearchCall>,
     pub cover_art: Vec<(String, Option<u32>)>,
-    pub open_stream: Vec<OpenStreamCall>,
-    pub scrobbles: Vec<ScrobbleCall>,
+    pub open_stream: Vec<String>,
+    pub transcoded: Vec<(String, StreamFormat, Option<u32>)>,
+    /// `(song id, time in ms)`.
+    pub scrobbles: Vec<(String, i64)>,
+    /// `(song id, client)`.
+    pub now_playing: Vec<(String, String)>,
+}
+
+pub type Converted = Option<Result<(Box<dyn Read + Send>, &'static str)>>;
+pub type Converter = Box<dyn Fn(&str, StreamFormat, Option<u32>) -> Converted + Send + Sync>;
+
+/// How the fake source answers `transcoded`.
+#[derive(Default)]
+pub enum Transcode {
+    /// The default: this source cannot convert, so the original is sent.
+    #[default]
+    Unsupported,
+    /// Canned bytes that depend on the format and bitrate asked for.
+    Canned,
+    /// The converter breaks.
+    Failing,
+    /// Something else, such as the real thing.
+    With(Converter),
+}
+
+/// The bytes `Transcode::Canned` returns, so a test can tell which conversion it got.
+pub fn canned(format: StreamFormat, max_kbps: Option<u32>) -> Vec<u8> {
+    let name = format.name();
+    let tag = ((name.len() as u8 * 16) + name.as_bytes()[0]) ^ max_kbps.unwrap_or(0) as u8;
+    (0..CANNED_LEN).map(|i| (i % 251) as u8 ^ tag).collect()
+}
+
+pub const CANNED_LEN: usize = 30_000;
+
+pub fn canned_mime(format: StreamFormat) -> &'static str {
+    match format {
+        StreamFormat::Mp3 => "audio/mpeg",
+        StreamFormat::Aac => "audio/aac",
+        StreamFormat::Opus => "audio/ogg",
+        StreamFormat::Flac => "audio/flac",
+    }
 }
 
 pub struct FakeSource {
     dir: tempfile::TempDir,
     pub calls: Mutex<Calls>,
+    pub transcode: Mutex<Transcode>,
 }
 
 impl FakeSource {
@@ -69,6 +107,7 @@ impl FakeSource {
         Self {
             dir,
             calls: Mutex::default(),
+            transcode: Mutex::default(),
         }
     }
 
@@ -170,6 +209,23 @@ impl FakeSource {
             song("s-6", "Slow Burn", ("al-2", "Revolver"), 3),
             // Opened with a download name that needs encoding.
             song("s-7", "Unicode Name", ("al-2", "Revolver"), 4),
+            // Lossless, and a low bitrate mp3: what the bitrate-driven conversions are chosen between.
+            Song {
+                id: "s-9".into(),
+                title: "Lossless".into(),
+                suffix: Some("flac".into()),
+                content_type: Some("audio/flac".into()),
+                bit_rate: Some(900),
+                ..Song::default()
+            },
+            Song {
+                id: "s-10".into(),
+                title: "Small".into(),
+                suffix: Some("mp3".into()),
+                content_type: Some("audio/mpeg".into()),
+                bit_rate: Some(128),
+                ..Song::default()
+            },
             // Nothing but the required fields.
             Song {
                 id: "s-8".into(),
@@ -184,8 +240,8 @@ impl FakeSource {
     }
 }
 
-struct SlowReader {
-    chunks_left: usize,
+pub struct SlowReader {
+    pub chunks_left: usize,
 }
 
 impl Read for SlowReader {
@@ -350,23 +406,18 @@ impl MusicSource for FakeSource {
         Ok((id == "al-1").then(|| ("image/png".to_owned(), b"\x89PNG fake image".to_vec())))
     }
 
-    fn open_stream(
-        &self,
-        song_id: &str,
-        max_bitrate_kbps: Option<u32>,
-        format: Option<&str>,
-    ) -> Result<Option<Stream>> {
-        self.calls.lock().unwrap().open_stream.push((
-            song_id.to_owned(),
-            max_bitrate_kbps,
-            format.map(str::to_owned),
-        ));
+    fn open_stream(&self, song_id: &str) -> Result<Option<Stream>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .open_stream
+            .push(song_id.to_owned());
         let file = |name: &str| Stream::File {
             path: self.path(name),
             content_type: "audio/mpeg".into(),
         };
         Ok(match song_id {
-            "s-1" => Some(file("song1.mp3")),
+            "s-1" | "s-9" | "s-10" => Some(file("song1.mp3")),
             "s-2" => Some(file("missing.mp3")),
             "s-3" => Some(Stream::Reader {
                 reader: Box::new(Cursor::new(
@@ -387,12 +438,38 @@ impl MusicSource for FakeSource {
         })
     }
 
-    fn scrobble(&self, song_id: &str, at_unix: Option<i64>, submission: bool) -> Result<()> {
+    fn transcoded(&self, song_id: &str, format: StreamFormat, max_kbps: Option<u32>) -> Converted {
+        self.calls
+            .lock()
+            .unwrap()
+            .transcoded
+            .push((song_id.to_owned(), format, max_kbps));
+        match &*self.transcode.lock().unwrap() {
+            Transcode::Unsupported => None,
+            Transcode::Canned => Some(Ok((
+                Box::new(Cursor::new(canned(format, max_kbps))),
+                canned_mime(format),
+            ))),
+            Transcode::Failing => Some(Err(Error::Source("the encoder is missing".into()))),
+            Transcode::With(convert) => convert(song_id, format, max_kbps),
+        }
+    }
+
+    fn scrobble(&self, song_id: &str, time_ms: i64) -> Result<()> {
         self.calls
             .lock()
             .unwrap()
             .scrobbles
-            .push((song_id.to_owned(), at_unix, submission));
+            .push((song_id.to_owned(), time_ms));
+        Ok(())
+    }
+
+    fn now_playing(&self, song_id: &str, client: &str) -> Result<()> {
+        self.calls
+            .lock()
+            .unwrap()
+            .now_playing
+            .push((song_id.to_owned(), client.to_owned()));
         Ok(())
     }
 }
@@ -404,6 +481,14 @@ pub struct Resp {
 }
 
 impl Resp {
+    pub fn new(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -452,13 +537,29 @@ impl Harness {
     }
 
     pub fn start_with_password(api_key: Option<&str>, password: &str) -> Self {
+        Self::start_configured(|config| {
+            config.api_key = api_key.map(str::to_owned);
+            config.password = password.to_owned();
+        })
+    }
+
+    /// The server's default cap on streaming bitrate, and how the source answers conversions.
+    pub fn start_converting(default_max_kbps: Option<u32>, transcode: Transcode) -> Self {
+        let harness = Self::start_configured(|config| config.default_max_kbps = default_max_kbps);
+        *harness.source.transcode.lock().unwrap() = transcode;
+        harness
+    }
+
+    pub fn start_configured(edit: impl FnOnce(&mut ServerConfig)) -> Self {
         let source = Arc::new(FakeSource::new());
-        let config = ServerConfig {
+        let mut config = ServerConfig {
             bind: ([127, 0, 0, 1], 0).into(),
             username: USER.into(),
-            password: password.into(),
-            api_key: api_key.map(str::to_owned),
+            password: PASSWORD.into(),
+            api_key: Some(API_KEY.to_owned()),
+            default_max_kbps: None,
         };
+        edit(&mut config);
         let server = Server::start(config, source.clone()).unwrap();
         let base = format!("http://{}", server.local_addr());
         Self {

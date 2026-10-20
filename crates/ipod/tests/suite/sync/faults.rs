@@ -56,7 +56,15 @@ fn apply_with(
     prepare: &mut dyn FnMut(&SyncTrack) -> io::Result<PathBuf>,
 ) -> Result<Database, Error> {
     let plan = plan(fake, tracks, &[]);
-    apply_sync(&opened(fake), &plan, tracks, &[], prepare, &mut |_| {})
+    apply_sync(
+        &opened(fake),
+        &plan,
+        tracks,
+        &[],
+        prepare,
+        &mut no_cover,
+        &mut |_| {},
+    )
 }
 
 #[test]
@@ -215,6 +223,7 @@ fn a_sync_that_does_not_fit_is_refused_before_anything_is_copied() {
         &tracks,
         &[],
         &mut copy_as_is,
+        &mut no_cover,
         &mut |_| {},
     );
 
@@ -334,9 +343,18 @@ fn a_damaged_database_is_either_refused_untouched_or_rewritten_validly() {
             remove: vec![],
             bytes_needed: 0,
             fits: true,
+            removals_first: false,
         };
 
-        match apply_sync(&ipod, &empty, &[], &[], &mut copy_as_is, &mut |_| {}) {
+        match apply_sync(
+            &ipod,
+            &empty,
+            &[],
+            &[],
+            &mut copy_as_is,
+            &mut no_cover,
+            &mut |_| {},
+        ) {
             Err(_) => {
                 refused += 1;
                 assert_eq!(

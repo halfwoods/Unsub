@@ -1,6 +1,8 @@
 //! Reader for iTunesDB and iTunesCDB. Structure and offsets follow libgpod's `parse_fimp`,
 //! `find_mhsd` and `itdb_zlib_check_decompress_fimp`; see the sibling modules for each record type.
 
+pub(crate) mod artwork;
+mod census;
 mod chunks;
 mod edit;
 mod emit;
@@ -10,6 +12,7 @@ mod mhit;
 mod mhod;
 mod playlists;
 pub(crate) mod raw;
+pub(crate) mod roundtrip;
 mod view;
 
 use std::fs;
@@ -21,6 +24,7 @@ use flate2::read::ZlibDecoder;
 use self::chunks::{Chunk, MHBD, MHSD};
 pub(crate) use self::edit::{Codec, Metadata, Origin};
 pub(crate) use self::emit::emit;
+pub(crate) use self::hash58::{scheme as checksum_scheme, verify as verify_checksum};
 pub(crate) use self::mhit::native_path;
 pub(crate) use self::mhod::PATH;
 use crate::bytes::{tag_at, u32_at};

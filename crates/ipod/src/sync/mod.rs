@@ -8,9 +8,12 @@
 //! * music is copied before the database that references it is committed, and removed files are
 //!   deleted only after it;
 //! * the new database replaces the old one by atomic rename, with the old one kept beside it, so a
-//!   failure at any point leaves a database that still works.
+//!   failure at any point leaves a database that still works;
+//! * album art is only ever appended to the thumbnail files and the ArtworkDB, so art this app did
+//!   not add is never touched, and a failed sync truncates what it appended.
 
 mod apply;
+mod artwork_support;
 mod commit;
 mod files;
 mod mapping;
@@ -27,6 +30,7 @@ use crate::error::{Error, Result};
 use crate::models::{IpodFamily, SyncSupport};
 
 pub use apply::apply_sync;
+pub use artwork_support::artwork_supported;
 pub use plan::plan_sync;
 pub use play_deltas::{PlayDelta, clear_play_counts, read_play_counts_for_sync_back};
 
@@ -65,9 +69,12 @@ pub struct SyncTrack {
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,
     pub sort_album_artist: Option<String>,
-    /// Cover art (JPEG or PNG). Artwork is not written to the iPod yet, so this is ignored.
-    #[serde(skip)]
-    pub artwork: Option<Vec<u8>>,
+    /// A cheap identity for this track's cover (a hash or modification time, say), or `None` for
+    /// no cover. Covers are not passed in here: `apply_sync` asks for the bytes of the few it
+    /// needs, one at a time. A key that differs from the one recorded when the cover was last
+    /// written marks the track for update, so a changed cover is noticed without loading it.
+    /// Tracks of one album with the same key are given the same cover, fetched once.
+    pub artwork_key: Option<u64>,
     /// The app's id for the track, which must stay the same for the same track across syncs: it is
     /// how a later sync finds the copy on the iPod to update or remove.
     pub library_id: i64,
@@ -90,12 +97,17 @@ pub struct SyncPlan {
     pub update: Vec<i64>,
     /// iPod track ids, all of tracks this app added earlier whose `library_id` is no longer wanted.
     pub remove: Vec<u32>,
-    /// Size of the source files of `add`. A prepared (transcoded) file can differ; the source is a
-    /// safe estimate when transcoding shrinks, and is exact for plain copies.
+    /// Size of the source files of `add`, plus the thumbnails of the covers that will be added. A
+    /// prepared (transcoded) file can differ; the source is a safe estimate when transcoding
+    /// shrinks, and is exact for plain copies.
     pub bytes_needed: u64,
-    /// Whether `bytes_needed` plus working space for the database rewrite fits in the free space.
-    /// Removed files are deleted only after the new database is committed, so they do not count.
+    /// Whether `bytes_needed` plus working space for the database rewrite fits in the free space,
+    /// counting the space `remove` frees when `removals_first` says it must be freed first.
     pub fits: bool,
+    /// True when the sync fits only if the tracks in `remove` are deleted before anything is
+    /// copied. Then `apply_sync` commits that removal first, as its own step: a failure later
+    /// leaves the iPod with fewer tracks than before, never more.
+    pub removals_first: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -154,7 +166,7 @@ pub(crate) fn checksum_key(ipod: &Ipod) -> Result<Option<[u8; 8]>> {
 }
 
 /// 16 hex digits, the form every iPod's FireWire GUID has.
-fn parse_guid(guid: &str) -> Option<[u8; 8]> {
+pub(crate) fn parse_guid(guid: &str) -> Option<[u8; 8]> {
     if guid.len() != 16 {
         return None;
     }

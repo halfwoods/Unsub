@@ -18,8 +18,17 @@ fn assert_refused(fake: &FakeIpod, reason_contains: &str) {
         remove: vec![],
         bytes_needed: 4000,
         fits: true,
+        removals_first: false,
     };
-    let applied = apply_sync(&ipod, &forged, &tracks, &[], &mut copy_as_is, &mut |_| {});
+    let applied = apply_sync(
+        &ipod,
+        &forged,
+        &tracks,
+        &[],
+        &mut copy_as_is,
+        &mut no_cover,
+        &mut |_| {},
+    );
     let cleared = clear_play_counts(&ipod);
 
     for result in [planned.map(drop), applied.map(drop), cleared] {
@@ -117,6 +126,7 @@ fn a_database_the_writer_cannot_reproduce_is_refused_untouched() {
         remove: vec![],
         bytes_needed: 4000,
         fits: true,
+        removals_first: false,
     };
 
     let result = apply_sync(
@@ -125,6 +135,7 @@ fn a_database_the_writer_cannot_reproduce_is_refused_untouched() {
         &tracks,
         &[],
         &mut copy_as_is,
+        &mut no_cover,
         &mut |_| {},
     );
 
