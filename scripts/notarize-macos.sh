@@ -45,5 +45,11 @@ if [ "$status" != "Accepted" ]; then
   die "notarization finished with status: $status"
 fi
 
-xcrun stapler staple "$target"
+# Stapling fetches the ticket from Apple's CDN, which can drop the connection right after an
+# accepted submission; the notarization itself stands, so a few retries are all it needs.
+for attempt in 1 2 3 4 5; do
+  xcrun stapler staple "$target" && break
+  [ "$attempt" -lt 5 ] || die "stapling failed after $attempt attempts"
+  sleep $((attempt * 15))
+done
 xcrun stapler validate "$target"
