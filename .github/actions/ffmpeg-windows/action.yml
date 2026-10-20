@@ -1,0 +1,28 @@
+name: FFmpeg for Windows
+description: >
+  Installs the pinned, LGPL-only FFmpeg through vcpkg (binary-cached between runs) and exports
+  FFMPEG_DIR, LIBCLANG_PATH and PATH for ffmpeg-sys-next and for tests that load the DLLs.
+
+inputs:
+  vcpkg-commit:
+    description: vcpkg commit to build from; it fixes the FFmpeg version.
+    required: true
+  stage-dir:
+    description: If set, the FFmpeg DLLs are copied here for the installer to bundle.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Restore vcpkg binary cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/vcpkg-binary-cache
+        key: vcpkg-ffmpeg-${{ inputs.vcpkg-commit }}-${{ hashFiles('scripts/install-ffmpeg-windows.ps1') }}
+
+    - name: Install FFmpeg
+      shell: pwsh
+      env:
+        VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
+      run: ./scripts/install-ffmpeg-windows.ps1 -VcpkgCommit '${{ inputs.vcpkg-commit }}' -StageDir '${{ inputs.stage-dir }}'

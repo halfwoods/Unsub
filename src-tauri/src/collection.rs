@@ -300,6 +300,8 @@ on run persistentIDs
 end run
 "#;
 
+// Only macOS has a Music app to ask, so only it has the command that returns this.
+#[cfg(target_os = "macos")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadRequest {

@@ -1,0 +1,32 @@
+name: FFmpeg for macOS
+description: >
+  Builds the pinned, LGPL-only FFmpeg from scripts/build-ffmpeg-macos.sh (cached between runs)
+  and points pkg-config at it, so ffmpeg-sys-next links the same build that ships.
+
+runs:
+  using: composite
+  steps:
+    - name: Install build dependencies
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      run: brew install lame opus pkgconf
+
+    - name: Restore FFmpeg build
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/ffmpeg-prefix
+        key: ffmpeg-macos-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg-macos.sh') }}
+
+    - name: Build FFmpeg
+      shell: bash
+      env:
+        MACOSX_DEPLOYMENT_TARGET: "11.0"
+      # Returns at once when the cache restored a prefix with a matching build stamp.
+      run: scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/ffmpeg-prefix"
+
+    - name: Point pkg-config at it
+      shell: bash
+      # The Homebrew directory supplies opus.pc, which libavcodec.pc requires.
+      run: echo "PKG_CONFIG_PATH=$RUNNER_TEMP/ffmpeg-prefix/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> "$GITHUB_ENV"

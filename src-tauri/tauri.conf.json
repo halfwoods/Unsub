@@ -33,6 +33,10 @@
     "active": true,
     "targets": "all",
     "category": "Music",
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "../scripts/entitlements.plist"
+    },
     "copyright": "GPL-3.0-or-later",
     "icon": [
       "icons/32x32.png",

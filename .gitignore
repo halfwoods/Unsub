@@ -25,3 +25,6 @@ dist-ssr
 
 # Rust workspace build output
 /target
+
+# FFmpeg libraries staged for bundling by the release scripts
+src-tauri/ffmpeg-bundle/

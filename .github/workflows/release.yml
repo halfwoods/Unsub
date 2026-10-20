@@ -1,0 +1,315 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds signed installers and opens a draft GitHub release.
+# Run by hand (Actions > Release > Run workflow) with "sign" off to rehearse the pipeline with
+# ad hoc signing and no secrets; that never publishes anything.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   macOS    APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
+#            APPLE_CERTIFICATE_PASSWORD  its export password
+#            APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
+#            APPLE_ID                    Apple account email, for notarization
+#            APPLE_PASSWORD              app-specific password for that account
+#            APPLE_TEAM_ID               developer team ID
+#   Windows  WINDOWS_CERTIFICATE         optional: base64 of a .pfx; unsigned installers without it
+#            WINDOWS_CERTIFICATE_PASSWORD
+# These are the variable names of Tauri's code-signing guides
+# (https://v2.tauri.app/distribute/sign/macos/ and .../windows/).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign and notarize with the repository secrets
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_TOOLCHAIN: 1.93.1
+  # vcpkg release 2026.07.29, whose ffmpeg port is 8.1.2 (see scripts/install-ffmpeg-windows.ps1).
+  VCPKG_COMMIT: c76c06644034521fb761a39f8f52d8e87d1103d5
+  SIGN: ${{ github.event_name == 'push' || inputs.sign }}
+
+jobs:
+  verify:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag matches the app version
+        if: github.ref_type == 'tag'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          tauri=$(jq -r .version src-tauri/tauri.conf.json)
+          cargo=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "tag $tag, tauri.conf.json $tauri, workspace $cargo"
+          [ "$tag" = "$tauri" ] && [ "$tag" = "$cargo" ] || { echo "::error::version mismatch"; exit 1; }
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    # Notarization is bounded separately (NOTARIZE_TIMEOUT); the first submission of a new developer
+    # account can queue for a long time.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One native build per architecture: FFmpeg and its libraries are per-architecture, so a
+          # universal binary would need two of everything stitched together.
+          - arch: arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.target }}
+      - uses: ./.github/actions/ffmpeg-macos
+
+      - name: Check the signing secrets exist
+        if: env.SIGN == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # An empty secret would otherwise degrade to an ad hoc signature without any warning.
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || { echo "::error::repository secret $name is not set"; exit 1; }
+          done
+
+      # Tauri's documented flow imports the .p12 into a keychain and hands the identity over.
+      # The keychain is private to this job, so its password can be made up on the spot.
+      - name: Import the signing certificate
+        if: env.SIGN == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          keychain_password=$(uuidgen)
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security default-keychain -s "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
+          security find-identity -v -p codesigning "$keychain" | grep -F "$APPLE_SIGNING_IDENTITY" ||
+            { echo "::error::identity '$APPLE_SIGNING_IDENTITY' is not in the imported certificate"; exit 1; }
+          echo "CODESIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      # No APPLE_* variables here on purpose: Tauri would sign and notarize this bundle, but
+      # FFmpeg is only embedded afterwards, which invalidates both. See the steps below.
+      - name: Build the app bundle
+        run: pnpm exec tauri build --ci --target ${{ matrix.target }} --bundles app --config .github/tauri/macos-release.conf.json
+      - name: Locate the bundle
+        run: |
+          app="$PWD/target/${{ matrix.target }}/release/bundle/macos/AntiStreaming.app"
+          [ -d "$app" ] || { echo "::error::$app was not built"; exit 1; }
+          echo "APP=$app" >> "$GITHUB_ENV"
+
+      - name: Embed FFmpeg and sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.SIGN == 'true' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
+          ENTITLEMENTS: scripts/entitlements.plist
+        run: scripts/bundle-ffmpeg-macos.sh "$APP"
+
+      - name: Notarize the app
+        if: env.SIGN == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: scripts/notarize-macos.sh "$APP"
+
+      - name: Build the disk image
+        id: dmg
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          dmg="$RUNNER_TEMP/AntiStreaming_${version}_${{ matrix.arch }}.dmg"
+          stage="$RUNNER_TEMP/dmg-stage"
+          mkdir "$stage"
+          ditto "$APP" "$stage/AntiStreaming.app"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -volname AntiStreaming -srcfolder "$stage" -fs HFS+ -format UDZO "$dmg"
+          echo "path=$dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Sign and notarize the disk image
+        if: env.SIGN == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: |
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --keychain "$CODESIGN_KEYCHAIN" --timestamp "$DMG"
+          scripts/notarize-macos.sh "$DMG"
+          # What Gatekeeper will say on a user's Mac.
+          spctl --assess --type open --context context:primary-signature -v "$DMG"
+          spctl --assess --type execute -vv "$APP"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-${{ matrix.arch }}
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+
+      - name: Remove the keychain
+        if: always() && env.CODESIGN_KEYCHAIN != ''
+        run: security delete-keychain "$CODESIGN_KEYCHAIN" || true
+
+  windows:
+    name: Windows
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # The DLLs land in src-tauri/ffmpeg-bundle, which .github/tauri/windows-release.conf.json
+      # maps into the install folder next to the exe, where Windows looks for them first.
+      - uses: ./.github/actions/ffmpeg-windows
+        with:
+          vcpkg-commit: ${{ env.VCPKG_COMMIT }}
+          stage-dir: src-tauri/ffmpeg-bundle
+
+      # Optional: without WINDOWS_CERTIFICATE the installers are built unsigned.
+      - name: Import the signing certificate
+        if: env.SIGN == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host 'No WINDOWS_CERTIFICATE secret: the installers will be unsigned.'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'certificate.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          # Tauri's Windows signing options, as in its code-signing guide, supplied for this run only.
+          $overlay = Join-Path $env:RUNNER_TEMP 'windows-sign.conf.json'
+          @{ bundle = @{ windows = @{
+              certificateThumbprint = $certificate.Thumbprint
+              digestAlgorithm = 'sha256'
+              timestampUrl = 'http://timestamp.digicert.com'
+          } } } | ConvertTo-Json -Depth 5 | Set-Content -Path $overlay
+          Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_SIGN_CONFIG=$overlay"
+
+      - name: Build the installers
+        shell: pwsh
+        run: |
+          $arguments = @('--ci', '--bundles', 'nsis,msi', '--config', '.github/tauri/windows-release.conf.json')
+          if ($env:WINDOWS_SIGN_CONFIG) { $arguments += @('--config', $env:WINDOWS_SIGN_CONFIG) }
+          pnpm exec tauri build @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check the installers
+        shell: pwsh
+        run: |
+          $installers = Get-ChildItem target/release/bundle -Recurse -Include *.exe, *.msi |
+            Where-Object { $_.FullName -match '\\(nsis|msi)\\' }
+          if (-not $installers) { throw 'no installers were built' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            Write-Host "$($installer.Name): $($signature.Status)"
+            if ($env:WINDOWS_SIGN_CONFIG -and $signature.Status -ne 'Valid') {
+              throw "$($installer.Name) is not validly signed"
+            }
+          }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+  publish:
+    name: Draft release
+    if: github.ref_type == 'tag'
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+      # The LGPL asks for the source of the FFmpeg that was built; hosting the exact tarball with
+      # the release avoids depending on ffmpeg.org's archive staying put.
+      - name: Attach the FFmpeg source
+        run: |
+          version=$(sed -n 's/^VERSION=//p' scripts/build-ffmpeg-macos.sh)
+          sha256=$(sed -n 's/^SHA256=//p' scripts/build-ffmpeg-macos.sh)
+          file="artifacts/ffmpeg-$version-source.tar.xz"
+          curl --fail --location --silent --show-error --output "$file" "https://ffmpeg.org/releases/ffmpeg-$version.tar.xz"
+          echo "$sha256  $file" | sha256sum --check -
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          AntiStreaming is free software under the GNU GPL v3 or later. It ships FFmpeg (LGPL 2.1 or
+          later), libmp3lame (LGPL) and libopus (BSD-3-Clause) as separate, replaceable libraries.
+          Source for this release is attached to the tag; see scripts/THIRD_PARTY.md for the exact
+          upstream versions and where to get their source.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "AntiStreaming ${GITHUB_REF_NAME#v}" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes \
+            artifacts/*

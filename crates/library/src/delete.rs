@@ -12,6 +12,7 @@ use crate::organize::prune_empty_dirs;
 /// On macOS this uses the file manager's own call, which needs no permission
 /// prompt, at the cost of "Put Back" not always being offered.
 pub(crate) fn move_to_trash(path: &Path) -> io::Result<()> {
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut context = trash::TrashContext::default();
     #[cfg(target_os = "macos")]
     {

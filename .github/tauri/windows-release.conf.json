@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": {
+      "ffmpeg-bundle/*.dll": "./",
+      "ffmpeg-bundle/licenses/*": "licenses/"
+    }
+  }
+}
