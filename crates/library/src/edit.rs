@@ -87,6 +87,15 @@ pub struct EditReport {
     pub move_failed: Vec<(i64, String)>,
 }
 
+impl EditReport {
+    pub fn merge(&mut self, other: EditReport) {
+        self.written.extend(other.written);
+        self.db_only.extend(other.db_only);
+        self.moved.extend(other.moved);
+        self.move_failed.extend(other.move_failed);
+    }
+}
+
 impl TrackEdits {
     /// Anything a file's tags can hold.
     fn touches_tags(&self) -> bool {

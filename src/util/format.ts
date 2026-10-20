@@ -1,3 +1,5 @@
+import type { CleanUpDone, EditReport } from "../api/types";
+
 /** "3:07", or "1:02:07" past an hour, the way the LCD and Time column show it. */
 export function formatClock(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -20,6 +22,22 @@ export function formatBytes(bytes: number): string {
   const mb = bytes / (1024 * 1024);
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+/** What to tell the user about the songs whose files could not take an edit, or null when every file did. */
+export function dbOnlyNotice(report: EditReport): string | null {
+  const files = report.dbOnly.length;
+  if (files === 0) return null;
+  return `${files === 1 ? "One file" : `${files.toLocaleString()} files`} couldn't be changed; the library has the new info`;
+}
+
+/** What a finished clean-up tells the user. */
+export function cleanUpNotice({ report, stopped, error }: CleanUpDone): string {
+  if (error) return `Couldn't finish cleaning up song info: ${error}`;
+  const songs = pluralize(report.written.length + report.dbOnly.length, "song", "songs");
+  const done = stopped ? `Stopped after updating ${songs}` : `Updated ${songs}`;
+  const libraryOnly = dbOnlyNotice(report);
+  return libraryOnly ? `${done}. ${libraryOnly}` : done;
 }
 
 export function pluralize(count: number, singular: string, plural: string): string {

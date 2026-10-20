@@ -2,6 +2,7 @@ mod albums;
 mod artwork;
 mod bookmarks;
 mod chapters;
+mod cleanup;
 mod cloud;
 mod common;
 mod database;

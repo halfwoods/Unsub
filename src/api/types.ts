@@ -127,6 +127,57 @@ export interface EditReport {
   moveFailed: [number, string][];
 }
 
+/** The text field Advanced › Clean Up Song Info works on; only the name loses track numbers and artists. */
+export type CleanUpField = "title" | "artist" | "album" | "albumArtist" | "composer" | "genre";
+
+export type Capitalization = "title" | "sentence" | "lower" | "upper";
+
+/** The operations that are on run in this order: tidy, junk, track numbers, artist, characters, replace, capitalize. */
+export interface CleanUpRules {
+  field: CleanUpField;
+  tidy: boolean;
+  removeJunk: boolean;
+  removeTrackNumbers: boolean;
+  removeArtist: boolean;
+  removeCharacters: { count: number; from: "start" | "end" } | null;
+  /** An empty `find` replaces nothing. */
+  replace: { find: string; with: string; matchCase: boolean } | null;
+  capitalize: Capitalization | null;
+}
+
+export interface CleanUpChange {
+  id: number;
+  before: string;
+  after: string;
+  /** Taken from the name, for a song with no artist. */
+  artist: string | null;
+  /** Taken from the name, only for a song with no track (or disc) number. */
+  trackNumber: number | null;
+  discNumber: number | null;
+  /** The song's file is still in the cloud, so the change can only be kept in the library. */
+  inCloud: boolean;
+}
+
+export interface CleanUpPreview {
+  /** Every song the rules would change, of which `changes` lists the first few. */
+  total: number;
+  /** How many of those songs are only in the cloud. */
+  inCloud: number;
+  changes: CleanUpChange[];
+}
+
+export interface CleanUpProgress {
+  done: number;
+  total: number;
+}
+
+/** How a clean-up ended: `error` is why it stopped before the end, if it did. */
+export interface CleanUpDone {
+  report: EditReport;
+  stopped: boolean;
+  error: string | null;
+}
+
 export interface MediaSettings {
   folder: string | null;
   organize: boolean;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { cdStopImport, deviceCancelSync, libraryMixFor, playerSeek } from "../api/commands";
+import { cdStopImport, deviceCancelSync, libraryCancelCleanUp, libraryMixFor, playerSeek } from "../api/commands";
 import type { Chapter, RadioStation } from "../api/types";
 import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
@@ -186,6 +186,7 @@ export function Lcd() {
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
   const organize = useApp((s) => s.organize);
+  const cleanUp = useApp((s) => s.cleanUp);
   const importProgress = useApp((s) => s.importProgress);
   const syncingName = useApp(
     (s) => [...s.devices, ...s.players].find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "device",
@@ -266,6 +267,17 @@ export function Lcd() {
         subtitle={`Song ${cdRip.index + 1} of ${cdRip.count}`}
         fraction={cdRip.fraction}
         onCancel={() => void cdStopImport()}
+      />
+    );
+  }
+
+  if (cleanUp) {
+    return (
+      <ProgressLcd
+        title="Cleaning Up Song Info"
+        subtitle={`${cleanUp.done.toLocaleString()} of ${cleanUp.total.toLocaleString()}`}
+        fraction={cleanUp.total > 0 ? cleanUp.done / cleanUp.total : null}
+        onCancel={() => void libraryCancelCleanUp()}
       />
     );
   }

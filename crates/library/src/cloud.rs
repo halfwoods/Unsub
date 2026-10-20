@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::model::MediaKind;
+use crate::normalize::trailing_group;
 use crate::tags::TrackMeta;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -257,9 +258,12 @@ fn codec_for(extension: &str) -> &'static str {
 
 /// Peels "disc-track" or "track" numbers off the front of a file name. A bare
 /// number only counts when it is zero-padded ("07 Song") or followed by
-/// punctuation ("7. Song"), so "7 Rings" and "2Pac" keep theirs.
-fn split_track_prefix(stem: &str) -> Option<(Option<u32>, u32, String)> {
-    const SEPARATORS: [char; 5] = [' ', '.', '-', '_', ')'];
+/// punctuation ("7. Song"), so "7 Rings" and "2Pac" keep theirs. Names that are
+/// numbers all the way down ("1-800-273-8255", "99.9F°"), a word after a dash
+/// ("3-Way") and a title that is only a bracketed note ("007 (Shanty Town)") are
+/// the song's own.
+pub(crate) fn split_track_prefix(stem: &str) -> Option<(Option<u32>, u32, String)> {
+    const SEPARATORS: [char; 7] = [' ', '.', '-', '_', ')', '–', '—'];
     let leading_digits = |text: &str| text.bytes().take_while(u8::is_ascii_digit).count().min(3);
     let first = leading_digits(stem);
     if first == 0 {
@@ -274,9 +278,15 @@ fn split_track_prefix(stem: &str) -> Option<(Option<u32>, u32, String)> {
     }
     let title = rest.trim_start_matches(SEPARATORS);
     let separator = &rest[..rest.len() - title.len()];
-    let looks_numbered =
-        disc.is_some() || track.starts_with('0') || separator.contains(&SEPARATORS[1..]);
-    if title.is_empty() || separator.is_empty() || !looks_numbered {
+    let bare_dash = separator.chars().all(|c| matches!(c, '-' | '–' | '—'));
+    let looks_numbered = disc.is_some()
+        || track.starts_with('0')
+        || (separator.contains(&SEPARATORS[1..]) && !bare_dash);
+    let more_numbers = !separator.contains(' ') && title.starts_with(|c: char| c.is_ascii_digit());
+    // Only a bare space: a dash after "03 - (Untitled)" says the number is a track's.
+    let only_a_note =
+        separator == " " && trailing_group(title).is_some_and(|(before, _)| before.is_empty());
+    if title.is_empty() || separator.is_empty() || !looks_numbered || more_numbers || only_a_note {
         return None;
     }
     Some((
@@ -299,7 +309,7 @@ mod tests {
 
     #[test]
     fn names_are_split_into_track_number_and_title() {
-        let cases: [(&str, Option<u32>, Option<u32>, &str); 14] = [
+        let cases: [(&str, Option<u32>, Option<u32>, &str); 29] = [
             ("01 - Halo", None, Some(1), "Halo"),
             ("02. Halo", None, Some(2), "Halo"),
             ("03 Halo", None, Some(3), "Halo"),
@@ -314,6 +324,31 @@ mod tests {
             ("1999", None, None, "1999"),
             ("01", None, None, "01"),
             ("Halo", None, None, "Halo"),
+            ("3 – Halo", None, Some(3), "Halo"),
+            ("3 — Halo", None, Some(3), "Halo"),
+            ("01–Halo", None, Some(1), "Halo"),
+            (
+                "01 (Sittin' On) The Dock of the Bay",
+                None,
+                Some(1),
+                "(Sittin' On) The Dock of the Bay",
+            ),
+            ("007 (Shanty Town)", None, None, "007 (Shanty Town)"),
+            ("03 - (Untitled)", None, Some(3), "(Untitled)"),
+            ("12 - [Hidden Track]", None, Some(12), "[Hidden Track]"),
+            (
+                "3-Way (The Golden Rule)",
+                None,
+                None,
+                "3-Way (The Golden Rule)",
+            ),
+            ("19-2000", None, None, "19-2000"),
+            ("1-800-273-8255", None, None, "1-800-273-8255"),
+            ("1-2-3", None, None, "1-2-3"),
+            ("2-4-6-8 Motorway", None, None, "2-4-6-8 Motorway"),
+            ("99.9F°", None, None, "99.9F°"),
+            ("10 Years", None, None, "10 Years"),
+            ("99 Luftballons", None, None, "99 Luftballons"),
         ];
         for (stem, disc, track, title) in cases {
             let found = meta(&format!("/m/{stem}.mp3"), None);
@@ -323,6 +358,24 @@ mod tests {
                 "{stem}"
             );
         }
+    }
+
+    #[test]
+    fn a_name_that_merely_starts_with_digits_keeps_them() {
+        for name in [
+            "867-5309/Jenny",
+            "2 + 2 = 5",
+            "1979",
+            "99 Luftballons",
+            "3-Way",
+            "[1] Intro",
+        ] {
+            assert_eq!(split_track_prefix(name), None, "{name}");
+        }
+        assert_eq!(
+            split_track_prefix("01 (Sittin' On) The Dock of the Bay"),
+            Some((None, 1, "(Sittin' On) The Dock of the Bay".to_owned()))
+        );
     }
 
     #[test]

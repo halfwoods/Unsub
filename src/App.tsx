@@ -10,6 +10,8 @@ import {
   onDeviceSync,
   onRemoteChanged,
   onOrganizeProgress,
+  onCleanUpDone,
+  onCleanUpProgress,
   onDevicesChanged,
   onImportProgress,
   onLibraryChanged,
@@ -46,6 +48,7 @@ import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
 import { chapterSeekTarget, isLibrarySource, isPlaylistSource, useApp } from "./state/store";
+import { cleanUpNotice } from "./util/format";
 import "./theme/base.css";
 import "./App.css";
 
@@ -68,6 +71,12 @@ function runMenuAction(action: MenuAction) {
     case "get-info":
       if (inLibrary && selection.size > 0) openLibrarySheet({ type: "info", trackIds: [...selection] });
       return;
+    case "clean-up": {
+      // With nothing selected, the whole list is cleaned up, as a playlist was by the scripts this replaces.
+      const trackIds = selection.size > 0 ? [...selection] : tracks.map((t) => t.id);
+      if (inLibrary && trackIds.length > 0) openLibrarySheet({ type: "cleanUp", trackIds });
+      return;
+    }
     case "show-in-finder": {
       const track = tracks.find((t) => selection.has(t.id));
       if (!inLibrary || !track) return;
@@ -150,6 +159,8 @@ function useBackendEvents() {
       onCdRip((cdRip) => useApp.setState({ cdRip })),
       onDeviceSync((deviceSync) => useApp.setState({ deviceSync })),
       onOrganizeProgress((organize) => useApp.setState({ organize })),
+      onCleanUpProgress((cleanUp) => useApp.setState({ cleanUp })),
+      onCleanUpDone((done) => useApp.getState().showNotice(cleanUpNotice(done))),
       onImportProgress((importProgress) => useApp.setState({ importProgress })),
       onScanProgress(setScan),
       onDownload((p) =>

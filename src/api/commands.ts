@@ -8,6 +8,10 @@ import type {
   AudioCd,
   CdRipStatus,
   Chapter,
+  CleanUpDone,
+  CleanUpPreview,
+  CleanUpProgress,
+  CleanUpRules,
   ComposerSummary,
   Device,
   DirectoryStation,
@@ -113,6 +117,15 @@ export const deviceStats = (deviceId: string, view: DeviceView, query: TrackQuer
 export const deviceEject = (deviceId: string) => invoke<void>("device_eject", { deviceId });
 export const libraryEditTracks = (trackIds: number[], edits: TrackEdits, artwork: ArtworkChange | null) =>
   invoke<EditReport>("library_edit_tracks", { trackIds, edits, artwork });
+export const libraryCleanUpPreview = (trackIds: number[], rules: CleanUpRules) =>
+  invoke<CleanUpPreview>("library_clean_up_preview", { trackIds, rules });
+/** Starts the clean-up in the background; its progress and end come as events. */
+export const libraryCleanUp = (trackIds: number[], rules: CleanUpRules) => invoke<void>("library_clean_up", { trackIds, rules });
+export const libraryCancelCleanUp = () => invoke<void>("library_cancel_clean_up");
+export const onCleanUpProgress = (handler: (progress: CleanUpProgress | null) => void): Promise<UnlistenFn> =>
+  listen<CleanUpProgress | null>("library://clean-up", (e) => handler(e.payload));
+export const onCleanUpDone = (handler: (done: CleanUpDone) => void): Promise<UnlistenFn> =>
+  listen<CleanUpDone>("library://clean-up-done", (e) => handler(e.payload));
 export const libraryMediaSettings = () => invoke<MediaSettings>("library_media_settings");
 export const librarySetMediaSettings = (folder: string, organize: boolean, copyOnAdd: boolean) =>
   invoke<void>("library_set_media_settings", { folder, organize, copyOnAdd });
@@ -316,6 +329,7 @@ export type MenuAction =
   | "organize-library"
   | "set-up-player"
   | "connect-to-server"
+  | "clean-up"
   | "open-stream"
   | "import-music-library"
   | "import-library-xml"

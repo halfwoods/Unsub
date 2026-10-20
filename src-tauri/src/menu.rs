@@ -40,6 +40,7 @@ const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("set-up-player", "Set Up Music Player…", None),
     ("connect-to-server", "Connect to Server…", Some("CmdOrCtrl+K")),
 ];
+const CLEAN_UP: (&str, &str, Option<&str>) = ("clean-up", "Clean Up Song Info…", None);
 const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("play-pause", "Play/Pause", None),
     ("next", "Next", Some("CmdOrCtrl+Right")),
@@ -120,6 +121,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         }
         controls.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
+    let advanced = Submenu::with_items(app, "Advanced", true, &[&MenuItem::with_id(app, CLEAN_UP.0, CLEAN_UP.1, true, CLEAN_UP.2)?])?;
     let window = Submenu::with_items(
         app,
         "Window",
@@ -131,7 +133,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &window])
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &advanced, &window])
 }
 
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
@@ -152,6 +154,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == IMPORT_XML
         || id == DELETE
         || id == SHOW_VISUALIZER.0
+        || id == CLEAN_UP.0
         || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {
         let _ = app.emit(MENU_ACTION_EVENT, id);

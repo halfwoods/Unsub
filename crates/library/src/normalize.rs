@@ -9,6 +9,7 @@ const RELEASE_NOTES: &[&str] = &[
     "remaster",
     "remastered",
     "remastered version",
+    "remastered edition",
     "digitally remastered",
     "mono",
     "mono version",
@@ -172,7 +173,7 @@ fn tidy(text: &str) -> String {
 }
 
 /// Splits `"Song (Live)"` into `("Song ", "Live")`.
-fn trailing_group(text: &str) -> Option<(&str, &str)> {
+pub(crate) fn trailing_group(text: &str) -> Option<(&str, &str)> {
     let (close, open) = match text.chars().next_back()? {
         ')' => (')', '('),
         ']' => (']', '['),
@@ -193,7 +194,7 @@ fn trailing_group(text: &str) -> Option<(&str, &str)> {
 }
 
 /// A release note, ignoring any year: "Remastered 2009" and "2011 Remaster".
-fn is_release_note(text: &str) -> bool {
+pub(crate) fn is_release_note(text: &str) -> bool {
     let words: Vec<&str> = text
         .split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty() && !is_year(word))
@@ -201,7 +202,7 @@ fn is_release_note(text: &str) -> bool {
     RELEASE_NOTES.contains(&words.join(" ").as_str())
 }
 
-fn is_year(word: &str) -> bool {
+pub(crate) fn is_year(word: &str) -> bool {
     word.len() == 4
         && (word.starts_with("19") || word.starts_with("20"))
         && word.bytes().all(|b| b.is_ascii_digit())

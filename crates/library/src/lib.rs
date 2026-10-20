@@ -1,6 +1,7 @@
 mod albums;
 mod artwork;
 mod chapters;
+mod cleanup;
 mod cloud;
 mod delete;
 mod duplicates;
@@ -26,6 +27,10 @@ mod tags;
 mod thumbnail;
 
 pub use chapters::Chapter;
+pub use cleanup::{
+    Capitalization, CleanUpChange, CleanUpField, CleanUpRules, RemoveCharacters, ReplaceText,
+    TextSide,
+};
 pub use cloud::{ensure_local, is_dataless};
 pub use edit::{EditReport, TrackEdits};
 pub use error::{Error, Result};

@@ -4,6 +4,7 @@ import { libraryDelete, libraryMediaSettings, libraryOrganize, libraryRelink } f
 import type { Track } from "../api/types";
 import { useApp } from "../state/store";
 import { pluralize } from "../util/format";
+import { CleanUpSheet } from "./CleanUpSheet";
 import { GetInfo } from "./GetInfo";
 import "./LibrarySheets.css";
 
@@ -124,6 +125,8 @@ export function LibrarySheets() {
   switch (sheet.type) {
     case "info":
       return <GetInfo trackIds={sheet.trackIds} />;
+    case "cleanUp":
+      return <CleanUpSheet trackIds={sheet.trackIds} />;
     case "locate":
       return <LocateSheet track={sheet.track} />;
     case "delete":

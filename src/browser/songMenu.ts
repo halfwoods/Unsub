@@ -36,6 +36,7 @@ export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean) {
   const menu = await Menu.new({
     items: [
       barItem("get-info", "Get Info"),
+      barItem("clean-up", "Clean Up Song Info…"),
       {
         text: "Rating",
         items: RATING_LABELS.map((text, stars) => ({

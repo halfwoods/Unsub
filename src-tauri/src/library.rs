@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use unsub_library::{
-    AlbumSummary, ArtistSummary, Chapter, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats, Lyrics, MediaSettings, Mix,
-    OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits, TrackQuery,
+    AlbumSummary, ArtistSummary, Chapter, CleanUpChange, CleanUpRules, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats,
+    Lyrics, MediaSettings, Mix, OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits, TrackQuery,
 };
 
 use crate::error::{CommandError, CommandResult};
@@ -14,6 +16,10 @@ pub const SCAN_PROGRESS_EVENT: &str = "library://scan-progress";
 pub const CHANGED_EVENT: &str = "library://changed";
 /// Organize Library's progress; `null` once it's done.
 pub const ORGANIZE_EVENT: &str = "library://organize";
+/// Clean Up Song Info's progress; `null` once it's done.
+pub const CLEAN_UP_EVENT: &str = "library://clean-up";
+/// How a clean-up ended, for the notice.
+pub const CLEAN_UP_DONE_EVENT: &str = "library://clean-up-done";
 
 /// SQLite in WAL mode lets each job keep its own connection, so a long import or a slow
 /// artwork read never blocks the song list.
@@ -26,6 +32,8 @@ pub struct LibraryState {
     file_reader: Mutex<Library>,
     /// Serializes imports; a second drop waits for the first instead of racing it.
     scan_lock: Arc<Mutex<()>>,
+    /// Set while a clean-up runs; setting the flag stops it before its next song.
+    clean_up: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl LibraryState {
@@ -38,6 +46,7 @@ impl LibraryState {
             file_reader: Mutex::new(Library::open(&db_path)?),
             db_path,
             scan_lock: Arc::new(Mutex::new(())),
+            clean_up: Mutex::new(None),
         })
     }
 
@@ -65,6 +74,10 @@ impl LibraryState {
                 Ok(default.to_path_buf())
             }
         }
+    }
+
+    fn clean_up_running(&self) -> MutexGuard<'_, Option<Arc<AtomicBool>>> {
+        self.clean_up.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn queries(&self) -> MutexGuard<'_, Library> {
@@ -254,6 +267,123 @@ pub async fn library_edit_tracks(
     let report = app.state::<LibraryState>().with_writer(|library| library.edit_tracks(&track_ids, &edits))?;
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(report)
+}
+
+/// How many of the changes Clean Up Song Info lists; the sheet only needs enough to scroll through.
+const CLEAN_UP_LISTED: usize = 500;
+/// Songs changed under one hold of the writer; between chunks it is let go for `CLEAN_UP_BREATHER`, so Get Info,
+/// a rating or an import gets a turn.
+const CLEAN_UP_CHUNK: usize = 200;
+/// A std mutex is not fair, so a thread that lets go and takes it again at once would be given it again every time
+/// (a `yield_now` is not enough), and whoever waits would sleep through the whole run.
+const CLEAN_UP_BREATHER: Duration = Duration::from_millis(5);
+/// Changing a song that only exists in the library takes microseconds, which is far too often to tell the window.
+const CLEAN_UP_PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanUpPreview {
+    /// Every song the rules would change, of which `changes` holds the first few.
+    total: usize,
+    /// How many of those are placeholders for files still in the cloud.
+    in_cloud: usize,
+    changes: Vec<CleanUpChange>,
+}
+
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanUpProgress {
+    done: u64,
+    total: u64,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanUpDone {
+    report: EditReport,
+    stopped: bool,
+    /// Why it ended before every song was done, if it did.
+    error: Option<String>,
+}
+
+/// Advanced › Clean Up Song Info, before the Apply: what would change, nothing written. Async because
+/// a whole library is a lot of songs to read and run the rules over.
+#[tauri::command]
+pub async fn library_clean_up_preview(
+    state: State<'_, LibraryState>,
+    track_ids: Vec<i64>,
+    rules: CleanUpRules,
+) -> CommandResult<CleanUpPreview> {
+    let mut changes = state.queries().clean_up_preview(&track_ids, &rules)?;
+    let total = changes.len();
+    let in_cloud = changes.iter().filter(|change| change.in_cloud).count();
+    // What a change adds is easy to miss in a list this long, so those come first.
+    changes.sort_by_key(|change| !change.fills());
+    changes.truncate(CLEAN_UP_LISTED);
+    Ok(CleanUpPreview { total, in_cloud, changes })
+}
+
+/// The Apply of Clean Up Song Info. Like Organize it runs in the background, and the LCD shows its progress
+/// and can stop it; it takes the writer a chunk of songs at a time rather than for the whole run.
+#[tauri::command]
+pub fn library_clean_up(app: AppHandle, track_ids: Vec<i64>, rules: CleanUpRules) -> CommandResult<()> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let state = app.state::<LibraryState>();
+        let mut running = state.clean_up_running();
+        if running.is_some() {
+            return Err(CommandError::from("Clean Up Song Info is already running".to_owned()));
+        }
+        *running = Some(Arc::clone(&cancel));
+    }
+    std::thread::spawn(move || {
+        let (report, error) = run_clean_up(&app, &track_ids, &rules, &cancel);
+        *app.state::<LibraryState>().clean_up_running() = None;
+        let _ = app.emit(CLEAN_UP_EVENT, None::<CleanUpProgress>);
+        let _ = app.emit(CLEAN_UP_DONE_EVENT, CleanUpDone { report, stopped: cancel.load(Ordering::Relaxed), error });
+        let _ = app.emit(CHANGED_EVENT, ());
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn library_cancel_clean_up(state: State<'_, LibraryState>) {
+    if let Some(cancel) = state.clean_up_running().as_ref() {
+        cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Changes the songs the rules touch, a chunk at a time with each chunk worked out from its rows as they are
+/// by then. Returns what was done, and why it stopped early if an error did.
+fn run_clean_up(app: &AppHandle, track_ids: &[i64], rules: &CleanUpRules, cancel: &AtomicBool) -> (EditReport, Option<String>) {
+    let state = app.state::<LibraryState>();
+    let mut report = EditReport::default();
+    let changed: Vec<i64> = match state.with_writer(|library| library.clean_up_preview(track_ids, rules)) {
+        Ok(changes) => changes.into_iter().map(|change| change.id).collect(),
+        Err(error) => return (report, Some(error.to_string())),
+    };
+    let total = changed.len() as u64;
+    let mut finished = 0;
+    let mut last_sent = Instant::now();
+    let mut send = |done: u64| {
+        if done == 0 || done == total || last_sent.elapsed() >= CLEAN_UP_PROGRESS_EVERY {
+            last_sent = Instant::now();
+            let _ = app.emit(CLEAN_UP_EVENT, Some(CleanUpProgress { done, total }));
+        }
+    };
+    send(0);
+    for chunk in changed.chunks(CLEAN_UP_CHUNK) {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        match state.with_writer(|library| library.clean_up(chunk, rules, cancel, |done, _| send(finished + done))) {
+            Ok(part) => report.merge(part),
+            Err(error) => return (report, Some(error.to_string())),
+        }
+        finished += chunk.len() as u64;
+        std::thread::sleep(CLEAN_UP_BREATHER);
+    }
+    (report, None)
 }
 
 #[tauri::command]

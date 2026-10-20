@@ -4,7 +4,7 @@ import { libraryEditTracks, libraryLyrics, libraryTrack } from "../api/commands"
 import type { ArtworkChange, LyricsSource, MediaKind, Track, TrackEdits } from "../api/types";
 import { Artwork } from "../browser/Artwork";
 import { useApp } from "../state/store";
-import { formatBytes, formatClock } from "../util/format";
+import { dbOnlyNotice, formatBytes, formatClock } from "../util/format";
 import "./GetInfo.css";
 
 type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics";
@@ -140,9 +140,8 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
         edits,
         artwork,
       );
-      if (report.dbOnly.length > 0) {
-        showNotice(`${report.dbOnly.length === 1 ? "One file" : `${report.dbOnly.length} files`} couldn't be changed; the library has the new info`);
-      }
+      const notice = dbOnlyNotice(report);
+      if (notice) showNotice(notice);
       return true;
     } catch (e) {
       showNotice(String(e));
