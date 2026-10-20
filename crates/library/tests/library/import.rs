@@ -34,6 +34,8 @@ fn imported_rows_keep_their_ids_and_every_field() {
     tracks[0].date_added = 42;
     tracks[0].sort_artist = Some("Zzz Sort Artist".into());
     tracks[1].kind = MediaKind::Podcast;
+    // Whether a track remembers its position follows from its kind; it is not imported.
+    tracks[1].remember_position = true;
     tracks[1].compilation = true;
     let mut device = Library::open_in_memory().unwrap();
 

@@ -30,6 +30,10 @@ pub enum Error {
     NotFound,
     #[error("Unsupported endpoint: {0}")]
     UnsupportedEndpoint(String),
+    /// For a [`MusicSource`](crate::MusicSource) to say it cannot do something, such as edit
+    /// playlists. Clients see error 0, or 50 where Subsonic ties the operation to a user role.
+    #[error("{0} is not supported by this library")]
+    Unsupported(&'static str),
     #[error("i/o error: {0}")]
     Io(io::Error),
     #[error("could not serialize the response: {0}")]
@@ -52,6 +56,7 @@ impl Error {
             | Self::Source(_)
             | Self::InvalidParameter(_)
             | Self::UnsupportedEndpoint(_)
+            | Self::Unsupported(_)
             | Self::Io(_)
             | Self::Serialize(_) => 0,
         }

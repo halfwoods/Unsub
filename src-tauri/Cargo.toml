@@ -28,6 +28,7 @@ antistreaming-podcasts.workspace = true
 antistreaming-purchases.workspace = true
 antistreaming-cdrip.workspace = true
 antistreaming-devicesync.workspace = true
+antistreaming-remote.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

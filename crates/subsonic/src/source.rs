@@ -1,12 +1,12 @@
 use std::{io::Read, path::PathBuf};
 
 use crate::{
-    Result,
+    Error, Result,
     model::{Album, Artist, Genre, Playlist, SearchResult, Song},
 };
 
-/// Orderings for [`MusicSource::album_list`]. Subsonic's `starred` and `highest` lists are always
-/// empty here and never reach the source.
+/// Orderings for [`MusicSource::album_list`]. Subsonic's `highest` list is always empty here and
+/// never reaches the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlbumListKind {
     Random,
@@ -17,6 +17,57 @@ pub enum AlbumListKind {
     AlphabeticalByArtist,
     ByYear,
     ByGenre,
+    /// The albums the user starred, most recently starred first. A source that has no stars
+    /// returns an empty list.
+    Starred,
+}
+
+/// What the user has starred.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Starred {
+    pub artists: Vec<Artist>,
+    pub albums: Vec<Album>,
+    pub songs: Vec<Song>,
+}
+
+/// Songs, albums and artists named by a `star` or `unstar` request.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Targets {
+    pub songs: Vec<String>,
+    pub albums: Vec<String>,
+    pub artists: Vec<String>,
+}
+
+/// A change to a playlist, as one `updatePlaylist` request asks for it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlaylistEdit {
+    pub name: Option<String>,
+    pub comment: Option<String>,
+    pub public: Option<bool>,
+    /// 0-based positions to remove, as the playlist stood before this edit. Applied first.
+    pub remove: Vec<usize>,
+    /// Song ids to append after the removals, in order.
+    pub add: Vec<String>,
+}
+
+/// Unsynchronised lyrics: plain text, one line per line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lyrics {
+    pub text: String,
+    /// ISO 639 language code; `None` if unknown.
+    pub language: Option<String>,
+}
+
+/// What a source can do beyond browsing and playing. Clients read it back through `getUser` and
+/// `getOpenSubsonicExtensions`, and hide features the server does not have, so a source that edits
+/// playlists should say so. Must be cheap: it is called on the request thread.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Capabilities {
+    /// [`MusicSource::create_playlist`], [`MusicSource::update_playlist`] and
+    /// [`MusicSource::delete_playlist`] work.
+    pub playlist_editing: bool,
+    /// [`MusicSource::lyrics`] can return lyrics.
+    pub lyrics: bool,
 }
 
 /// A format a client can ask `stream` to convert to.
@@ -82,8 +133,10 @@ pub trait MusicSource: Send + Sync + 'static {
         years: Option<(i32, i32)>,
     ) -> Result<Vec<Song>>;
 
-    /// Each kind is `(count, offset)`. An empty `query` means "everything": clients that sync the
-    /// whole library page through `search3` with an empty query.
+    /// Each kind is `(count, offset)`, and a page past the end is empty, not an error. An empty
+    /// `query` means "everything": clients that sync the whole library page through `search3` with
+    /// an empty query (or a literal `""`), a kind at a time or all three at once. For that to visit
+    /// every item exactly once, the order of an empty-query result must be stable between calls.
     fn search(
         &self,
         query: &str,
@@ -133,5 +186,71 @@ pub trait MusicSource: Send + Sync + 'static {
     fn now_playing(&self, song_id: &str, client: &str) -> Result<()> {
         let _ = (song_id, client);
         Ok(())
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+
+    /// What the user has starred. With no separate "starred" flag in the library, the suggested
+    /// mapping is: a song is starred when it is rated 5 stars, so a heart on the phone is five stars
+    /// on the desktop and the other way round. `star` then rates 5, `unstar` clears a 5-star rating
+    /// and leaves any other rating alone, and the `starred` date is when it was rated. Albums and
+    /// artists have no rating to borrow, and starring one must not overwrite the ratings of its
+    /// songs, so keep those in a small table of their own. Default: nothing.
+    fn starred(&self) -> Result<Starred> {
+        Ok(Starred::default())
+    }
+
+    /// Songs of one genre, for `getSongsByGenre`. Default: none.
+    fn songs_by_genre(&self, genre: &str, count: usize, offset: usize) -> Result<Vec<Song>> {
+        let _ = (genre, count, offset);
+        Ok(Vec::new())
+    }
+
+    /// Unsynchronised lyrics for a song. Default: none.
+    fn lyrics(&self, song_id: &str) -> Result<Option<Lyrics>> {
+        let _ = song_id;
+        Ok(None)
+    }
+
+    /// Rates a song, album or artist, 1 to 5 stars, or clears its rating with 0. The id may name any
+    /// of the three; rating an album or artist means rating its songs. Answer
+    /// [`Error::NotFound`](crate::Error::NotFound) for an unknown id.
+    fn set_rating(&self, id: &str, stars: u8) -> Result<()> {
+        let _ = (id, stars);
+        Err(Error::Unsupported("rating"))
+    }
+
+    /// Stars the named items. See [`MusicSource::starred`] for the suggested meaning. Answer
+    /// [`Error::NotFound`](crate::Error::NotFound) for an unknown id.
+    fn star(&self, targets: &Targets) -> Result<()> {
+        let _ = targets;
+        Err(Error::Unsupported("starring"))
+    }
+
+    fn unstar(&self, targets: &Targets) -> Result<()> {
+        let _ = targets;
+        Err(Error::Unsupported("starring"))
+    }
+
+    /// Creates a playlist of the given songs and returns its id. Only ever a regular playlist.
+    fn create_playlist(&self, name: &str, song_ids: &[String]) -> Result<String> {
+        let _ = (name, song_ids);
+        Err(Error::Unsupported("creating playlists"))
+    }
+
+    /// Edits a regular playlist. Smart playlists cannot be edited: answer
+    /// [`Error::Unsupported`](crate::Error::Unsupported) for one, and mark it `readonly` in
+    /// [`MusicSource::playlists`]. [`Error::NotFound`](crate::Error::NotFound) for an unknown id.
+    fn update_playlist(&self, id: &str, edit: &PlaylistEdit) -> Result<()> {
+        let _ = (id, edit);
+        Err(Error::Unsupported("editing playlists"))
+    }
+
+    /// Deletes a regular playlist; the same rules as [`MusicSource::update_playlist`].
+    fn delete_playlist(&self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported("deleting playlists"))
     }
 }

@@ -5,7 +5,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use antistreaming_remote::{Client, Error};
 use common::{FakeServer, PASSWORD, USER, pattern};
@@ -47,7 +47,8 @@ fn interrupt(server: &FakeServer, client: &Client, dir: &Path, after: usize) -> 
     server.mode(|mode| mode.cut_after = Some(after));
     assert!(client.download_to_cache("s-1", dir).is_err());
     server.mode(|mode| mode.cut_after = None);
-    file_ending(dir, ".part")
+    // The song's type is in the name from the start, so a crash does not lose it.
+    file_ending(dir, ".flac.part")
 }
 
 fn hours_ago(path: &Path, hours: u64) {
@@ -177,6 +178,11 @@ fn a_partial_file_that_already_holds_the_whole_song_is_finished_at_once() {
     let path = client.download_to_cache("s-1", dir.path()).unwrap();
 
     assert_eq!(fs::read(&path).unwrap(), data);
+    assert_eq!(
+        path.extension().unwrap(),
+        "flac",
+        "the type survives the interruption"
+    );
     assert!(!part.exists());
     assert_eq!(names(dir.path()).len(), 1);
 }
@@ -474,4 +480,196 @@ fn progress_serializes_for_the_ui() {
     assert_eq!(json["downloaded"], 600_000);
     assert_eq!(json["total"], 600_000);
     assert!(json.get("finished").is_some());
+}
+
+/// Waits until a file stops growing, which is when the download thread behind it has stopped.
+fn settled_size(path: &Path) -> u64 {
+    let mut last = u64::MAX;
+    for _ in 0..100 {
+        let size = fs::metadata(path).map_or(0, |metadata| metadata.len());
+        if size == last {
+            return size;
+        }
+        last = size;
+        thread::sleep(Duration::from_millis(100));
+    }
+    panic!("{} never stopped growing", path.display());
+}
+
+fn gated_download(
+    server: &FakeServer,
+    dir: &Path,
+) -> (
+    antistreaming_remote::Download,
+    std::sync::mpsc::Sender<usize>,
+) {
+    let (permits, gate) = channel();
+    server.mode(|mode| mode.gate = Some(gate));
+    let download = connect(server).start_download("s-1", dir).unwrap();
+    permits.send(100_000).unwrap();
+    download.wait_for(64_000).unwrap();
+    (download, permits)
+}
+
+#[test]
+fn dropping_a_download_cancels_it_and_keeps_what_arrived() {
+    let (server, data) = server_with_song();
+    let dir = tempfile::tempdir().unwrap();
+    let (download, permits) = gated_download(&server, dir.path());
+    let part = download.path();
+
+    drop(download);
+    // Plenty more is on offer, but nobody is taking it.
+    permits.send(600_000).unwrap();
+
+    let kept = settled_size(&part);
+    assert!(kept >= 64_000 && kept < data.len() as u64, "{kept}");
+    assert_eq!(names(dir.path()).len(), 1, "no finished file appeared");
+    drop(permits);
+    let path = connect(&server)
+        .download_to_cache("s-1", dir.path())
+        .unwrap();
+    assert_eq!(fs::read(path).unwrap(), data);
+    assert_eq!(
+        server.requests_to("stream").last().unwrap().range,
+        Some(format!("bytes={kept}-"))
+    );
+}
+
+#[test]
+fn a_detached_download_finishes_with_nobody_waiting() {
+    let (server, data) = server_with_song();
+    let dir = tempfile::tempdir().unwrap();
+    let (download, permits) = gated_download(&server, dir.path());
+
+    download.detach();
+    permits.send(600_000).unwrap();
+
+    let started = Instant::now();
+    let finished = loop {
+        let done: Vec<_> = names(dir.path())
+            .into_iter()
+            .filter(|name| name.ends_with(".flac"))
+            .collect();
+        if let Some(name) = done.first() {
+            break dir.path().join(name);
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "it never finished"
+        );
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(fs::read(finished).unwrap(), data);
+}
+
+#[test]
+fn a_download_lives_as_long_as_a_reader_taken_from_it() {
+    let (server, data) = server_with_song();
+    let dir = tempfile::tempdir().unwrap();
+    let (download, permits) = gated_download(&server, dir.path());
+    let mut reader = download.reader().unwrap();
+
+    drop(download); // playback goes on
+    permits.send(600_000).unwrap();
+    let mut played = Vec::new();
+    reader.read_to_end(&mut played).unwrap();
+
+    assert_eq!(played, data);
+    drop(reader);
+    assert!(
+        names(dir.path())[0].ends_with(".flac"),
+        "{:?}",
+        names(dir.path())
+    );
+}
+
+#[test]
+fn dropping_the_last_reader_cancels_a_dropped_download() {
+    let (server, data) = server_with_song();
+    let dir = tempfile::tempdir().unwrap();
+    let (download, permits) = gated_download(&server, dir.path());
+    let part = download.path();
+    let reader = download.reader().unwrap();
+    drop(download);
+
+    drop(reader);
+    permits.send(600_000).unwrap();
+
+    let kept = settled_size(&part);
+    assert!(kept < data.len() as u64, "{kept}");
+    assert_eq!(names(dir.path()).len(), 1);
+    assert!(names(dir.path())[0].ends_with(".flac.part"));
+}
+
+#[test]
+fn a_server_that_goes_quiet_mid_song_stalls_the_download_and_it_can_resume() {
+    let (server, data) = server_with_song();
+    server.mode(|mode| mode.stall_after = Some(200_000));
+    let dir = tempfile::tempdir().unwrap();
+    let client = connect(&server).with_stall_timeout(Duration::from_millis(400));
+
+    let started = Instant::now();
+    let result = client.download_to_cache("s-1", dir.path());
+
+    assert!(matches!(result, Err(Error::Stalled)), "{result:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "it must not wait for the server"
+    );
+    let part = file_ending(dir.path(), ".flac.part");
+    let have = fs::metadata(&part).unwrap().len();
+    assert!(have > 0 && have < data.len() as u64, "{have}");
+
+    server.mode(|mode| mode.stall_after = None);
+    let path = client.download_to_cache("s-1", dir.path()).unwrap();
+    assert_eq!(fs::read(path).unwrap(), data);
+    assert_eq!(
+        server.requests_to("stream").last().unwrap().range,
+        Some(format!("bytes={have}-"))
+    );
+}
+
+#[test]
+fn a_server_that_never_answers_stalls_the_request() {
+    let (server, _) = server_with_song();
+    server.mode(|mode| mode.silent = true);
+    let dir = tempfile::tempdir().unwrap();
+    let client = connect(&server).with_stall_timeout(Duration::from_millis(300));
+
+    let started = Instant::now();
+    let result = client.start_download("s-1", dir.path());
+
+    assert!(matches!(result, Err(Error::Stalled)), "{:?}", result.err());
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(names(dir.path()).is_empty());
+}
+
+#[test]
+fn a_slow_but_steady_download_is_never_cut_off() {
+    let server = FakeServer::start();
+    let data = pattern(300_000, 2);
+    server.song("s-1", data.clone(), "audio/mpeg");
+    let (permits, gate) = channel();
+    server.mode(|mode| mode.gate = Some(gate));
+    let dir = tempfile::tempdir().unwrap();
+    let stall = Duration::from_millis(400);
+    let client = connect(&server).with_stall_timeout(stall);
+
+    // Six pieces, each arriving well inside the stall timeout, together taking far longer than it.
+    let feeder = thread::spawn(move || {
+        for _ in 0..6 {
+            permits.send(50_000).unwrap();
+            thread::sleep(Duration::from_millis(150));
+        }
+    });
+    let started = Instant::now();
+    let path = client.download_to_cache("s-1", dir.path()).unwrap();
+    feeder.join().unwrap();
+
+    assert!(
+        started.elapsed() > stall,
+        "the whole transfer outlasted the stall timeout"
+    );
+    assert_eq!(fs::read(path).unwrap(), data);
 }

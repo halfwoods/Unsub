@@ -6,5 +6,11 @@
   <string>AntiStreaming reads your Music library to show which songs you stream but don't own yet, and to import the files you already own.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>AntiStreaming asks Music to download the songs you bought or uploaded to iCloud, so it can import them.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>AntiStreaming finds the libraries other people share on your network, and shares yours with them and your phone.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_antistreaming._tcp</string>
+  </array>
 </dict>
 </plist>

@@ -10,7 +10,7 @@ use walkdir::{DirEntry, WalkDir};
 use crate::cloud::placeholder_meta;
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::{ScanProgress, ScanSummary, Track, TrackOverrides};
+use crate::model::{MediaKind, ScanProgress, ScanSummary, Track, TrackOverrides};
 use crate::store::{WriteMode, write_tracks};
 use crate::tags::{self, TAG_PARSER_VERSION, TrackMeta};
 
@@ -442,6 +442,7 @@ fn new_track(
         in_cloud: false,
         missing: false,
         loudness: meta.loudness,
+        remember_position: meta.kind != MediaKind::Music,
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,

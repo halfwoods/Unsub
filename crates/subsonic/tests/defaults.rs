@@ -144,3 +144,62 @@ fn a_source_that_never_converts_gets_the_original_even_under_a_cap() {
     assert_eq!((missing.status, error_of(&missing).0), (404, 70));
     server.stop();
 }
+
+#[test]
+fn writes_a_source_does_not_offer_are_refused_with_the_error_subsonic_would_give() {
+    let server = start();
+    // Ratings and stars have no role in Subsonic, so the answer is the generic error.
+    for (endpoint, query) in [
+        ("setRating", "id=x&rating=3"),
+        ("star", "id=x"),
+        ("unstar", "albumId=x"),
+    ] {
+        let (code, message) = error_of(&get(&server, endpoint, query));
+        assert_eq!(code, 0, "{endpoint}");
+        assert!(
+            message.ends_with("is not supported by this library"),
+            "{message}"
+        );
+    }
+    // Editing playlists is what the playlist role allows, and this source grants none.
+    assert_eq!(
+        error_of(&get(&server, "createPlaylist", "name=New&songId=x")).0,
+        50
+    );
+    assert_eq!(
+        error_of(&get(&server, "updatePlaylist", "playlistId=p&name=New")).0,
+        50
+    );
+    assert_eq!(error_of(&get(&server, "deletePlaylist", "id=p")).0, 50);
+    server.stop();
+}
+
+#[test]
+fn a_source_with_no_extras_has_no_roles_or_lyrics_and_empty_lists() {
+    let server = start();
+    let user = get(&server, "getUser", "username=alice&f=json").json();
+    assert_eq!(user["user"]["playlistRole"], false);
+    assert_eq!(user["user"]["streamRole"], true);
+
+    let extensions = get(&server, "getOpenSubsonicExtensions", "f=json").json();
+    let names: Vec<_> = extensions["openSubsonicExtensions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["formPost"]);
+
+    let lyrics = get(&server, "getLyricsBySongId", "id=x&f=json").json();
+    assert_eq!(
+        lyrics["lyricsList"]["structuredLyrics"],
+        serde_json::json!([])
+    );
+    let starred = get(&server, "getStarred2", "f=json").json();
+    assert_eq!(starred["starred2"]["song"], serde_json::json!([]));
+    let by_genre = get(&server, "getSongsByGenre", "genre=Rock&f=json").json();
+    assert_eq!(by_genre["songsByGenre"]["song"], serde_json::json!([]));
+    let albums = get(&server, "getAlbumList2", "type=starred&f=json").json();
+    assert_eq!(albums["albumList2"]["album"], serde_json::json!([]));
+    server.stop();
+}

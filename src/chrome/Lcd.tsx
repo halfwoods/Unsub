@@ -93,9 +93,9 @@ export function Lcd() {
   const positionMs = useApp((s) => s.playback.positionMs);
   const durationMs = useApp((s) => s.playback.durationMs);
   const scan = useApp((s) => s.scan);
-  const cloudDownload = useApp((s) => s.cloudDownload);
+  const download = useApp((s) => s.download);
   const downloadingTitle = useApp((s) =>
-    s.cloudDownload ? (s.playingTracks.find((t) => t.id === s.cloudDownload?.trackId)?.title ?? "") : "",
+    s.download ? (s.playingTracks.find((t) => t.id === s.download?.trackId)?.title ?? "") : "",
   );
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
@@ -142,7 +142,7 @@ export function Lcd() {
     );
   }
 
-  if (cloudDownload) return <ProgressLcd title="Downloading from iCloud" subtitle={downloadingTitle} fraction={cloudDownload.fraction} />;
+  if (download) return <ProgressLcd title={`Downloading from ${download.from}`} subtitle={downloadingTitle} fraction={download.fraction} />;
 
   if (deviceSync) {
     const { stage, done, total, current } = deviceSync;

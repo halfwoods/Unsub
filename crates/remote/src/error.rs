@@ -30,6 +30,10 @@ pub enum Error {
     /// A download that failed or stopped; the cause was reported to whoever waited for it.
     #[error("download failed: {0}")]
     DownloadFailed(String),
+    /// The server stopped sending for longer than the stall timeout. What did arrive is kept, so
+    /// asking again resumes.
+    #[error("the server stopped sending data")]
+    Stalled,
     #[error("discovery error: {0}")]
     Discovery(#[from] mdns_sd::Error),
 }

@@ -18,13 +18,14 @@ const FILE_ACTIONS: [(&str, &str, Option<&str>); 4] = [
     ("new-playlist-folder", "New Playlist Folder", Some("Shift+Alt+CmdOrCtrl+N")),
 ];
 /// The selection-dependent half of iTunes 10's File menu.
-const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 6] = [
+const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("get-info", "Get Info", Some("CmdOrCtrl+I")),
     ("show-in-finder", "Show in Finder", Some("Shift+CmdOrCtrl+R")),
     ("show-duplicates", "Display Duplicates", None),
     ("show-exact-duplicates", "Display Exact Duplicates", None),
     ("organize-library", "Organize Library…", None),
     ("set-up-player", "Set Up Music Player…", None),
+    ("connect-to-server", "Connect to Server…", Some("CmdOrCtrl+K")),
 ];
 const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("play-pause", "Play/Pause", None),

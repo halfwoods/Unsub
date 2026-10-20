@@ -2,9 +2,13 @@
 
 mod browse;
 mod delivery;
+mod extras;
 mod lists;
+mod lyrics;
 mod media;
 mod playlists;
+mod queue;
+mod rating;
 mod system;
 
 use std::sync::Arc;
@@ -135,10 +139,51 @@ async fn dispatch(ctx: &Ctx, endpoint: &str) -> Result<Reply> {
         "getRandomSongs" => lists::random_songs(ctx).await,
         "search2" => lists::search(ctx, "searchResult2", false).await,
         "search3" => lists::search(ctx, "searchResult3", true).await,
-        "getStarred" => lists::starred("starred"),
-        "getStarred2" => lists::starred("starred2"),
+        "getStarred" => lists::starred(ctx, "starred", false).await,
+        "getStarred2" => lists::starred(ctx, "starred2", true).await,
+        "getSongsByGenre" => lists::songs_by_genre(ctx).await,
         "getPlaylists" => playlists::list(ctx).await,
         "getPlaylist" => playlists::get(ctx).await,
+        "createPlaylist" => playlists::create(ctx).await,
+        "updatePlaylist" => playlists::update(ctx).await,
+        "deletePlaylist" => playlists::delete(ctx).await,
+        "setRating" => rating::set_rating(ctx).await,
+        "star" => rating::star(ctx, true).await,
+        "unstar" => rating::star(ctx, false).await,
+        "savePlayQueue" => queue::save(ctx).await,
+        "getPlayQueue" => queue::get(ctx).await,
+        "getLyricsBySongId" => lyrics::by_song_id(ctx).await,
+        "getLyrics" => lyrics::by_artist_and_title(ctx).await,
+        "getMusicDirectory" => extras::music_directory(ctx).await,
+        "getNowPlaying" => extras::now_playing(ctx).await,
+        "getScanStatus" | "startScan" => extras::scan_status(),
+        "tokenInfo" => extras::token_info(ctx),
+        "getInternetRadioStations" => extras::empty(ctx, "internetRadioStations", None),
+        "getPodcasts" => extras::empty(ctx, "podcasts", None),
+        "getNewestPodcasts" => extras::empty(ctx, "newestPodcasts", None),
+        "getBookmarks" => extras::empty(ctx, "bookmarks", None),
+        "getShares" => extras::empty(ctx, "shares", None),
+        "getChatMessages" => extras::empty(ctx, "chatMessages", None),
+        "getVideos" => extras::empty(ctx, "videos", None),
+        "getArtistInfo" => extras::empty(ctx, "artistInfo", Some("id")),
+        "getArtistInfo2" => extras::empty(ctx, "artistInfo2", Some("id")),
+        "getAlbumInfo" | "getAlbumInfo2" => extras::empty(ctx, "albumInfo", Some("id")),
+        "getSimilarSongs" => extras::empty(ctx, "similarSongs", Some("id")),
+        "getSimilarSongs2" => extras::empty(ctx, "similarSongs2", Some("id")),
+        "getTopSongs" => extras::empty(ctx, "topSongs", Some("artist")),
+        "jukeboxControl"
+        | "createShare"
+        | "updateShare"
+        | "deleteShare"
+        | "createPodcastChannel"
+        | "deletePodcastChannel"
+        | "refreshPodcasts"
+        | "downloadPodcastEpisode"
+        | "deletePodcastEpisode"
+        | "createUser"
+        | "updateUser"
+        | "deleteUser"
+        | "changePassword" => extras::not_permitted(),
         "getCoverArt" => media::cover_art(ctx).await,
         "stream" => media::stream(ctx).await,
         "download" => media::download(ctx).await,

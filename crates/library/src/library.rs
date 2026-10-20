@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::vtab::array;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::cloud::platform_is_dataless;
 use crate::delete::move_to_trash;
@@ -188,6 +188,59 @@ impl Library {
         Ok(())
     }
 
+    /// Notes where playback of a track has got to, so it can be resumed. Only
+    /// tracks that remember their position (audiobooks and podcasts unless Get
+    /// Info says otherwise) keep one. Reaching the last ten seconds, or the
+    /// start, means there is nothing to resume, so the bookmark is cleared.
+    pub fn set_bookmark(&mut self, id: i64, position_ms: u64) -> Result<()> {
+        let (remembers, duration_ms) = self
+            .position_settings(id)?
+            .ok_or(Error::TrackNotFound(id))?;
+        if !remembers {
+            return Ok(());
+        }
+        let bookmark = Some(position_ms).filter(|ms| !is_finished(*ms, duration_ms));
+        self.conn.execute(
+            "UPDATE tracks SET bookmark_ms = ?2 WHERE id = ?1",
+            params![id, bookmark],
+        )?;
+        Ok(())
+    }
+
+    /// Where to resume, if there is somewhere. A bookmark is ignored once the
+    /// track stops remembering, or if the track has since changed so that the
+    /// position is at its end.
+    pub fn bookmark(&self, id: i64) -> Result<Option<u64>> {
+        let Some((remembers, duration_ms)) = self.position_settings(id)? else {
+            return Ok(None);
+        };
+        let stored: Option<u64> = self.conn.query_row(
+            "SELECT bookmark_ms FROM tracks WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok(stored.filter(|ms| remembers && !is_finished(*ms, duration_ms)))
+    }
+
+    pub fn clear_bookmark(&mut self, id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE tracks SET bookmark_ms = NULL WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Whether the track remembers its position, and how long it is.
+    fn position_settings(&self, id: i64) -> Result<Option<(bool, u64)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT COALESCE(remember_position, kind IN (1, 2)), duration_ms
+                 FROM tracks WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?)
+    }
+
     pub fn remove_tracks(&mut self, ids: &[i64]) -> Result<()> {
         let tx = self.conn.transaction()?;
         {
@@ -199,6 +252,15 @@ impl Library {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// "Remember playback position" lets go of a place that is the start, or within
+/// this long of the end, where picking up again would be pointless.
+const FINISHED_WITHIN_MS: u64 = 10_000;
+
+fn is_finished(position_ms: u64, duration_ms: u64) -> bool {
+    position_ms == 0
+        || (duration_ms > 0 && position_ms.saturating_add(FINISHED_WITHIN_MS) >= duration_ms)
 }
 
 fn require_changed(changed: usize, track_id: i64) -> Result<()> {

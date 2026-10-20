@@ -1,6 +1,8 @@
 mod common;
 
-use antistreaming_remote::{Album, AlbumListKind, Artist, Client, Error, Playlist, Song};
+use antistreaming_remote::{
+    Album, AlbumListKind, Artist, Client, Error, Playlist, Song, SongListing,
+};
 use common::{FakeServer, PASSWORD, USER};
 use md5::{Digest, Md5};
 use serde_json::json;
@@ -459,4 +461,304 @@ fn stream_urls_are_complete_signed_requests() {
         Some("0".to_owned()),
         "no limit means as stored"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The server's name
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_server_name_comes_from_its_ping() {
+    let server = FakeServer::start();
+    let client = connect(&server);
+
+    server.respond(
+        "ping",
+        json!({ "type": "navidrome", "serverVersion": "0.52.5 (735e16b)" }),
+    );
+    assert_eq!(client.server_name().unwrap(), "navidrome 0.52.5 (735e16b)");
+
+    server.respond("ping", json!({ "type": "AntiStreaming" }));
+    assert_eq!(client.server_name().unwrap(), "AntiStreaming");
+
+    // A classic Subsonic server says neither.
+    server.respond("ping", json!({ "version": "1.16.1" }));
+    assert_eq!(client.server_name().unwrap(), "Subsonic");
+    server.respond("ping", json!({ "type": "", "serverVersion": "" }));
+    assert_eq!(client.server_name().unwrap(), "Subsonic");
+}
+
+#[test]
+fn asking_for_the_server_name_checks_the_credentials_too() {
+    let server = FakeServer::start();
+    assert!(matches!(
+        Client::new(&server.url, USER, "wrong").server_name(),
+        Err(Error::WrongCredentials)
+    ));
+}
+
+#[test]
+fn a_songs_cover_art_field_goes_straight_to_cover_art() {
+    let server = FakeServer::start();
+    server.cover("al-1", vec![1, 2, 3]);
+    server.respond(
+        "getAlbum",
+        json!({ "album": { "id": "al-1", "name": "OK Computer", "song": [song_json("s-1", "Airbag", 1)] }}),
+    );
+    let client = connect(&server);
+
+    let song = client.album("al-1").unwrap().songs.remove(0);
+
+    assert_eq!(song.cover_art.as_deref(), Some("al-1"));
+    assert_eq!(
+        client
+            .cover_art(song.cover_art.as_deref().unwrap(), Some(64))
+            .unwrap(),
+        [1, 2, 3]
+    );
+    assert_eq!(server.requests_to("getCoverArt")[0].params["id"], "al-1");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Every song
+// ---------------------------------------------------------------------------------------------
+
+fn titled(id: &str) -> serde_json::Value {
+    song_json(id, id, 1)
+}
+
+fn titles(songs: &[Song]) -> Vec<&str> {
+    songs.iter().map(|song| song.title.as_str()).collect()
+}
+
+/// A server whose `search3` hands out the whole library for an empty query, a page at a time.
+fn serve_everything_by_search(server: &FakeServer, songs: Vec<serde_json::Value>) {
+    server.respond_with("search3", move |params| {
+        let offset: usize = params["songOffset"].parse().unwrap();
+        let count: usize = params["songCount"].parse().unwrap();
+        let page: Vec<_> = songs.iter().skip(offset).take(count).cloned().collect();
+        json!({ "searchResult3": { "song": page } })
+    });
+}
+
+/// A library of albums A(2 songs), B(3), C(1) and D(4), listed alphabetically and opened by id.
+fn serve_albums(server: &FakeServer) {
+    let albums = [("A", 2), ("B", 3), ("C", 1), ("D", 4)];
+    server.respond_with("getAlbumList2", move |params| {
+        let offset: usize = params["offset"].parse().unwrap();
+        let size: usize = params["size"].parse().unwrap();
+        assert_eq!(params["type"], "alphabeticalByName");
+        let page: Vec<_> = albums
+            .iter()
+            .skip(offset)
+            .take(size)
+            .map(|(name, count)| json!({ "id": name, "name": name, "songCount": count }))
+            .collect();
+        json!({ "albumList2": { "album": page } })
+    });
+    server.respond_with("getAlbum", move |params| {
+        let id = params["id"].as_str();
+        let (name, count) = albums
+            .iter()
+            .find(|(name, _)| *name == id)
+            .copied()
+            .unwrap();
+        let songs: Vec<_> = (1..=count).map(|n| titled(&format!("{name}{n}"))).collect();
+        json!({ "album": { "id": name, "name": name, "songCount": count, "song": songs } })
+    });
+}
+
+#[test]
+fn every_song_is_paged_out_of_search3_with_an_empty_query() {
+    let server = FakeServer::start();
+    serve_everything_by_search(&server, (1..=7).map(|n| titled(&format!("s{n}"))).collect());
+    let client = connect(&server);
+    assert_eq!(
+        client.song_listing(),
+        None,
+        "nothing is known before the first call"
+    );
+
+    let first = client.songs(0, 3).unwrap();
+    let second = client.songs(3, 3).unwrap();
+    let third = client.songs(6, 3).unwrap();
+    let past_the_end = client.songs(9, 3).unwrap();
+
+    assert_eq!(titles(&first), ["s1", "s2", "s3"]);
+    assert_eq!(titles(&second), ["s4", "s5", "s6"]);
+    assert_eq!(titles(&third), ["s7"]);
+    assert!(past_the_end.is_empty());
+    assert_eq!(client.song_listing(), Some(SongListing::Search));
+    let params = &server.requests_to("search3")[0].params;
+    assert_eq!(
+        params["query"], "\"\"",
+        "an empty phrase in quotes, which servers read as everything"
+    );
+    assert_eq!(params["artistCount"], "0");
+    assert_eq!(params["albumCount"], "0");
+    assert_eq!(params["songCount"], "3");
+    assert_eq!(params["songOffset"], "0");
+    assert!(server.requests_to("getAlbumList2").is_empty());
+}
+
+#[test]
+fn a_server_that_refuses_the_empty_query_is_walked_album_by_album() {
+    let server = FakeServer::start();
+    server.fail("search3", 10, "Required parameter is missing: query");
+    serve_albums(&server);
+    let client = connect(&server);
+
+    let first = client.songs(0, 4).unwrap();
+    assert_eq!(titles(&first), ["A1", "A2", "B1", "B2"]);
+    assert_eq!(client.song_listing(), Some(SongListing::AlbumWalk));
+    let opened: Vec<_> = server
+        .requests_to("getAlbum")
+        .iter()
+        .map(|r| r.params["id"].clone())
+        .collect();
+    assert_eq!(
+        opened,
+        ["A", "B"],
+        "it stops opening albums once it has enough"
+    );
+
+    let second = client.songs(4, 4).unwrap();
+    assert_eq!(titles(&second), ["B3", "C1", "D1", "D2"]);
+    let opened: Vec<_> = server
+        .requests_to("getAlbum")
+        .iter()
+        .skip(2)
+        .map(|r| r.params["id"].clone())
+        .collect();
+    assert_eq!(
+        opened,
+        ["B", "C", "D"],
+        "album A lies wholly before the window and is not opened"
+    );
+
+    assert_eq!(titles(&client.songs(8, 4).unwrap()), ["D3", "D4"]);
+    assert!(client.songs(10, 4).unwrap().is_empty());
+    assert_eq!(
+        server.requests_to("search3").len(),
+        1,
+        "the refusal is remembered"
+    );
+}
+
+#[test]
+fn the_album_walk_pages_through_the_album_list_and_skips_albums_by_their_song_counts() {
+    let server = FakeServer::start();
+    server.fail("search3", 10, "Required parameter is missing: query");
+    // 1,200 albums of one song each. The 1,101st song is the one in album al-1100.
+    server.respond_with("getAlbumList2", |params| {
+        let offset: usize = params["offset"].parse().unwrap();
+        let size: usize = params["size"].parse().unwrap();
+        let page: Vec<_> = (0..1200)
+            .skip(offset)
+            .take(size)
+            .map(|n| json!({ "id": format!("al-{n}"), "name": format!("{n:04}"), "songCount": 1 }))
+            .collect();
+        json!({ "albumList2": { "album": page } })
+    });
+    server.respond_with("getAlbum", |params| {
+        let id = params["id"].clone();
+        json!({ "album": { "id": id, "name": id, "songCount": 1, "song": [titled(&id)] } })
+    });
+
+    let songs = connect(&server).songs(1100, 1).unwrap();
+
+    assert_eq!(titles(&songs), ["al-1100"]);
+    let opened: Vec<_> = server
+        .requests_to("getAlbum")
+        .iter()
+        .map(|r| r.params["id"].clone())
+        .collect();
+    assert_eq!(
+        opened,
+        ["al-1100"],
+        "the 1,100 albums before it were skipped unopened"
+    );
+    let pages: Vec<_> = server
+        .requests_to("getAlbumList2")
+        .iter()
+        .map(|r| (r.params["offset"].clone(), r.params["size"].clone()))
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            ("0".into(), "500".into()),
+            ("500".into(), "500".into()),
+            ("1000".into(), "500".into())
+        ]
+    );
+}
+
+#[test]
+fn the_album_walk_stops_at_a_short_last_page() {
+    let server = FakeServer::start();
+    server.fail("search3", 10, "Required parameter is missing: query");
+    serve_albums(&server);
+
+    // Asking for more than exists: the walk ends when the album list does.
+    let songs = connect(&server).songs(0, 100).unwrap();
+
+    assert_eq!(songs.len(), 10);
+    assert_eq!(
+        server.requests_to("getAlbumList2").len(),
+        1,
+        "four albums is a short page"
+    );
+}
+
+#[test]
+fn nothing_at_all_from_the_empty_query_also_sends_it_to_the_walk() {
+    let server = FakeServer::start();
+    // A server that answers "everything" with nothing.
+    server.respond("search3", json!({ "searchResult3": {} }));
+    serve_albums(&server);
+    let client = connect(&server);
+
+    let songs = client.songs(0, 3).unwrap();
+
+    assert_eq!(titles(&songs), ["A1", "A2", "B1"]);
+    assert_eq!(client.song_listing(), Some(SongListing::AlbumWalk));
+}
+
+#[test]
+fn an_empty_library_is_just_empty() {
+    let server = FakeServer::start();
+    server.respond("search3", json!({ "searchResult3": {} }));
+    server.respond("getAlbumList2", json!({ "albumList2": {} }));
+    let client = connect(&server);
+
+    assert!(client.songs(0, 50).unwrap().is_empty());
+    assert_eq!(
+        client.song_listing(),
+        None,
+        "no songs, so nothing was learned"
+    );
+}
+
+#[test]
+fn real_failures_are_not_a_reason_to_walk_albums() {
+    let server = FakeServer::start();
+    serve_albums(&server);
+
+    assert!(matches!(
+        Client::new(&server.url, USER, "wrong").songs(0, 10),
+        Err(Error::WrongCredentials)
+    ));
+    assert!(matches!(
+        Client::new("http://127.0.0.1:9", USER, PASSWORD).songs(0, 10),
+        Err(Error::Http(_))
+    ));
+    assert!(server.requests_to("getAlbumList2").is_empty());
+}
+
+#[test]
+fn asking_for_no_songs_asks_the_server_nothing() {
+    let server = FakeServer::start();
+
+    assert!(connect(&server).songs(0, 0).unwrap().is_empty());
+    assert!(server.requests().is_empty());
 }

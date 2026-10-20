@@ -9,9 +9,10 @@ use std::{
     time::Duration,
 };
 
+use antistreaming_subsonic::Artist;
 use antistreaming_subsonic::{
-    Album, AlbumListKind, Artist, Error, Genre, MusicSource, Playlist, Result, SearchResult,
-    Server, ServerConfig, Song, Stream, StreamFormat,
+    Album, AlbumListKind, Capabilities, Error, Genre, Lyrics, MusicSource, Playlist, PlaylistEdit,
+    Result, SearchResult, Server, ServerConfig, Song, Starred, Stream, StreamFormat, Targets,
 };
 use serde_json::Value;
 
@@ -55,6 +56,16 @@ pub struct Calls {
     pub scrobbles: Vec<(String, i64)>,
     /// `(song id, client)`.
     pub now_playing: Vec<(String, String)>,
+    /// `(id, stars)`.
+    pub ratings: Vec<(String, u8)>,
+    pub stars: Vec<Targets>,
+    pub unstars: Vec<Targets>,
+    /// `(name, song ids)`.
+    pub created: Vec<(String, Vec<String>)>,
+    pub edits: Vec<(String, PlaylistEdit)>,
+    pub deleted: Vec<String>,
+    /// `(genre, count, offset)`.
+    pub songs_by_genre: Vec<(String, usize, usize)>,
 }
 
 pub type Converted = Option<Result<(Box<dyn Read + Send>, &'static str)>>;
@@ -92,10 +103,15 @@ pub fn canned_mime(format: StreamFormat) -> &'static str {
     }
 }
 
+/// A playlist and the ids of its songs.
+pub type Stored = (Playlist, Vec<String>);
+
 pub struct FakeSource {
     dir: tempfile::TempDir,
     pub calls: Mutex<Calls>,
     pub transcode: Mutex<Transcode>,
+    pub playlists: Mutex<Vec<Stored>>,
+    pub capabilities: Mutex<Capabilities>,
 }
 
 impl FakeSource {
@@ -108,6 +124,35 @@ impl FakeSource {
             dir,
             calls: Mutex::default(),
             transcode: Mutex::default(),
+            playlists: Mutex::new(vec![
+                (
+                    Playlist {
+                        id: "pl-1".into(),
+                        name: "Favourites".into(),
+                        created: CREATED,
+                        changed: CREATED + 60,
+                        owner: Some(USER.into()),
+                        ..Playlist::default()
+                    },
+                    vec!["s-1".into(), "s-3".into()],
+                ),
+                (
+                    Playlist {
+                        id: "pl-smart".into(),
+                        name: "Recently Added".into(),
+                        created: CREATED,
+                        changed: CREATED,
+                        owner: Some(USER.into()),
+                        readonly: Some(true),
+                        ..Playlist::default()
+                    },
+                    vec!["s-2".into()],
+                ),
+            ]),
+            capabilities: Mutex::new(Capabilities {
+                playlist_editing: true,
+                lyrics: true,
+            }),
         }
     }
 
@@ -121,12 +166,15 @@ impl FakeSource {
             name: name.into(),
             album_count,
             cover_art: Some(format!("{id}-art")),
+            starred: None,
         };
-        vec![
+        let mut artists = vec![
             artist("ar-1", "The Beatles", 2),
             artist("ar-2", "Daft Punk", 1),
             artist("ar-3", "10cc", 0),
-        ]
+        ];
+        artists[0].starred = Some(CREATED + 5);
+        artists
     }
 
     fn albums_data() -> Vec<Album> {
@@ -142,8 +190,10 @@ impl FakeSource {
                 duration: 400,
                 cover_art: Some(id.into()),
                 created: CREATED,
+                starred: None,
+                user_rating: None,
             };
-        vec![
+        let mut albums = vec![
             album(
                 "al-1",
                 "Abbey Road",
@@ -161,7 +211,10 @@ impl FakeSource {
                 "Electronic",
                 1,
             ),
-        ]
+        ];
+        albums[0].starred = Some(CREATED + 5);
+        albums[0].user_rating = Some(5);
+        albums
     }
 
     fn songs_data() -> Vec<Song> {
@@ -186,9 +239,15 @@ impl FakeSource {
             cover_art: Some(album.0.into()),
             play_count: Some(7),
             created: Some(CREATED),
+            starred: None,
+            user_rating: None,
         };
         vec![
-            song("s-1", "Come Together", ("al-1", "Abbey Road"), 1),
+            Song {
+                starred: Some(CREATED + 5),
+                user_rating: Some(5),
+                ..song("s-1", "Come Together", ("al-1", "Abbey Road"), 1)
+            },
             // Its file is missing on disk.
             song("s-2", "Something", ("al-1", "Abbey Road"), 2),
             // Served from a reader, as a transcode would be.
@@ -237,6 +296,15 @@ impl FakeSource {
 
     fn page<T: Clone>(items: &[T], (count, offset): (usize, usize)) -> Vec<T> {
         items.iter().skip(offset).take(count).cloned().collect()
+    }
+}
+
+/// The playlist with its count and length worked out from the songs it holds (each lasts 259 s).
+fn summary((playlist, songs): &Stored) -> Playlist {
+    Playlist {
+        song_count: songs.len() as u32,
+        duration: songs.len() as u32 * 259,
+        ..playlist.clone()
     }
 }
 
@@ -339,10 +407,22 @@ impl MusicSource for FakeSource {
             .unwrap()
             .search
             .push((query.to_owned(), artists, albums, songs));
+        if query == "broken" {
+            return Err(Error::Source("database is locked".into()));
+        }
         let everything = query.is_empty();
         let beatles = query.eq_ignore_ascii_case("beatles");
         if !(everything || beatles) {
-            return Ok(SearchResult::default());
+            // Anything else matches song titles that contain it.
+            let wanted = query.to_lowercase();
+            let titled: Vec<Song> = Self::songs_data()
+                .into_iter()
+                .filter(|song| song.title.to_lowercase().contains(&wanted))
+                .collect();
+            return Ok(SearchResult {
+                songs: Self::page(&titled, songs),
+                ..SearchResult::default()
+            });
         }
         let mut found = SearchResult {
             artists: Self::page(&Self::artists_data(), artists),
@@ -374,27 +454,22 @@ impl MusicSource for FakeSource {
     }
 
     fn playlists(&self) -> Result<Vec<Playlist>> {
-        Ok(vec![Playlist {
-            id: "pl-1".into(),
-            name: "Favourites".into(),
-            song_count: 2,
-            duration: 518,
-            created: CREATED,
-            changed: CREATED + 60,
-            owner: Some(USER.into()),
-        }])
+        Ok(self.playlists.lock().unwrap().iter().map(summary).collect())
     }
 
     fn playlist(&self, id: &str) -> Result<Option<(Playlist, Vec<Song>)>> {
-        if id != "pl-1" {
-            return Ok(None);
-        }
-        let playlist = self.playlists()?.remove(0);
-        let songs = Self::songs_data()
-            .into_iter()
-            .filter(|s| s.id == "s-1" || s.id == "s-3")
-            .collect();
-        Ok(Some((playlist, songs)))
+        let store = self.playlists.lock().unwrap();
+        Ok(store
+            .iter()
+            .find(|(playlist, _)| playlist.id == id)
+            .map(|stored| {
+                let songs = stored
+                    .1
+                    .iter()
+                    .filter_map(|id| Self::songs_data().into_iter().find(|song| &song.id == id))
+                    .collect();
+                (summary(stored), songs)
+            }))
     }
 
     fn cover_art(&self, id: &str, size: Option<u32>) -> Result<Option<(String, Vec<u8>)>> {
@@ -470,6 +545,141 @@ impl MusicSource for FakeSource {
             .unwrap()
             .now_playing
             .push((song_id.to_owned(), client.to_owned()));
+        Ok(())
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        *self.capabilities.lock().unwrap()
+    }
+
+    fn starred(&self) -> Result<Starred> {
+        Ok(Starred {
+            artists: Self::artists_data().into_iter().take(1).collect(),
+            albums: Self::albums_data().into_iter().take(1).collect(),
+            songs: Self::songs_data().into_iter().take(1).collect(),
+        })
+    }
+
+    fn songs_by_genre(&self, genre: &str, count: usize, offset: usize) -> Result<Vec<Song>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .songs_by_genre
+            .push((genre.to_owned(), count, offset));
+        let matching: Vec<Song> = Self::songs_data()
+            .into_iter()
+            .filter(|song| song.genre.as_deref() == Some(genre))
+            .collect();
+        Ok(Self::page(&matching, (count, offset)))
+    }
+
+    fn lyrics(&self, song_id: &str) -> Result<Option<Lyrics>> {
+        match song_id {
+            "s-1" => Ok(Some(Lyrics {
+                text: "Here comes the sun\r\nLittle darling\n\nIt's alright\n\n".into(),
+                language: Some("eng".into()),
+            })),
+            "s-3" => Ok(Some(Lyrics {
+                text: "Around the world".into(),
+                language: None,
+            })),
+            "broken" => Err(Error::Source("lyrics database is locked".into())),
+            _ => Ok(None),
+        }
+    }
+
+    fn set_rating(&self, id: &str, stars: u8) -> Result<()> {
+        if id == "nope" {
+            return Err(Error::NotFound);
+        }
+        self.calls
+            .lock()
+            .unwrap()
+            .ratings
+            .push((id.to_owned(), stars));
+        Ok(())
+    }
+
+    fn star(&self, targets: &Targets) -> Result<()> {
+        if targets.songs.iter().any(|id| id == "nope") {
+            return Err(Error::NotFound);
+        }
+        self.calls.lock().unwrap().stars.push(targets.clone());
+        Ok(())
+    }
+
+    fn unstar(&self, targets: &Targets) -> Result<()> {
+        self.calls.lock().unwrap().unstars.push(targets.clone());
+        Ok(())
+    }
+
+    fn create_playlist(&self, name: &str, song_ids: &[String]) -> Result<String> {
+        let mut store = self.playlists.lock().unwrap();
+        let id = format!("pl-new-{}", store.len());
+        store.push((
+            Playlist {
+                id: id.clone(),
+                name: name.to_owned(),
+                created: CREATED + 100,
+                changed: CREATED + 100,
+                owner: Some(USER.into()),
+                ..Playlist::default()
+            },
+            song_ids.to_vec(),
+        ));
+        self.calls
+            .lock()
+            .unwrap()
+            .created
+            .push((name.to_owned(), song_ids.to_vec()));
+        Ok(id)
+    }
+
+    fn update_playlist(&self, id: &str, edit: &PlaylistEdit) -> Result<()> {
+        let mut store = self.playlists.lock().unwrap();
+        let (playlist, songs) = store
+            .iter_mut()
+            .find(|(playlist, _)| playlist.id == id)
+            .ok_or(Error::NotFound)?;
+        if playlist.readonly == Some(true) {
+            return Err(Error::Unsupported("editing smart playlists"));
+        }
+        if let Some(name) = &edit.name {
+            playlist.name.clone_from(name);
+        }
+        if edit.comment.is_some() {
+            playlist.comment.clone_from(&edit.comment);
+        }
+        if edit.public.is_some() {
+            playlist.public = edit.public;
+        }
+        let kept: Vec<String> = songs
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !edit.remove.contains(index))
+            .map(|(_, id)| id.clone())
+            .collect();
+        *songs = kept;
+        songs.extend(edit.add.iter().cloned());
+        self.calls
+            .lock()
+            .unwrap()
+            .edits
+            .push((id.to_owned(), edit.clone()));
+        Ok(())
+    }
+
+    fn delete_playlist(&self, id: &str) -> Result<()> {
+        let mut store = self.playlists.lock().unwrap();
+        let position = store
+            .iter()
+            .position(|(playlist, _)| playlist.id == id)
+            .ok_or(Error::NotFound)?;
+        if store[position].0.readonly == Some(true) {
+            return Err(Error::Unsupported("deleting smart playlists"));
+        }
+        store.remove(position);
+        self.calls.lock().unwrap().deleted.push(id.to_owned());
         Ok(())
     }
 }

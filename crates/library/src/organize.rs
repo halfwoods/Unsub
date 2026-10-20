@@ -369,6 +369,7 @@ mod tests {
             in_cloud: false,
             missing: false,
             loudness: None,
+            remember_position: false,
             sort_title: None,
             sort_artist: None,
             sort_album: None,

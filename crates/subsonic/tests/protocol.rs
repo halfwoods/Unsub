@@ -4,7 +4,7 @@ mod common;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use antistreaming_subsonic::AlbumListKind;
+use antistreaming_subsonic::{AlbumListKind, Capabilities};
 use common::*;
 use serde_json::json;
 
@@ -158,7 +158,10 @@ fn get_artists_json_matches_the_subsonic_shape() {
     );
     assert_eq!(
         index[1]["artist"][0],
-        json!({ "id": "ar-1", "name": "The Beatles", "albumCount": 2, "coverArt": "ar-1-art" })
+        json!({
+            "id": "ar-1", "name": "The Beatles", "albumCount": 2, "coverArt": "ar-1-art",
+            "starred": "2023-11-14T22:13:25Z"
+        })
     );
 }
 
@@ -413,10 +416,26 @@ fn album_list2_uses_id3_albums_and_album_list_uses_directory_albums() {
 }
 
 #[test]
-fn starred_album_lists_are_empty_without_asking_the_source() {
+fn the_starred_album_list_asks_the_source_and_highest_is_always_empty() {
     let h = Harness::start();
     for endpoint in ["getAlbumList", "getAlbumList2"] {
-        let body = h.json(endpoint, "type=starred");
+        let body = h.json(endpoint, "type=starred&size=5&offset=1");
+        let list = body
+            .as_object()
+            .unwrap()
+            .iter()
+            .find(|(k, _)| k.starts_with("albumList"))
+            .unwrap()
+            .1;
+        assert_eq!(list["album"].as_array().unwrap().len(), 2, "{endpoint}");
+        let call = h.source.calls.lock().unwrap().album_list.pop().unwrap();
+        assert_eq!(
+            call,
+            (AlbumListKind::Starred, 5, 1, None, None),
+            "{endpoint}"
+        );
+
+        let body = h.json(endpoint, "type=highest");
         let list = body
             .as_object()
             .unwrap()
@@ -546,7 +565,10 @@ fn get_playlists_and_get_playlist() {
     let h = Harness::start();
     let doc = xml_ok(&h.get("getPlaylists", ""));
     let lists = children(child(doc.root_element(), "playlists"), "playlist");
-    assert_eq!(lists.len(), 1);
+    assert_eq!(lists.len(), 2);
+    assert_eq!(lists[0].attribute("readonly"), None);
+    assert_eq!(lists[1].attribute("id"), Some("pl-smart"));
+    assert_eq!(lists[1].attribute("readonly"), Some("true"));
     for (name, value) in [
         ("id", "pl-1"),
         ("name", "Favourites"),
@@ -581,19 +603,45 @@ fn get_playlists_and_get_playlist() {
 }
 
 #[test]
-fn starred_endpoints_are_empty() {
+fn get_starred2_lists_what_the_source_says_is_starred_in_id3_form() {
     let h = Harness::start();
-    for (endpoint, root) in [("getStarred", "starred"), ("getStarred2", "starred2")] {
-        let doc = xml_ok(&h.get(endpoint, ""));
-        assert_eq!(
-            child(doc.root_element(), root)
-                .children()
-                .filter(|c| c.is_element())
-                .count(),
-            0
-        );
-        assert_eq!(h.json(endpoint, "")[root], json!({}));
-    }
+    let doc = xml_ok(&h.get("getStarred2", ""));
+    let starred = child(doc.root_element(), "starred2");
+    let artist = child(starred, "artist");
+    assert_eq!(
+        (artist.attribute("id"), artist.attribute("starred")),
+        (Some("ar-1"), Some("2023-11-14T22:13:25Z"))
+    );
+    let album = child(starred, "album");
+    assert_eq!(
+        (album.attribute("name"), album.attribute("userRating")),
+        (Some("Abbey Road"), Some("5"))
+    );
+    assert_eq!(album.attribute("isDir"), None);
+    let song = child(starred, "song");
+    assert_eq!(
+        (song.attribute("id"), song.attribute("userRating")),
+        (Some("s-1"), Some("5"))
+    );
+    assert_eq!(song.attribute("starred"), Some("2023-11-14T22:13:25Z"));
+
+    let body = h.json("getStarred2", "");
+    assert_eq!(body["starred2"]["artist"][0]["id"], "ar-1");
+    assert_eq!(body["starred2"]["album"][0]["id"], "al-1");
+    assert_eq!(body["starred2"]["song"][0]["id"], "s-1");
+}
+
+#[test]
+fn get_starred_uses_directory_style_albums() {
+    let h = Harness::start();
+    let doc = xml_ok(&h.get("getStarred", ""));
+    let starred = child(doc.root_element(), "starred");
+    assert_eq!(child(starred, "album").attribute("isDir"), Some("true"));
+    assert_eq!(child(starred, "song").attribute("type"), Some("music"));
+    assert_eq!(
+        h.json("getStarred", "")["starred"]["album"][0]["title"],
+        "Abbey Road"
+    );
 }
 
 #[test]
@@ -624,7 +672,7 @@ fn open_subsonic_extensions_follow_the_configuration() {
         .iter()
         .map(|e| e.attribute("name").unwrap())
         .collect();
-    assert_eq!(names, ["formPost", "apiKeyAuthentication"]);
+    assert_eq!(names, ["formPost", "apiKeyAuthentication", "songLyrics"]);
     let first = children(doc.root_element(), "openSubsonicExtensions")[0];
     assert_eq!(child(first, "versions").text(), Some("1"));
 
@@ -636,7 +684,15 @@ fn open_subsonic_extensions_follow_the_configuration() {
 
     let without_key = Harness::start_with(None);
     let body = without_key.json("getOpenSubsonicExtensions", "");
-    assert_eq!(body["openSubsonicExtensions"].as_array().unwrap().len(), 1);
+    assert_eq!(body["openSubsonicExtensions"].as_array().unwrap().len(), 2);
+
+    // Lyrics are advertised only by a source that has them.
+    *without_key.source.capabilities.lock().unwrap() = Capabilities::default();
+    let body = without_key.json("getOpenSubsonicExtensions", "");
+    assert_eq!(
+        body["openSubsonicExtensions"],
+        json!([{ "name": "formPost", "versions": [1] }])
+    );
 }
 
 #[test]
@@ -694,11 +750,11 @@ fn json_is_chosen_by_f_and_everything_else_is_xml() {
 #[test]
 fn unknown_endpoint_is_a_generic_error_but_only_after_authentication() {
     let h = Harness::start();
-    let (code, message) = error_of(&h.get("getBookmarks", ""));
+    let (code, message) = error_of(&h.get("createBookmark", ""));
     assert_eq!(code, 0);
-    assert!(message.contains("getBookmarks"));
+    assert!(message.contains("createBookmark"));
     let unauthenticated = h.get_url(&format!(
-        "{}/rest/getBookmarks?u={USER}&p=wrong&v=1.16.1&c=t",
+        "{}/rest/createBookmark?u={USER}&p=wrong&v=1.16.1&c=t",
         h.base
     ));
     assert_eq!(error_of(&unauthenticated).0, 40);

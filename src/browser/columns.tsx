@@ -51,6 +51,9 @@ export const CD_COLUMNS: Column[] = [
   ...COLUMNS.filter((c) => c.id !== "rating" && c.id !== "plays").map((c) => ({ ...c, sort: undefined })),
 ];
 
+/** A shared library's songs can't be checked or rated from here; its play counts are its owner's. */
+export const SHARED_COLUMNS: Column[] = COLUMNS.filter((c) => c.id !== "enabled" && c.id !== "rating");
+
 export const gridTemplate = (columns: Column[]) =>
   [
     `${STATUS_COLUMN_WIDTH}px`,

@@ -97,6 +97,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tracks ADD COLUMN album_loudness_lufs REAL;
     ALTER TABLE tracks ADD COLUMN album_true_peak_dbtp REAL;
     ALTER TABLE tracks ADD COLUMN loudness_state BLOB;",
+    // `remember_position` is null until Get Info sets it, meaning "the default
+    // for the kind"; `bookmark_ms` is null when there is nothing to resume.
+    "ALTER TABLE tracks ADD COLUMN bookmark_ms INTEGER;
+    ALTER TABLE tracks ADD COLUMN remember_position INTEGER;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

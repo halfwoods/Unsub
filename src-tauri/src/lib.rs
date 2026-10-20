@@ -12,6 +12,7 @@ mod playback;
 mod podcasts;
 mod purchases;
 mod queue;
+mod remote;
 mod sharing;
 mod sync;
 
@@ -48,6 +49,7 @@ pub fn run() {
             app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("AntiStreaming"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
+            app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
             app.manage(loudness::LoudnessState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
@@ -63,6 +65,7 @@ pub fn run() {
             app.manage(PlaybackState::new(player, app.handle().clone()));
             devices::watch(app.handle().clone());
             library::check_missing(app.handle());
+            remote::browse(app.handle());
             cd::watch(app.handle().clone());
             Ok(())
         })
@@ -96,6 +99,11 @@ pub fn run() {
             devices::players_list,
             devices::player_set_up,
             devices::player_eject,
+            remote::remote_libraries,
+            remote::remote_connect,
+            remote::remote_open,
+            remote::remote_forget,
+            remote::remote_tracks,
             collection::collection_report,
             collection::collection_load_music_app,
             collection::collection_load_xml,

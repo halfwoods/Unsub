@@ -1,0 +1,14 @@
+.shared-login {
+  max-width: 420px;
+}
+
+.shared-fields {
+  margin: 14px auto 6px;
+  max-width: 320px;
+  text-align: left;
+}
+
+.connect-sheet {
+  min-width: 0;
+  width: 480px;
+}

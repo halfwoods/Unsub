@@ -15,7 +15,8 @@ impl Params {
         Self(pairs)
     }
 
-    fn raw(&self, name: &str) -> Option<&str> {
+    /// The first value of `name`, even when it is empty (`comment=` clears a comment).
+    pub fn raw(&self, name: &str) -> Option<&str> {
         self.all(name).next()
     }
 

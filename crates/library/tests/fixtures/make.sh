@@ -5,6 +5,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 rm -f -- *.flac *.m4a *.m4b *.mp3 *.ogg *.wav
+rm -rf chapters audiobook
+mkdir chapters audiobook
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -70,3 +72,53 @@ ff $(sine 880 16000) -ac 1 -c:a libmp3lame -b:a 32k \
   -metadata title="Episode 12" -metadata artist="Radiolab" \
   -metadata album="Radiolab" -metadata genre="Podcast" \
   episode_12.mp3
+
+# Chapter fixtures live in their own folder so the scan tests do not see them.
+# Three chapters over six seconds. ffmpeg writes both a QuickTime chapter track
+# and a Nero `chpl` list into the m4b, and CHAP/CTOC frames into the mp3.
+cat > "$work/chapters.txt" <<'CHAPTERS'
+;FFMETADATA1
+title=Chapter Book
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=2000
+title=Opening
+[CHAPTER]
+TIMEBASE=1/1000
+START=2000
+END=4500
+title=Middle: part 2
+[CHAPTER]
+TIMEBASE=1/1000
+START=4500
+END=6000
+title=The End
+CHAPTERS
+chapter_tone() { echo -f lavfi -i "sine=frequency=330:duration=6:sample_rate=$1"; }
+
+# shellcheck disable=SC2046
+ff $(chapter_tone 8000) -i "$work/chapters.txt" -map_metadata 1 -map_chapters 1 \
+  -ac 1 -c:a aac -b:a 16k -f ipod chapters/book.m4b
+
+# shellcheck disable=SC2046
+ff $(chapter_tone 8000) -i "$work/chapters.txt" -map_metadata 1 -map_chapters 1 \
+  -ac 1 -c:a libmp3lame -b:a 16k chapters/book.mp3
+
+# Vorbis comments have no chapter support in ffmpeg's muxers, but the
+# convention is plain comments, which -metadata writes.
+vorbis_chapters=(
+  -metadata CHAPTER001=00:00:00.000 -metadata CHAPTER001NAME="Opening"
+  -metadata CHAPTER002=00:00:02.000 -metadata CHAPTER002NAME="Middle: part 2"
+  -metadata CHAPTER003=00:00:04.500 -metadata CHAPTER003NAME="The End"
+)
+# shellcheck disable=SC2046
+ff $(chapter_tone 16000) -ac 2 -c:a vorbis -strict -2 "${vorbis_chapters[@]}" chapters/book.ogg
+# shellcheck disable=SC2046
+ff $(chapter_tone 8000) -ac 1 -c:a flac "${vorbis_chapters[@]}" chapters/book.flac
+
+# Long enough that "within ten seconds of the end" is not the whole file.
+# shellcheck disable=SC2046
+ff $(echo -f lavfi -i "sine=frequency=220:duration=40:sample_rate=8000") -ac 1 -c:a aac -b:a 8k -f ipod \
+  -metadata title="Long Chapter" -metadata artist="Narrator" -metadata album="Long Book" \
+  audiobook/long.m4b

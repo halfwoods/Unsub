@@ -120,6 +120,10 @@ pub struct Track {
     /// How loud the track is, once known: read from its tags at scan time or
     /// measured by the app.
     pub loudness: Option<TrackLoudness>,
+    /// "Remember playback position", as it applies to this track: on for
+    /// audiobooks and podcasts unless Get Info says otherwise. Not written by
+    /// `import_tracks`, which has no such setting to bring.
+    pub remember_position: bool,
     pub sort_title: Option<String>,
     pub sort_artist: Option<String>,
     pub sort_album: Option<String>,

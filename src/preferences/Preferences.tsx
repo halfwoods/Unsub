@@ -182,6 +182,8 @@ function SharingTab() {
         devices on your network that know the password can connect.
       </p>
       <div className="prefs-grid">
+        <span className="prefs-label">Shared name:</span>
+        <input className="smart-input" value={draft.sharedName} onChange={(e) => setDraft({ ...draft, sharedName: e.target.value })} />
         <span className="prefs-label">User name:</span>
         <input className="smart-input" value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} />
         <span className="prefs-label">Password:</span>

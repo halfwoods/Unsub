@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
 
@@ -33,7 +33,8 @@ pub fn user(ctx: &Ctx) -> Result<Reply> {
             "settingsRole": false,
             "downloadRole": true,
             "uploadRole": false,
-            "playlistRole": false,
+            // Clients show playlist editing only to a user who has this role.
+            "playlistRole": ctx.state.source.capabilities().playlist_editing,
             "coverArtRole": true,
             "commentRole": false,
             "podcastRole": false,
@@ -50,6 +51,9 @@ pub fn extensions(ctx: &Ctx) -> Result<Reply> {
     let mut extensions = vec![json!({ "name": "formPost", "versions": [1] })];
     if ctx.state.config.api_key.is_some() {
         extensions.push(json!({ "name": "apiKeyAuthentication", "versions": [1] }));
+    }
+    if ctx.state.source.capabilities().lyrics {
+        extensions.push(json!({ "name": "songLyrics", "versions": [1] }));
     }
     Ok(Reply::Doc("openSubsonicExtensions", extensions.into()))
 }
@@ -81,6 +85,7 @@ pub async fn scrobble(ctx: &Ctx) -> Result<Reply> {
             i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
         });
 
+    let (reported, who) = (ids.clone(), client.clone());
     ctx.source(move |source| {
         ids.iter().enumerate().try_for_each(|(position, id)| {
             if submission {
@@ -91,5 +96,12 @@ pub async fn scrobble(ctx: &Ctx) -> Result<Reply> {
         })
     })
     .await?;
+    for id in &reported {
+        if submission {
+            ctx.state.session.finished(id, &who);
+        } else {
+            ctx.state.session.started(id, &who, Instant::now());
+        }
+    }
     Ok(Reply::Empty)
 }

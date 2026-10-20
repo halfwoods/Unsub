@@ -10,6 +10,12 @@
 //! `download` is always the stored file. `scrobble` reaches the source as [`MusicSource::scrobble`]
 //! or, for "now playing" pings, [`MusicSource::now_playing`].
 //!
+//! Beyond browsing and playing, phone apps rate and star songs, edit playlists, save a play queue
+//! and read lyrics. The write operations reach the host through [`MusicSource`] methods that default
+//! to [`Error::Unsupported`], which clients see as error 0, or 50 for playlists, which Subsonic
+//! ties to a user role; [`Capabilities`] tells `getUser` and `getOpenSubsonicExtensions` which
+//! features to advertise. The play queue and "now playing" live in the server's memory.
+//!
 //! The server speaks plain HTTP. Legacy `u`/`p` authentication sends the password in the clear, so
 //! bind it to a trusted network only.
 
@@ -23,10 +29,14 @@ mod params;
 mod range;
 mod render;
 mod server;
+mod session;
 mod source;
 mod wire;
 
 pub use error::{Error, Result};
 pub use model::{Album, Artist, Genre, Playlist, SearchResult, Song};
 pub use server::{Server, ServerConfig};
-pub use source::{AlbumListKind, MusicSource, Stream, StreamFormat};
+pub use source::{
+    AlbumListKind, Capabilities, Lyrics, MusicSource, PlaylistEdit, Starred, Stream, StreamFormat,
+    Targets,
+};

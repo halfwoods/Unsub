@@ -122,6 +122,16 @@ pub struct SearchResults {
     pub songs: Vec<Song>,
 }
 
+/// How [`Client::songs`](crate::Client::songs) got the list of every song.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SongListing {
+    /// One `search3` with an empty query, paged: what Navidrome and most servers support.
+    Search,
+    /// The server refused that, so albums were listed alphabetically and opened one by one.
+    AlbumWalk,
+}
+
 /// The orderings of `getAlbumList2` that need nothing more than a size and an offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

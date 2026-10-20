@@ -4,7 +4,8 @@ import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
 import { PodcastsView } from "../podcasts/PodcastsView";
 import { InboxView, PurchasedView } from "../purchases/PurchasesViews";
-import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, playerIdOf, useApp } from "../state/store";
+import { SharedLogin } from "../shared/Shared";
+import { cdIdOf, isDeviceSource, isLibrarySource, isPlaylistSource, parseDeviceSource, playerIdOf, sharedIdOf, useApp } from "../state/store";
 import { AlbumGrid } from "./AlbumGrid";
 import { AlbumList } from "./AlbumList";
 import { CoverFlow } from "./CoverFlow";
@@ -47,6 +48,7 @@ export function Content() {
   const source = useApp((s) => s.source);
   const devices = useApp((s) => s.devices);
   const players = useApp((s) => s.players);
+  const shared = useApp((s) => s.shared);
   const hasTracks = useApp((s) => s.tracks.length > 0);
   const searching = useApp((s) => s.query.search !== null);
   const loaded = useApp((s) => s.stats !== null);
@@ -62,6 +64,14 @@ export function Content() {
   if (playerId !== null) {
     const player = players.find((p) => p.id === playerId);
     return player ? <PlayerSummary player={player} /> : null;
+  }
+  const sharedId = sharedIdOf(source);
+  if (sharedId !== null) {
+    const library = shared.find((l) => l.id === sharedId);
+    if (!library) return null;
+    if (!library.hasLogin) return <SharedLogin library={library} />;
+    // Songs list as they arrive; the bottom bar's count climbs while it loads.
+    return <SongList />;
   }
   // A CD has no albums to browse, so it is always the song list.
   if (cdIdOf(source) !== null) return <SongList />;

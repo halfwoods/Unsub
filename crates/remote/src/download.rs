@@ -1,10 +1,10 @@
 //! Songs from a remote library, fetched into a cache folder so the local player can decode them.
 //!
 //! The playback crate decodes files, not URLs. A download therefore runs on its own thread and
-//! writes into `<key>.part`; a `GrowingReader` follows that file as it grows, so playback can start
-//! after the first few hundred kilobytes instead of after the last. When the last byte lands the
-//! file is renamed to `<key>.<ext>`, which is also how an interrupted download is told apart from
-//! a finished one: a `.part` file is resumed with an HTTP `Range` request, never trusted.
+//! writes into `<key>.<ext>.part`; a `GrowingReader` follows that file as it grows, so playback can
+//! start after the first few hundred kilobytes instead of after the last. When the last byte lands
+//! the file is renamed to `<key>.<ext>`, which is also how an interrupted download is told apart
+//! from a finished one: a `.part` file is resumed with an HTTP `Range` request, never trusted.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -14,6 +14,7 @@ use std::thread::{self, JoinHandle};
 
 use serde::Serialize;
 use ureq::Body;
+use ureq::Timeout;
 use ureq::http::Response;
 
 use crate::cache;
@@ -44,6 +45,8 @@ struct State {
     total: Option<u64>,
     phase: Phase,
     cancelled: bool,
+    /// Set by `detach`: nobody is holding on, and the download should finish regardless.
+    detached: bool,
 }
 
 enum Phase {
@@ -64,30 +67,55 @@ impl Shared {
     }
 }
 
-/// A song being fetched into the cache. Dropping the handle does not stop the download: it
-/// carries on in the background and the cache keeps the result. Call [`Download::cancel`] to stop
-/// it; the partial file stays so that a later request resumes from there.
+/// Held by the `Download` and by every reader taken from it. When the last one is dropped, a
+/// download that is still running and was not detached is cancelled.
+struct Lifeline(Arc<Shared>);
+
+impl Drop for Lifeline {
+    fn drop(&mut self) {
+        let mut state = self.0.lock();
+        if !state.detached && matches!(state.phase, Phase::Running) {
+            state.cancelled = true;
+        }
+    }
+}
+
+/// A song being fetched into the cache.
+///
+/// Dropping the handle cancels the download, so a skipped song stops costing bandwidth; the
+/// partial file stays and a later request resumes it. It is not cancelled while a reader taken
+/// from it is still alive, since that is playback in progress. Call [`Download::wait`] to
+/// see it through, or [`Download::detach`] to let it finish in the background with nobody
+/// waiting.
 pub struct Download {
     shared: Arc<Shared>,
+    lifeline: Arc<Lifeline>,
     thread: Option<JoinHandle<Result<PathBuf>>>,
 }
 
 impl Download {
+    fn new(shared: Arc<Shared>, thread: Option<JoinHandle<Result<PathBuf>>>) -> Self {
+        Self {
+            lifeline: Arc::new(Lifeline(Arc::clone(&shared))),
+            shared,
+            thread,
+        }
+    }
+
     fn finished(path: PathBuf) -> Self {
         let size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
-        Self {
-            shared: Arc::new(Shared {
-                state: Mutex::new(State {
-                    path,
-                    downloaded: size,
-                    total: Some(size),
-                    phase: Phase::Done,
-                    cancelled: false,
-                }),
-                changed: Condvar::new(),
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State {
+                path,
+                downloaded: size,
+                total: Some(size),
+                phase: Phase::Done,
+                cancelled: false,
+                detached: false,
             }),
-            thread: None,
-        }
+            changed: Condvar::new(),
+        });
+        Self::new(shared, None)
     }
 
     /// Where the bytes are: the partial file while downloading, the finished file afterwards.
@@ -122,7 +150,7 @@ impl Download {
 
     /// A reader over the song that waits for bytes that have not arrived yet instead of ending
     /// early. It can seek forwards past what has arrived (the read then waits), and from the end
-    /// once the length is known.
+    /// once the length is known. The download keeps going for as long as the reader exists.
     pub fn reader(&self) -> Result<GrowingReader> {
         // Opened while holding the lock, so the rename to the finished name cannot slip in
         // between choosing the path and opening it.
@@ -131,6 +159,7 @@ impl Download {
         Ok(GrowingReader {
             file,
             shared: Arc::clone(&self.shared),
+            _lifeline: Arc::clone(&self.lifeline),
             position: 0,
         })
     }
@@ -138,6 +167,14 @@ impl Download {
     /// Stops the download after the chunk in flight. The partial file is kept for resuming.
     pub fn cancel(&self) {
         self.shared.lock().cancelled = true;
+    }
+
+    /// Lets the download finish in the background with nobody waiting; the cache keeps the
+    /// result for next time.
+    pub fn detach(mut self) {
+        self.shared.lock().detached = true;
+        // The thread carries on without a handle to join.
+        drop(self.thread.take());
     }
 
     /// Waits for the song to finish and returns the cached file.
@@ -159,6 +196,7 @@ impl Download {
 pub struct GrowingReader {
     file: File,
     shared: Arc<Shared>,
+    _lifeline: Arc<Lifeline>,
     position: u64,
 }
 
@@ -241,7 +279,9 @@ impl Client {
     ///
     /// The cache folder is kept under the size set by [`Client::with_cache_limit`]: before a
     /// download starts, the least recently used other songs are deleted to make room. A song
-    /// larger than the whole cache is refused.
+    /// larger than the whole cache is refused. A server that goes quiet for longer than
+    /// [`Client::with_stall_timeout`] fails the download with [`Error::Stalled`], keeping what
+    /// arrived.
     pub fn start_download(&self, song_id: &str, dir: &Path) -> Result<Download> {
         let key = cache::key(&self.base_url, &self.user, song_id);
         if let Some(cached) = cache::find_finished(dir, &key) {
@@ -249,14 +289,14 @@ impl Client {
             return Ok(Download::finished(cached));
         }
         fs::create_dir_all(dir)?;
-        let part = cache::part_path(dir, &key);
-        let have = fs::metadata(&part).map_or(0, |metadata| metadata.len());
+        let mut partial = cache::find_partial(dir, &key);
+        let have = partial.as_ref().map_or(0, |(path, _)| file_size(path));
         let url = self.url("stream", &[("id", song_id), ("format", "raw")]);
 
         let mut reply = self.request(&url, have)?;
         if matches!(reply, Reply::RangeRejected) {
             // The partial file cannot be continued from this server; begin again.
-            let _ = fs::remove_file(&part);
+            discard(partial.take());
             reply = self.request(&url, 0)?;
         }
         let (response, offset, total, content_type) = match reply {
@@ -266,8 +306,13 @@ impl Client {
                 total,
                 content_type,
             } => (response, offset, total, content_type),
-            Reply::Complete { content_type } => {
-                let finished = cache::final_path(dir, &key, content_type.as_deref());
+            Reply::Complete => {
+                let Some((part, extension)) = partial else {
+                    return Err(Error::Unexpected(
+                        "the server sent an empty song".to_owned(),
+                    ));
+                };
+                let finished = cache::final_path(dir, &key, &extension);
                 replace(&part, &finished)?;
                 return Ok(Download::finished(finished));
             }
@@ -285,10 +330,20 @@ impl Client {
             });
         }
         cache::make_room(dir, &key, total.unwrap_or(0), self.cache_limit)?;
-        let file = if offset == 0 {
-            File::create(&part)?
-        } else {
-            OpenOptions::new().append(true).open(&part)?
+
+        // A resumed download keeps the extension it began with; a fresh one takes it from the
+        // type the server just named.
+        let (part, extension, file) = match partial {
+            Some((part, extension)) if offset > 0 => {
+                let file = OpenOptions::new().append(true).open(&part)?;
+                (part, extension, file)
+            }
+            old => {
+                discard(old);
+                let extension = cache::extension(content_type.as_deref());
+                let part = cache::part_path(dir, &key, extension);
+                (part.clone(), extension.to_owned(), File::create(&part)?)
+            }
         };
 
         let shared = Arc::new(Shared {
@@ -298,30 +353,31 @@ impl Client {
                 total,
                 phase: Phase::Running,
                 cancelled: false,
+                detached: false,
             }),
             changed: Condvar::new(),
         });
         let job = Job {
             shared: Arc::clone(&shared),
             part,
-            finished: cache::final_path(dir, &key, content_type.as_deref()),
+            finished: cache::final_path(dir, &key, &extension),
             limit: self.cache_limit,
         };
         let body = response.into_body();
         let thread = thread::spawn(move || job.run(body.into_reader(), file));
-        Ok(Download {
-            shared,
-            thread: Some(thread),
-        })
+        Ok(Download::new(shared, Some(thread)))
     }
 
     /// Asks for the song from byte `offset`, and works out what the server's answer means.
     fn request(&self, url: &str, offset: u64) -> Result<Reply> {
-        let mut request = self.agent.get(url);
+        let mut request = self.download_agent.get(url);
         if offset > 0 {
             request = request.header("Range", &format!("bytes={offset}-"));
         }
-        let mut response = request.call()?;
+        let mut response = request.call().map_err(|error| match error {
+            ureq::Error::Timeout(Timeout::RecvResponse | Timeout::RecvBody) => Error::Stalled,
+            other => other.into(),
+        })?;
         let status = response.status().as_u16();
         let content_type = header(&response, "content-type");
         let content_range =
@@ -330,7 +386,7 @@ impl Client {
         if status == 416 {
             // "bytes */N": the partial file is already all N bytes, or does not belong to this song.
             return Ok(match content_range {
-                Some((_, Some(total))) if total == offset => Reply::Complete { content_type },
+                Some((_, Some(total))) if total == offset => Reply::Complete,
                 _ => Reply::RangeRejected,
             });
         }
@@ -373,7 +429,7 @@ enum Reply {
         content_type: Option<String>,
     },
     /// The partial file already holds the whole song.
-    Complete { content_type: Option<String> },
+    Complete,
     /// The partial file does not fit this song or this server.
     RangeRejected,
 }
@@ -409,7 +465,7 @@ impl Job {
             if self.shared.lock().cancelled {
                 return Err(Error::DownloadFailed("cancelled".to_owned()));
             }
-            let read = body.read(&mut buffer)?;
+            let read = body.read(&mut buffer).map_err(read_error)?;
             if read == 0 {
                 return Ok(());
             }
@@ -445,6 +501,26 @@ impl Job {
         state.phase = Phase::Done;
         self.shared.changed.notify_all();
         Ok(self.finished.clone())
+    }
+}
+
+/// A read that times out means the server went quiet.
+fn read_error(error: io::Error) -> Error {
+    match ureq::Error::from(error) {
+        ureq::Error::Timeout(_) => Error::Stalled,
+        ureq::Error::Io(error) => Error::Io(error),
+        other => Error::Http(other),
+    }
+}
+
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map_or(0, |metadata| metadata.len())
+}
+
+/// Deletes a partial file that cannot be continued.
+fn discard(partial: Option<(PathBuf, String)>) {
+    if let Some((path, _)) = partial {
+        let _ = fs::remove_file(path);
     }
 }
 

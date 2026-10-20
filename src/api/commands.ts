@@ -34,6 +34,7 @@ import type {
   PlaylistKind,
   RepeatMode,
   ScanProgress,
+  SharedLibrary,
   SharingSettings,
   SyncPreview,
   SyncSettings,
@@ -76,6 +77,15 @@ export const librarySetRating = (trackId: number, rating: number) =>
 
 export const devicesList = () => invoke<Device[]>("devices_list");
 export const playersList = () => invoke<Player[]>("players_list");
+
+export const remoteLibraries = () => invoke<SharedLibrary[]>("remote_libraries");
+/** Logs in to a shared library (`library`), or adds a server by `url`; returns the library's id. */
+export const remoteConnect = (library: string | null, url: string | null, name: string | null, username: string, password: string) =>
+  invoke<string>("remote_connect", { library, url, name, username, password });
+export const remoteOpen = (library: string) => invoke<void>("remote_open", { library });
+export const remoteForget = (library: string) => invoke<void>("remote_forget", { library });
+export const remoteTracks = (library: string, query: TrackQuery) => invoke<Track[]>("remote_tracks", { library, query });
+export const onRemoteChanged = (handler: () => void): Promise<UnlistenFn> => listen("remote://changed", () => handler());
 export const playerEject = (deviceId: string) => invoke<void>("player_eject", { deviceId });
 export type PlayerPreset = "massStorage" | "android" | "rockbox";
 export const playerSetUp = (path: string, name: string, preset: PlayerPreset) => invoke<void>("player_set_up", { path, name, preset });
@@ -122,7 +132,11 @@ const THUMBNAIL_BUCKETS = [64, 128, 256, 512, 1024];
  */
 // CD songs have no embedded art (their cover comes from the Cover Art Archive), and their ids are
 // track numbers that would fetch some library song's art, so CDs are excluded by type.
-export const artworkUrl = (trackId: number, source: Exclude<PlaySource, { type: "cd" }> = { type: "library" }, size?: number) => {
+export const artworkUrl = (
+  trackId: number,
+  source: Exclude<PlaySource, { type: "cd" } | { type: "shared" }> = { type: "library" },
+  size?: number,
+) => {
   const url = convertFileSrc(source.type === "library" ? String(trackId) : `device/${source.deviceId}/${trackId}`, "artwork");
   if (!size) return url;
   const pixels = size * window.devicePixelRatio;
@@ -145,10 +159,11 @@ export const playerSetSoundCheck = (enabled: boolean) => invoke<void>("player_se
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));
-export const onCloudDownload = (
-  handler: (progress: { trackId: number; done: number; total: number } | null) => void,
+/** A song being fetched before it plays: from iCloud Drive, or from a shared library. */
+export const onDownload = (
+  handler: (progress: { trackId: number; done: number; total: number; from: string } | null) => void,
 ): Promise<UnlistenFn> =>
-  listen<{ trackId: number; done: number; total: number } | null>("player://downloading", (e) => handler(e.payload));
+  listen<{ trackId: number; done: number; total: number; from: string } | null>("player://downloading", (e) => handler(e.payload));
 export const onScanProgress = (handler: (progress: ScanProgress) => void): Promise<UnlistenFn> =>
   listen<ScanProgress>("library://scan-progress", (e) => handler(e.payload));
 export const onLibraryChanged = (handler: () => void): Promise<UnlistenFn> =>
@@ -226,6 +241,7 @@ export type MenuAction =
   | "show-exact-duplicates"
   | "organize-library"
   | "set-up-player"
+  | "connect-to-server"
   | "preferences";
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

@@ -1,5 +1,6 @@
 mod albums;
 mod artwork;
+mod chapters;
 mod cloud;
 mod delete;
 mod duplicates;
@@ -22,6 +23,7 @@ mod store;
 mod tags;
 mod thumbnail;
 
+pub use chapters::Chapter;
 pub use cloud::{ensure_local, is_dataless};
 pub use edit::{EditReport, TrackEdits};
 pub use error::{Error, Result};

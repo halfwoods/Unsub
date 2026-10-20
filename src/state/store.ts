@@ -10,6 +10,7 @@ import type {
   Device,
   DeviceSyncStatus,
   Player,
+  SharedLibrary,
   DeviceView,
   GenreSummary,
   LibraryStats,
@@ -50,11 +51,15 @@ export type CdSourceId = `cd:${string}`;
 /** "player:<id>": a non-Apple player's sync page. */
 export type PlayerSourceId = `player:${string}`;
 
+/** "shared:<library id>": a library under SHARED. */
+export type SharedSourceId = `shared:${string}`;
+
 export type SourceId =
   | LibrarySource
   | DeviceSourceId
   | CdSourceId
   | PlayerSourceId
+  | SharedSourceId
   | PlaylistSourceId
   | "toOwn"
   | "partyShuffle"
@@ -79,6 +84,8 @@ export const isDeviceSource = (source: SourceId): source is DeviceSourceId => so
 
 export const cdSource = (discId: string): CdSourceId => `cd:${discId}`;
 export const playerSource = (id: string): PlayerSourceId => `player:${id}`;
+export const sharedSource = (id: string): SharedSourceId => `shared:${id}`;
+export const sharedIdOf = (source: SourceId) => (source.startsWith("shared:") ? source.slice("shared:".length) : null);
 export const playerIdOf = (source: SourceId) => (source.startsWith("player:") ? source.slice("player:".length) : null);
 export const cdIdOf = (source: SourceId) => (source.startsWith("cd:") ? source.slice("cd:".length) : null);
 
@@ -111,6 +118,7 @@ export function parseDeviceSource(source: SourceId): { deviceId: string; view: D
 export const sameSource = (a: PlaySource, b: PlaySource) => {
   if (a.type === "device") return b.type === "device" && a.deviceId === b.deviceId;
   if (a.type === "cd") return b.type === "cd" && a.discId === b.discId;
+  if (a.type === "shared") return b.type === "shared" && a.library === b.library;
   return b.type === "library";
 };
 
@@ -119,7 +127,18 @@ export function playSourceOf(source: SourceId): PlaySource {
   const device = parseDeviceSource(source);
   if (device) return { type: "device", deviceId: device.deviceId };
   const discId = cdIdOf(source);
-  return discId === null ? { type: "library" } : { type: "cd", discId };
+  if (discId !== null) return { type: "cd", discId };
+  const library = sharedIdOf(source);
+  return library === null ? { type: "library" } : { type: "shared", library };
+}
+
+/** Totals for lists the backend doesn't count: CDs and shared libraries. */
+function totals(tracks: Track[]): LibraryStats {
+  return {
+    count: tracks.length,
+    totalDurationMs: tracks.reduce((sum, t) => sum + t.durationMs, 0),
+    totalBytes: tracks.reduce((sum, t) => sum + t.fileSize, 0),
+  };
 }
 
 const IDLE_PLAYBACK: PlaybackStatus = {
@@ -159,6 +178,7 @@ interface AppState {
   showArtwork: boolean;
   devices: Device[];
   players: Player[];
+  shared: SharedLibrary[];
   cds: AudioCd[];
   /** The CD import in progress, if any. */
   cdRip: CdRipStatus | null;
@@ -169,6 +189,7 @@ interface AppState {
   duplicates: { exact: boolean } | null;
   organize: OrganizeProgress | null;
   settingUpPlayer: boolean;
+  connectingToServer: boolean;
   expandedDevices: ReadonlySet<string>;
   /** Snapshot of the list playback started from, so now-playing info survives navigating away. */
   playingTracks: Track[];
@@ -184,8 +205,8 @@ interface AppState {
   smartEditor: SmartEditor | null;
   preferencesOpen: boolean;
   notice: string | null;
-  /** A cloud-only song being fetched before it plays. */
-  cloudDownload: { trackId: number; fraction: number } | null;
+  /** A song being fetched before it plays, from iCloud Drive or a shared library. */
+  download: { trackId: number; from: string; fraction: number } | null;
   textSizes: TextSizes;
   rowHeight: number;
 
@@ -205,6 +226,7 @@ interface AppState {
   toggleArtwork: () => void;
   refreshDevices: () => Promise<void>;
   refreshCds: () => Promise<void>;
+  refreshShared: () => Promise<void>;
   openLibrarySheet: (sheet: LibrarySheet | null) => void;
   showDuplicates: (exact: boolean) => Promise<void>;
   showAllSongs: () => void;
@@ -243,6 +265,7 @@ export const useApp = create<AppState>((set, get) => ({
   showArtwork: false,
   devices: [],
   players: [],
+  shared: [],
   cds: [],
   cdRip: null,
   deviceSync: null,
@@ -250,6 +273,7 @@ export const useApp = create<AppState>((set, get) => ({
   duplicates: null,
   organize: null,
   settingUpPlayer: false,
+  connectingToServer: false,
   expandedDevices: new Set(),
   playingTracks: [],
   playingSource: { type: "library" },
@@ -264,7 +288,7 @@ export const useApp = create<AppState>((set, get) => ({
   smartEditor: null,
   preferencesOpen: false,
   notice: null,
-  cloudDownload: null,
+  download: null,
   textSizes: loadTextSizes(),
   rowHeight: listRowHeight(loadTextSizes()),
 
@@ -273,7 +297,7 @@ export const useApp = create<AppState>((set, get) => ({
   setSource: (source) => {
     const device = parseDeviceSource(source);
     const playlist = playlistIdOf(source);
-    const isList = isLibrarySource(source) || device?.view != null || playlist !== null || cdIdOf(source) !== null;
+    const isList = isLibrarySource(source) || device?.view != null || playlist !== null || cdIdOf(source) !== null || sharedIdOf(source) !== null;
     // Device and playlist lists filter on the backend, so the query's own kind stays unset.
     const kind = isLibrarySource(source) ? SOURCE_KIND[source] : null;
     const regular = get().playlists.find((p) => p.id === playlist)?.kind === "regular";
@@ -289,6 +313,10 @@ export const useApp = create<AppState>((set, get) => ({
       selectionAnchor: null,
     }));
     if (isList) void get().refresh();
+    // A shared library with a saved login opens on selection, as iTunes' did.
+    const shared = sharedIdOf(source);
+    const library = get().shared.find((l) => l.id === shared);
+    if (library?.hasLogin && !library.connected) void api.remoteOpen(library.id).catch((e: unknown) => get().showNotice(String(e)));
   },
 
   // Album List only makes sense in album order, so iTunes switches the sort to it.
@@ -316,22 +344,18 @@ export const useApp = create<AppState>((set, get) => ({
     const { query, source } = get();
     const device = parseDeviceSource(source);
     const discId = cdIdOf(source);
+    const sharedId = sharedIdOf(source);
     let request: Promise<[Track[], LibraryStats]>;
     if (isLibrarySource(source) || isPlaylistSource(source)) {
       request = Promise.all([api.libraryTracks(query), api.libraryStats(query)]);
     } else if (device?.view) {
       const { deviceId, view } = device;
       request = Promise.all([api.deviceTracks(deviceId, view, query), api.deviceStats(deviceId, view, query)]);
+    } else if (sharedId !== null) {
+      request = api.remoteTracks(sharedId, query).then((tracks): [Track[], LibraryStats] => [tracks, totals(tracks)]);
     } else if (discId !== null) {
       // A CD is a dozen songs in disc order, so its totals are summed here.
-      request = api.cdTracks(discId).then((tracks): [Track[], LibraryStats] => [
-        tracks,
-        {
-          count: tracks.length,
-          totalDurationMs: tracks.reduce((sum, t) => sum + t.durationMs, 0),
-          totalBytes: tracks.reduce((sum, t) => sum + t.fileSize, 0),
-        },
-      ]);
+      request = api.cdTracks(discId).then((tracks): [Track[], LibraryStats] => [tracks, totals(tracks)]);
     } else {
       return;
     }
@@ -444,6 +468,16 @@ export const useApp = create<AppState>((set, get) => ({
   showAllSongs: () => {
     set((s) => ({ duplicates: null, query: { ...s.query, ids: null } }));
     void get().refresh();
+  },
+
+  refreshShared: async () => {
+    const shared = await api.remoteLibraries();
+    set({ shared });
+    const id = sharedIdOf(get().source);
+    if (id === null) return;
+    // A library that left the network drops you back to Music; one still loading fills in.
+    if (shared.some((l) => l.id === id)) void get().refresh();
+    else get().setSource("music");
   },
 
   refreshCds: async () => {

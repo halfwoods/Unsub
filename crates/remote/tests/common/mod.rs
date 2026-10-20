@@ -14,6 +14,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
@@ -46,15 +47,22 @@ pub struct Mode {
     /// Hold the body back: each number received lets that many more bytes out; closing the
     /// channel breaks the connection.
     pub gate: Option<Receiver<usize>>,
+    /// Send this many bytes of the body, then say nothing more and keep the connection open.
+    pub stall_after: Option<usize>,
+    /// Take requests and never answer them.
+    pub silent: bool,
     /// Report a missing song as a bare HTTP 404 (as AntiStreaming does) rather than as a Subsonic
     /// error document (as Navidrome does).
     pub missing_as_404: bool,
 }
 
+type Handler = Box<dyn Fn(&HashMap<String, String>) -> Value + Send + Sync>;
+
 #[derive(Default)]
 struct State {
     songs: Mutex<HashMap<String, Song>>,
     payloads: Mutex<HashMap<String, Value>>,
+    handlers: Mutex<HashMap<String, Handler>>,
     failures: Mutex<HashMap<String, (u32, String)>>,
     raw_replies: Mutex<HashMap<String, (u16, String, String)>>,
     covers: Mutex<HashMap<String, Vec<u8>>>,
@@ -96,6 +104,19 @@ impl FakeServer {
             .lock()
             .unwrap()
             .insert(endpoint.to_owned(), payload);
+    }
+
+    /// Like `respond`, but the payload is worked out from the request's parameters.
+    pub fn respond_with(
+        &self,
+        endpoint: &str,
+        handler: impl Fn(&HashMap<String, String>) -> Value + Send + Sync + 'static,
+    ) {
+        self.state
+            .handlers
+            .lock()
+            .unwrap()
+            .insert(endpoint.to_owned(), Box::new(handler));
     }
 
     pub fn fail(&self, endpoint: &str, code: u32, message: &str) {
@@ -222,6 +243,10 @@ fn serve(state: &State, stream: TcpStream) -> io::Result<()> {
         }
     }
 
+    if state.mode.lock().unwrap().silent {
+        thread::sleep(Duration::from_secs(10));
+        return Ok(());
+    }
     let reply = handle(state, &raw_url, range);
     send(stream, reply)
 }
@@ -259,7 +284,14 @@ fn handle(state: &State, raw_url: &str, range: Option<String>) -> Reply {
         "stream" => song_reply(state, &params, range.as_deref()),
         "getCoverArt" => cover_reply(state, &params),
         _ => {
-            let payload = state.payloads.lock().unwrap().get(&endpoint).cloned();
+            let computed = state
+                .handlers
+                .lock()
+                .unwrap()
+                .get(&endpoint)
+                .map(|handler| handler(&params));
+            let payload =
+                computed.or_else(|| state.payloads.lock().unwrap().get(&endpoint).cloned());
             Reply::json(ok_envelope(payload.unwrap_or_else(|| json!({}))))
         }
     }
@@ -309,19 +341,26 @@ fn song_reply(state: &State, params: &HashMap<String, String>, range: Option<&st
     }
     let body = data[start..].to_vec();
     let length = body.len();
-    let reader: Box<dyn Read + Send> = match (mode.gate.take(), mode.cut_after) {
-        (Some(permits), _) => Box::new(GatedBody {
+    let reader: Box<dyn Read + Send> = match (mode.gate.take(), mode.cut_after, mode.stall_after) {
+        (Some(permits), _, _) => Box::new(GatedBody {
             data: body,
             position: 0,
             released: 0,
             permits,
         }),
-        (None, Some(limit)) => Box::new(CutBody {
+        (None, Some(limit), _) => Box::new(CutBody {
             data: body,
             position: 0,
             limit,
         }),
-        (None, None) => Box::new(io::Cursor::new(body)),
+        (None, None, Some(limit)) => Box::new(StallBody {
+            inner: CutBody {
+                data: body,
+                position: 0,
+                limit,
+            },
+        }),
+        (None, None, None) => Box::new(io::Cursor::new(body)),
     };
     reply.body = Body::Stream(reader, (!mode.chunked).then_some(length));
     reply
@@ -454,5 +493,22 @@ impl Read for CutBody {
         buffer[..count].copy_from_slice(&self.data[self.position..self.position + count]);
         self.position += count;
         Ok(count)
+    }
+}
+
+/// Yields `limit` bytes and then goes quiet instead of failing, leaving the connection open.
+struct StallBody {
+    inner: CutBody,
+}
+
+impl Read for StallBody {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self.inner.read(buffer) {
+            Err(_) => {
+                thread::sleep(Duration::from_secs(10));
+                Err(io::Error::other("gave up waiting"))
+            }
+            other => other,
+        }
     }
 }

@@ -8,6 +8,7 @@ mod discovery;
 mod download;
 mod error;
 mod model;
+mod stall;
 
 pub use client::Client;
 pub use discovery::{Advertisement, Browser, Peer, advertise, browse};
@@ -15,5 +16,5 @@ pub use download::{Download, GrowingReader, Progress};
 pub use error::{Error, Result};
 pub use model::{
     Album, AlbumDetail, AlbumListKind, Artist, ArtistDetail, Playlist, PlaylistDetail,
-    SearchResults, Song,
+    SearchResults, Song, SongListing,
 };

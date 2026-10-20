@@ -261,7 +261,24 @@ export interface DeviceSyncStatus {
 /** Which slice of a device a list shows: one media kind, or one of its playlists. */
 export type DeviceView = { kind: MediaKind } | { playlistId: string };
 
-export type PlaySource = { type: "library" } | { type: "device"; deviceId: string } | { type: "cd"; discId: string };
+export type PlaySource =
+  | { type: "library" }
+  | { type: "device"; deviceId: string }
+  | { type: "cd"; discId: string }
+  | { type: "shared"; library: string };
+
+/** A library under SHARED: another AntiStreaming Mac found on the network, or a server added by hand. */
+export interface SharedLibrary {
+  /** "peer:<name>" or "server:<url>". */
+  id: string;
+  name: string;
+  discovered: boolean;
+  hasLogin: boolean;
+  connected: boolean;
+  /** Its songs are still arriving, page by page. */
+  loading: boolean;
+  songCount: number;
+}
 
 export type AccurateRipResult =
   | { result: "matched"; confidence: number }
@@ -441,6 +458,8 @@ export interface SharingSettings {
   password: string;
   /** Converts streams to at most this rate when a phone doesn't ask for one; null sends originals. */
   maxKbps: number | null;
+  /** What other AntiStreaming Macs see under SHARED. */
+  sharedName: string;
 }
 
 export interface SharingStatus {

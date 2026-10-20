@@ -8,6 +8,9 @@ pub struct Artist {
     pub name: String,
     pub album_count: u32,
     pub cover_art: Option<String>,
+    /// When the user starred it, in seconds since the Unix epoch; `None` if not starred.
+    #[serde(serialize_with = "iso8601_opt")]
+    pub starred: Option<i64>,
 }
 
 /// Mirrors `AlbumID3`. `duration` is seconds and `created` is seconds since the Unix epoch.
@@ -25,6 +28,11 @@ pub struct Album {
     pub cover_art: Option<String>,
     #[serde(serialize_with = "iso8601")]
     pub created: i64,
+    /// When the user starred it, in seconds since the Unix epoch; `None` if not starred.
+    #[serde(serialize_with = "iso8601_opt")]
+    pub starred: Option<i64>,
+    /// The user's rating, 1 to 5 stars.
+    pub user_rating: Option<u8>,
 }
 
 /// Mirrors the Subsonic `Child` type for a song (the server adds `isDir`, `isVideo` and `type`).
@@ -53,6 +61,11 @@ pub struct Song {
     pub play_count: Option<u64>,
     #[serde(serialize_with = "iso8601_opt")]
     pub created: Option<i64>,
+    /// When the user starred it, in seconds since the Unix epoch; `None` if not starred.
+    #[serde(serialize_with = "iso8601_opt")]
+    pub starred: Option<i64>,
+    /// The user's rating, 1 to 5 stars.
+    pub user_rating: Option<u8>,
 }
 
 /// `duration` is seconds; `created` and `changed` are seconds since the Unix epoch.
@@ -68,6 +81,10 @@ pub struct Playlist {
     #[serde(serialize_with = "iso8601")]
     pub changed: i64,
     pub owner: Option<String>,
+    pub comment: Option<String>,
+    pub public: Option<bool>,
+    /// True for a playlist clients must not edit, such as a smart playlist.
+    pub readonly: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -97,7 +114,7 @@ fn iso8601_opt<S: Serializer>(secs: &Option<i64>, serializer: S) -> Result<S::Ok
 }
 
 /// Subsonic timestamps are ISO 8601 in UTC, e.g. `2023-11-14T22:13:20Z`.
-fn format_iso8601(secs: i64) -> String {
+pub(crate) fn format_iso8601(secs: i64) -> String {
     let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
     let in_day = secs.rem_euclid(86_400);
     format!(

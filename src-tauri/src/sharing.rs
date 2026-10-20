@@ -2,10 +2,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use antistreaming_library::{AlbumSummary, Library, MediaKind, SortKey, Track, TrackQuery};
+use antistreaming_library::{AlbumSummary, Library, MediaKind, PlaylistKind, SortKey, Track, TrackQuery};
 use antistreaming_playback::{Target, TranscodeOptions};
 use antistreaming_subsonic::{
-    Album, AlbumListKind, Artist, Genre, MusicSource, Playlist, SearchResult, Server, ServerConfig, Song, Stream, StreamFormat,
+    Album, AlbumListKind, Artist, Capabilities, Genre, MusicSource, Playlist, PlaylistEdit, SearchResult, Server, ServerConfig, Song,
+    Starred, Stream, StreamFormat, Targets,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -13,6 +14,9 @@ use tauri::State;
 use crate::error::{CommandError, CommandResult};
 
 type SourceResult<T> = antistreaming_subsonic::Result<T>;
+
+/// A star on a phone is a five-star rating here: the library's own favourites, both ways.
+const STARRED_RATING: u8 = 100;
 
 /// What a phone gets when it asks for a format but no rate: good on cellular, fine on headphones.
 const STREAM_KBPS: u32 = 192;
@@ -84,6 +88,9 @@ fn song(track: &Track, album_key: Option<&str>) -> Song {
         cover_art: Some(format!("tr{}", track.id)),
         play_count: Some(u64::from(track.play_count)),
         created: Some(track.date_added),
+        // The library doesn't record when a song got its fifth star; when it was added stands in.
+        starred: (track.rating == STARRED_RATING).then_some(track.date_added),
+        user_rating: Some(track.rating / 20).filter(|&stars| stars > 0),
     }
 }
 
@@ -99,6 +106,8 @@ fn album(summary: &AlbumSummary) -> Album {
         duration: (summary.duration_ms / 1000) as u32,
         cover_art: Some(encode("al", &summary.key)),
         created: summary.date_added,
+        starred: None,
+        user_rating: None,
     }
 }
 
@@ -117,6 +126,28 @@ struct LibrarySource {
 }
 
 impl LibrarySource {
+    fn rate_songs(&self, targets: &Targets, rating: u8) -> SourceResult<()> {
+        if targets.songs.is_empty() && !(targets.albums.is_empty() && targets.artists.is_empty()) {
+            return Err(antistreaming_subsonic::Error::Unsupported("starring albums and artists"));
+        }
+        let mut library = self.library();
+        for id in targets.songs.iter().filter_map(|id| track_id(id)) {
+            library.set_rating(id, rating).map_err(source_err)?;
+        }
+        Ok(())
+    }
+
+    /// A regular playlist's library id; smart playlists and folders aren't phones' to change.
+    fn editable_playlist(&self, id: &str) -> SourceResult<i64> {
+        let id =
+            id.strip_prefix("pl").and_then(|n| n.parse::<i64>().ok()).ok_or(antistreaming_subsonic::Error::Unsupported("that playlist"))?;
+        let playlists = self.library().playlists().map_err(source_err)?;
+        match playlists.iter().find(|p| p.id == id).map(|p| p.kind) {
+            Some(PlaylistKind::Regular) => Ok(id),
+            _ => Err(antistreaming_subsonic::Error::Unsupported("editing smart playlists")),
+        }
+    }
+
     fn library(&self) -> MutexGuard<'_, Library> {
         self.library.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -132,7 +163,7 @@ impl MusicSource for LibrarySource {
         let artists = self.library().artists(&music()).map_err(source_err)?;
         Ok(artists
             .into_iter()
-            .map(|a| Artist { id: encode("ar", &a.key), name: a.name, album_count: a.album_count, cover_art: None })
+            .map(|a| Artist { id: encode("ar", &a.key), name: a.name, album_count: a.album_count, cover_art: None, starred: None })
             .collect())
     }
 
@@ -141,7 +172,7 @@ impl MusicSource for LibrarySource {
         let library = self.library();
         let Some(summary) = library.artists(&music()).map_err(source_err)?.into_iter().find(|a| a.key == key) else { return Ok(None) };
         let albums = library.artist_albums(&key).map_err(source_err)?;
-        let artist = Artist { id: id.to_owned(), name: summary.name, album_count: summary.album_count, cover_art: None };
+        let artist = Artist { id: id.to_owned(), name: summary.name, album_count: summary.album_count, cover_art: None, starred: None };
         Ok(Some((artist, albums.iter().map(album).collect())))
     }
 
@@ -178,6 +209,12 @@ impl MusicSource for LibrarySource {
         let mut albums = library.albums(&TrackQuery { sort, ..music() }).map_err(source_err)?;
         match kind {
             AlbumListKind::Random => fastrand::shuffle(&mut albums),
+            AlbumListKind::Starred => {
+                let starred = library.tracks(&music()).map_err(source_err)?;
+                let keys: Vec<String> =
+                    starred.iter().filter(|t| t.rating == STARRED_RATING).filter_map(|t| album_key_for(&albums, t)).collect();
+                albums.retain(|a| keys.contains(&a.key));
+            }
             AlbumListKind::Newest => albums.sort_by_key(|a| std::cmp::Reverse(a.date_added)),
             AlbumListKind::Frequent | AlbumListKind::Recent => {
                 // Albums ordered by their most-played (or most recently played) song.
@@ -240,7 +277,7 @@ impl MusicSource for LibrarySource {
         Ok(SearchResult {
             artists: page(found_artists, artists)
                 .into_iter()
-                .map(|a| Artist { id: encode("ar", &a.key), name: a.name, album_count: a.album_count, cover_art: None })
+                .map(|a| Artist { id: encode("ar", &a.key), name: a.name, album_count: a.album_count, cover_art: None, starred: None })
                 .collect(),
             albums: page(found_albums, albums).iter().map(album).collect(),
             songs: self.songs(&page(found_tracks, songs))?,
@@ -257,9 +294,10 @@ impl MusicSource for LibrarySource {
         let playlists = library.playlists().map_err(source_err)?;
         playlists
             .into_iter()
-            .filter(|p| !matches!(p.kind, antistreaming_library::PlaylistKind::Folder))
+            .filter(|p| !matches!(p.kind, PlaylistKind::Folder))
             .map(|p| {
                 let stats = library.stats(&TrackQuery { kind: None, playlist: Some(p.id), ..TrackQuery::default() }).map_err(source_err)?;
+                let smart = p.kind == PlaylistKind::Smart;
                 Ok(Playlist {
                     id: format!("pl{}", p.id),
                     name: p.name,
@@ -268,6 +306,10 @@ impl MusicSource for LibrarySource {
                     created: 0,
                     changed: 0,
                     owner: None,
+                    comment: None,
+                    public: Some(false),
+                    // Smart playlists follow their rules; phones may list them, not edit them.
+                    readonly: Some(smart),
                 })
             })
             .collect()
@@ -329,6 +371,66 @@ impl MusicSource for LibrarySource {
         Some(antistreaming_playback::transcode_stream(Path::new(&track.path), &options).map_err(source_err))
     }
 
+    fn capabilities(&self) -> Capabilities {
+        Capabilities { playlist_editing: true, lyrics: false }
+    }
+
+    fn starred(&self) -> SourceResult<Starred> {
+        let tracks: Vec<Track> =
+            self.library().tracks(&music()).map_err(source_err)?.into_iter().filter(|t| t.rating == STARRED_RATING).collect();
+        Ok(Starred { artists: Vec::new(), albums: Vec::new(), songs: self.songs(&tracks)? })
+    }
+
+    fn songs_by_genre(&self, genre: &str, count: usize, offset: usize) -> SourceResult<Vec<Song>> {
+        let tracks: Vec<Track> =
+            self.library().tracks(&music()).map_err(source_err)?.into_iter().filter(|t| t.genre.eq_ignore_ascii_case(genre)).collect();
+        self.songs(&page(tracks, (count, offset)))
+    }
+
+    /// Phones rate songs only; albums and artists have no rating of their own here.
+    fn set_rating(&self, id: &str, stars: u8) -> SourceResult<()> {
+        let id = track_id(id).ok_or(antistreaming_subsonic::Error::Unsupported("rating albums and artists"))?;
+        self.library().set_rating(id, stars.min(5) * 20).map_err(source_err)
+    }
+
+    fn star(&self, targets: &Targets) -> SourceResult<()> {
+        self.rate_songs(targets, STARRED_RATING)
+    }
+
+    fn unstar(&self, targets: &Targets) -> SourceResult<()> {
+        self.rate_songs(targets, 0)
+    }
+
+    fn create_playlist(&self, name: &str, song_ids: &[String]) -> SourceResult<String> {
+        let mut library = self.library();
+        let playlist = library.create_playlist(name, PlaylistKind::Regular, None).map_err(source_err)?;
+        let ids: Vec<i64> = song_ids.iter().filter_map(|id| track_id(id)).collect();
+        library.add_to_playlist(playlist.id, &ids, None).map_err(source_err)?;
+        Ok(format!("pl{}", playlist.id))
+    }
+
+    fn update_playlist(&self, id: &str, edit: &PlaylistEdit) -> SourceResult<()> {
+        let id = self.editable_playlist(id)?;
+        let mut library = self.library();
+        if let Some(name) = &edit.name {
+            library.rename_playlist(id, name).map_err(source_err)?;
+        }
+        if !edit.remove.is_empty() {
+            let positions: Vec<u32> = edit.remove.iter().filter_map(|&p| u32::try_from(p).ok()).collect();
+            library.remove_from_playlist(id, &positions).map_err(source_err)?;
+        }
+        let ids: Vec<i64> = edit.add.iter().filter_map(|song| track_id(song)).collect();
+        if !ids.is_empty() {
+            library.add_to_playlist(id, &ids, None).map_err(source_err)?;
+        }
+        Ok(())
+    }
+
+    fn delete_playlist(&self, id: &str) -> SourceResult<()> {
+        let id = self.editable_playlist(id)?;
+        self.library().delete_playlist(id).map_err(source_err)
+    }
+
     /// Phones report finished songs; each counts as a play, as on the Mac.
     fn scrobble(&self, song_id: &str, time_ms: i64) -> SourceResult<()> {
         let Some(id) = track_id(song_id) else { return Ok(()) };
@@ -347,13 +449,32 @@ pub struct SharingSettings {
     /// Defaulted so settings saved before it existed still load.
     #[serde(default)]
     pub max_kbps: Option<u32>,
+    /// What other AntiStreaming Macs see under SHARED, as iTunes' "Shared name".
+    #[serde(default = "default_shared_name")]
+    pub shared_name: String,
+}
+
+fn default_shared_name() -> String {
+    let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
+    let mut letters = user.chars();
+    match letters.next() {
+        Some(first) => format!("{}{}'s Library", first.to_uppercase(), letters.as_str()),
+        None => "AntiStreaming Library".to_owned(),
+    }
 }
 
 impl Default for SharingSettings {
     /// Off until the user turns it on; 4533 is Navidrome's port, which many apps suggest by default.
     fn default() -> Self {
         let password: String = std::iter::repeat_with(fastrand::alphanumeric).take(12).collect();
-        Self { enabled: false, port: 4533, username: "antistreaming".to_owned(), password, max_kbps: None }
+        Self {
+            enabled: false,
+            port: 4533,
+            username: "antistreaming".to_owned(),
+            password,
+            max_kbps: None,
+            shared_name: default_shared_name(),
+        }
     }
 }
 
@@ -372,6 +493,8 @@ pub struct SharingState {
     artwork_cache: PathBuf,
     settings: Mutex<SharingSettings>,
     server: Mutex<Option<Server>>,
+    /// Announces the library to other AntiStreaming Macs while the server runs.
+    advertisement: Mutex<Option<antistreaming_remote::Advertisement>>,
     last_error: Mutex<Option<String>>,
 }
 
@@ -388,6 +511,7 @@ impl SharingState {
             artwork_cache,
             settings: Mutex::new(settings),
             server: Mutex::new(None),
+            advertisement: Mutex::new(None),
             last_error: Mutex::new(None),
         };
         state.apply();
@@ -396,6 +520,7 @@ impl SharingState {
 
     /// Starts, restarts or stops the server to match the saved settings.
     fn apply(&self) {
+        *lock(&self.advertisement) = None;
         if let Some(server) = lock(&self.server).take() {
             server.stop();
         }
@@ -419,9 +544,18 @@ impl SharingState {
             Ok(server) => {
                 *lock(&self.server) = Some(server);
                 *lock(&self.last_error) = None;
+                // Without it the library still works for phones; other Macs just won't list it.
+                *lock(&self.advertisement) = antistreaming_remote::advertise(&settings.shared_name, settings.port)
+                    .map_err(|error| eprintln!("[sharing] can't announce the library: {error}"))
+                    .ok();
             }
             Err(error) => *lock(&self.last_error) = Some(error),
         }
+    }
+
+    /// The name this library is announced under, while it is.
+    pub fn shared_name(&self) -> Option<String> {
+        lock(&self.advertisement).as_ref().map(|_| lock(&self.settings).shared_name.clone())
     }
 
     fn status(&self) -> SharingStatus {

@@ -10,7 +10,7 @@ use std::{
 use axum::{Router, routing::any};
 use tokio::{net::TcpListener, runtime, sync::oneshot};
 
-use crate::{Error, MusicSource, Result, api};
+use crate::{Error, MusicSource, Result, api, session::Session};
 
 /// How long `stop` lets in-flight transfers finish before abandoning them.
 const GRACE: Duration = Duration::from_secs(5);
@@ -45,6 +45,7 @@ impl fmt::Debug for ServerConfig {
 pub struct AppState {
     pub config: ServerConfig,
     pub source: Arc<dyn MusicSource>,
+    pub session: Session,
 }
 
 /// A running Subsonic server. Dropping it shuts it down without waiting; [`Server::stop`] waits.
@@ -66,7 +67,11 @@ impl Server {
         }
         let (ready_tx, ready_rx) = mpsc::channel();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let state = Arc::new(AppState { config, source });
+        let state = Arc::new(AppState {
+            config,
+            source,
+            session: Session::default(),
+        });
         let thread = thread::Builder::new()
             .name("subsonic-server".to_owned())
             .spawn(move || run(state, &ready_tx, shutdown_rx))

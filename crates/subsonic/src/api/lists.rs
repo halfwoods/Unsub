@@ -3,20 +3,23 @@ use serde::Serialize;
 use super::{Ctx, Reply, doc};
 use crate::{
     AlbumListKind, Error, Result,
-    wire::{AlbumDir, SongEntry},
+    wire::{AlbumDir, ByKind, SongEntry},
 };
 
 /// Subsonic's documented ceiling for list sizes.
 const MAX_SIZE: usize = 500;
-/// Clients that sync the whole library page through `search3` in much larger slices.
-const MAX_SEARCH_COUNT: usize = 10_000;
+/// Clients that sync the whole library page through `search3` in much larger slices, and some ask
+/// for it all at once. A cap below the library's size would hand them a short page, which they
+/// take for the last one, so this only guards the source against absurd requests.
+const MAX_SEARCH_COUNT: usize = 100_000;
 
 /// `getAlbumList` (older, directory-style entries) and `getAlbumList2` (ID3 entries).
 pub async fn album_list(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
     let params = &ctx.params;
     let kind = match params.required("type")? {
-        // Starring and ratings are not tracked, so these are valid but always empty.
-        "starred" | "highest" => return list::<()>(root, "album", &[]),
+        // Ratings across the library are not served, so this one is valid but always empty.
+        "highest" => return list::<()>(root, "album", &[]),
+        "starred" => AlbumListKind::Starred,
         "random" => AlbumListKind::Random,
         "newest" => AlbumListKind::Newest,
         "frequent" => AlbumListKind::Frequent,
@@ -82,13 +85,6 @@ pub async fn random_songs(ctx: &Ctx) -> Result<Reply> {
 
 /// `search2` (directory-style entries) and `search3` (ID3 entries).
 pub async fn search(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
-    #[derive(Serialize)]
-    struct Found<A: Serialize, B: Serialize, S: Serialize> {
-        artist: A,
-        album: B,
-        song: S,
-    }
-
     let params = &ctx.params;
     // Clients quote the query for Lucene-style servers; an empty `""` is how they ask for everything.
     let query = params.required("query")?.trim_matches('"').to_owned();
@@ -111,7 +107,7 @@ pub async fn search(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
     if id3 {
         doc(
             root,
-            &Found {
+            &ByKind {
                 artist: &found.artists,
                 album: &found.albums,
                 song,
@@ -120,7 +116,7 @@ pub async fn search(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
     } else {
         doc(
             root,
-            &Found {
+            &ByKind {
                 artist: &found.artists,
                 album: AlbumDir::all(&found.albums),
                 song,
@@ -129,9 +125,49 @@ pub async fn search(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
     }
 }
 
-/// Favourites are not tracked, so the lists are always empty.
-pub fn starred(root: &'static str) -> Result<Reply> {
-    doc(root, &serde_json::Map::new())
+/// `getStarred` (directory-style albums) and `getStarred2` (ID3).
+pub async fn starred(ctx: &Ctx, root: &'static str, id3: bool) -> Result<Reply> {
+    let starred = ctx.source(|source| source.starred()).await?;
+    let song = SongEntry::all(&starred.songs);
+    if id3 {
+        doc(
+            root,
+            &ByKind {
+                artist: &starred.artists,
+                album: &starred.albums,
+                song,
+            },
+        )
+    } else {
+        doc(
+            root,
+            &ByKind {
+                artist: &starred.artists,
+                album: AlbumDir::all(&starred.albums),
+                song,
+            },
+        )
+    }
+}
+
+/// `getSongsByGenre`: `count` songs from `offset`, up to the usual 500.
+pub async fn songs_by_genre(ctx: &Ctx) -> Result<Reply> {
+    #[derive(Serialize)]
+    struct Songs<'a> {
+        song: Vec<SongEntry<'a>>,
+    }
+    let genre = ctx.params.required("genre")?.to_owned();
+    let count = ctx.params.number("count")?.unwrap_or(10).min(MAX_SIZE);
+    let offset = ctx.params.number("offset")?.unwrap_or(0);
+    let songs = ctx
+        .source(move |source| source.songs_by_genre(&genre, count, offset))
+        .await?;
+    doc(
+        "songsByGenre",
+        &Songs {
+            song: SongEntry::all(&songs),
+        },
+    )
 }
 
 fn list<T: Serialize>(root: &'static str, key: &str, items: &[T]) -> Result<Reply> {

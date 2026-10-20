@@ -1,5 +1,6 @@
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use md5::{Digest, Md5};
@@ -8,12 +9,15 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use ureq::Body;
 use ureq::http::Response;
+use ureq::unversioned::resolver::DefaultResolver;
+use ureq::unversioned::transport::{Connector, DefaultConnector};
 
 use crate::error::{Error, Result};
 use crate::model::{
     Album, AlbumDetail, AlbumListKind, Artist, ArtistDetail, Playlist, PlaylistDetail,
-    SearchResults, Song,
+    SearchResults, Song, SongListing,
 };
+use crate::stall::StallConnector;
 
 const API_VERSION: &str = "1.16.1";
 const CLIENT_NAME: &str = "AntiStreaming";
@@ -22,6 +26,16 @@ const DOCUMENT_LIMIT: u64 = 64 * 1024 * 1024;
 const COVER_ART_LIMIT: u64 = 32 * 1024 * 1024;
 const API_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const DEFAULT_CACHE_LIMIT: u64 = 1024 * 1024 * 1024;
+const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
+/// Subsonic's own maximum for a page of `getAlbumList2`.
+const ALBUMS_PER_PAGE: u32 = 500;
+/// What clients send to `search3` to mean "everything": an empty phrase in quotes.
+const MATCH_ALL: &str = "\"\"";
+
+// What `Client::songs` has learned about the server.
+const LISTING_UNKNOWN: u8 = 0;
+const LISTING_SEARCH: u8 = 1;
+const LISTING_ALBUM_WALK: u8 = 2;
 
 /// A connection to one Subsonic-compatible server: another AntiStreaming, Navidrome, Airsonic.
 /// Calls block; the app runs them off its main thread.
@@ -29,28 +43,41 @@ pub struct Client {
     pub(crate) base_url: String,
     pub(crate) user: String,
     password: String,
+    /// For documents and images, which servers may take a while to produce.
     pub(crate) agent: ureq::Agent,
+    /// For songs, which can take hours so long as bytes keep arriving.
+    pub(crate) download_agent: ureq::Agent,
+    stall_timeout: Duration,
     pub(crate) cache_limit: u64,
+    listing: AtomicU8,
 }
 
 impl Client {
     /// `base_url` is the server's root, such as `http://192.168.1.20:4533`; the `/rest` part is
     /// added here. Nothing is sent until the first call.
     pub fn new(base_url: &str, user: &str, password: &str) -> Self {
-        let config = ureq::Agent::config_builder()
-            .user_agent(concat!("AntiStreaming/", env!("CARGO_PKG_VERSION")))
-            .timeout_connect(Some(Duration::from_secs(10)))
+        let config = base_config()
             .timeout_recv_response(Some(Duration::from_secs(30)))
-            // Media endpoints answer with plain HTTP statuses that callers branch on themselves.
-            .http_status_as_error(false)
             .build();
         Self {
             base_url: base_url.trim().trim_end_matches('/').to_owned(),
             user: user.to_owned(),
             password: password.to_owned(),
             agent: ureq::Agent::new_with_config(config),
+            download_agent: download_agent(DEFAULT_STALL_TIMEOUT),
+            stall_timeout: DEFAULT_STALL_TIMEOUT,
             cache_limit: DEFAULT_CACHE_LIMIT,
+            listing: AtomicU8::new(LISTING_UNKNOWN),
         }
+    }
+
+    /// How long a song download may go without receiving a byte before it fails with
+    /// [`Error::Stalled`]. It bounds each wait, never the whole transfer. The default is 20
+    /// seconds.
+    pub fn with_stall_timeout(mut self, timeout: Duration) -> Self {
+        self.stall_timeout = timeout;
+        self.download_agent = download_agent(timeout);
+        self
     }
 
     /// Caps the total size of the files `download_to_cache` keeps. The default is 1 GiB.
@@ -62,6 +89,24 @@ impl Client {
     /// Checks that the server is there and accepts these credentials.
     pub fn ping(&self) -> Result<()> {
         self.call("ping", &[]).map(drop)
+    }
+
+    /// What the server calls itself, ready for a sidebar: OpenSubsonic servers report their
+    /// product and version ("navidrome 0.52.5", "AntiStreaming 0.1.0"); a classic Subsonic one
+    /// reports neither and is just "Subsonic".
+    pub fn server_name(&self) -> Result<String> {
+        let reply = self.call("ping", &[])?;
+        let text = |key: &str| {
+            reply
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+        };
+        Ok(match (text("type"), text("serverVersion")) {
+            (Some(product), Some(version)) => format!("{product} {version}"),
+            (Some(product), None) => product.to_owned(),
+            _ => "Subsonic".to_owned(),
+        })
     }
 
     /// Every artist, in the server's alphabetical order.
@@ -131,21 +176,108 @@ impl Client {
     }
 
     pub fn search(&self, query: &str) -> Result<SearchResults> {
-        #[derive(Deserialize, Default)]
-        struct Wire {
-            #[serde(default)]
-            artist: Vec<Artist>,
-            #[serde(default)]
-            album: Vec<Album>,
-            #[serde(default)]
-            song: Vec<Song>,
-        }
-        let wire: Wire = self.fetch_or_empty("search3", &[("query", query)], "searchResult3")?;
+        let wire = self.search3(&[("query", query)])?;
         Ok(SearchResults {
             artists: wire.artist,
             albums: wire.album,
             songs: wire.song,
         })
+    }
+
+    /// Up to `count` songs of the whole library, starting `offset` songs in, for a full sync.
+    /// Page through it by adding what came back to `offset` until nothing does; a server may
+    /// return fewer than `count`.
+    ///
+    /// It asks `search3` for everything, with an empty query, which is how Symfonium syncs and
+    /// what Navidrome supports. A server that refuses that (it answers with a Subsonic error, or
+    /// with nothing at all to a library that has albums) is handled by listing albums
+    /// alphabetically and opening them one at a time instead, which takes a request per album
+    /// rather than per page, and which pages by the albums' own song counts. The client
+    /// remembers the outcome, so only the first call pays for finding out; [`Client::song_listing`]
+    /// reports which way it went. Real failures, such as a wrong password or an unreachable
+    /// server, are errors, never a reason to switch.
+    pub fn songs(&self, offset: u32, count: u32) -> Result<Vec<Song>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let known = self.listing.load(Ordering::Relaxed);
+        if known != LISTING_ALBUM_WALK {
+            match self.search_songs(offset, count) {
+                Ok(songs) if !songs.is_empty() => {
+                    self.listing.store(LISTING_SEARCH, Ordering::Relaxed);
+                    return Ok(songs);
+                }
+                // Past the end, or a library that has since emptied.
+                Ok(songs) if offset > 0 || known == LISTING_SEARCH => return Ok(songs),
+                // Nothing at the very start: no songs, or a server that does not do "everything".
+                Ok(_) => {}
+                Err(Error::Server { .. }) if known == LISTING_UNKNOWN => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let songs = self.walk_albums(offset, count)?;
+        if !songs.is_empty() {
+            self.listing.store(LISTING_ALBUM_WALK, Ordering::Relaxed);
+        }
+        Ok(songs)
+    }
+
+    /// How [`Client::songs`] has been getting its songs from this server, once it has found
+    /// songs; `None` before that.
+    pub fn song_listing(&self) -> Option<SongListing> {
+        match self.listing.load(Ordering::Relaxed) {
+            LISTING_SEARCH => Some(SongListing::Search),
+            LISTING_ALBUM_WALK => Some(SongListing::AlbumWalk),
+            _ => None,
+        }
+    }
+
+    fn search_songs(&self, offset: u32, count: u32) -> Result<Vec<Song>> {
+        let (count, offset) = (count.to_string(), offset.to_string());
+        let params = [
+            ("query", MATCH_ALL),
+            ("artistCount", "0"),
+            ("albumCount", "0"),
+            ("songCount", count.as_str()),
+            ("songOffset", offset.as_str()),
+        ];
+        Ok(self.search3(&params)?.song)
+    }
+
+    /// Lists albums in order and opens only those that overlap the wanted window; albums wholly
+    /// before it are skipped using the song count the listing gives, so they cost no request.
+    fn walk_albums(&self, offset: u32, count: u32) -> Result<Vec<Song>> {
+        let wanted = u64::from(offset)..u64::from(offset) + u64::from(count);
+        let mut songs = Vec::new();
+        let mut position = 0u64;
+        let mut listed = 0;
+        loop {
+            let page =
+                self.album_list(AlbumListKind::AlphabeticalByName, ALBUMS_PER_PAGE, listed)?;
+            for album in &page {
+                if position + u64::from(album.song_count) <= wanted.start {
+                    position += u64::from(album.song_count);
+                    continue;
+                }
+                for song in self.album(&album.id)?.songs {
+                    if wanted.contains(&position) {
+                        songs.push(song);
+                    }
+                    position += 1;
+                }
+                if position >= wanted.end {
+                    return Ok(songs);
+                }
+            }
+            if page.len() < ALBUMS_PER_PAGE as usize {
+                return Ok(songs);
+            }
+            listed += ALBUMS_PER_PAGE;
+        }
+    }
+
+    fn search3(&self, params: &[(&str, &str)]) -> Result<SearchWire> {
+        self.fetch_or_empty("search3", params, "searchResult3")
     }
 
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
@@ -284,6 +416,37 @@ impl Client {
     }
 }
 
+#[derive(Deserialize, Default)]
+struct SearchWire {
+    #[serde(default)]
+    artist: Vec<Artist>,
+    #[serde(default)]
+    album: Vec<Album>,
+    #[serde(default)]
+    song: Vec<Song>,
+}
+
+fn base_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
+    ureq::Agent::config_builder()
+        .user_agent(concat!("AntiStreaming/", env!("CARGO_PKG_VERSION")))
+        .timeout_connect(Some(Duration::from_secs(10)))
+        // Media endpoints answer with plain HTTP statuses that callers branch on themselves.
+        .http_status_as_error(false)
+}
+
+/// `stall_timeout` bounds each wait for data, not the whole transfer, so no global or body
+/// timeout is configured.
+fn download_agent(stall_timeout: Duration) -> ureq::Agent {
+    let config = base_config()
+        .timeout_recv_response(Some(stall_timeout))
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        DefaultConnector::new().chain(StallConnector::new(stall_timeout)),
+        DefaultResolver::default(),
+    )
+}
+
 /// Turns the body of a Subsonic JSON reply into its payload, or the error it carries.
 fn parse_envelope(body: &str) -> Result<Map<String, Value>> {
     #[derive(Deserialize)]
@@ -365,4 +528,18 @@ fn fresh_salt() -> String {
         state.hash_one(nanos),
         state.hash_one(nanos + 1)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downloads_give_up_after_twenty_quiet_seconds_unless_told_otherwise() {
+        let client = Client::new("http://example.test", "u", "p");
+        assert_eq!(client.stall_timeout, Duration::from_secs(20));
+
+        let client = client.with_stall_timeout(Duration::from_secs(5));
+        assert_eq!(client.stall_timeout, Duration::from_secs(5));
+    }
 }

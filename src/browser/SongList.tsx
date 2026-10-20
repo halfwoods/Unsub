@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEven
 import { libraryAddToPlaylist, libraryMoveInPlaylist, libraryRemoveFromPlaylist } from "../api/commands";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
-import { cdIdOf, isLibrarySource, playlistIdOf, playSourceOf, sameSource, useApp } from "../state/store";
-import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN } from "./columns";
+import { cdIdOf, isLibrarySource, playlistIdOf, playSourceOf, sameSource, sharedIdOf, useApp } from "../state/store";
+import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN, SHARED_COLUMNS } from "./columns";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
@@ -45,7 +45,11 @@ export function SongList() {
 
   const isCd = useApp((s) => cdIdOf(s.source) !== null);
   const isLibrary = useApp((s) => isLibrarySource(s.source));
-  const columns = useMemo(() => (isCd ? CD_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS), [isCd, isRegularPlaylist]);
+  const isShared = useApp((s) => sharedIdOf(s.source) !== null);
+  const columns = useMemo(
+    () => (isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS),
+    [isCd, isShared, isRegularPlaylist],
+  );
   // Reordering only makes sense while the playlist is shown in its own order.
   const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
 

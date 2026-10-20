@@ -78,3 +78,43 @@ pub struct PlaylistDetail<'a> {
     pub playlist: &'a Playlist,
     pub entry: Vec<SongEntry<'a>>,
 }
+
+/// A folder as `getMusicDirectory` lists it: an artist's albums or an album's songs.
+#[derive(Serialize)]
+pub struct Directory<'a, C: Serialize> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub parent: Option<&'a str>,
+    pub child: Vec<C>,
+}
+
+/// The saved play queue.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayQueueDoc<'a> {
+    pub current: Option<&'a str>,
+    pub position: i64,
+    pub username: &'a str,
+    pub changed: String,
+    pub changed_by: &'a str,
+    pub entry: Vec<SongEntry<'a>>,
+}
+
+/// One song somebody is playing, for `getNowPlaying`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NowPlayingEntry<'a> {
+    #[serde(flatten)]
+    pub song: SongEntry<'a>,
+    pub username: &'a str,
+    pub minutes_ago: u64,
+    pub player_name: &'a str,
+}
+
+/// Artists, albums and songs side by side, as `starred` and the search results hold them.
+#[derive(Serialize)]
+pub struct ByKind<A: Serialize, B: Serialize, S: Serialize> {
+    pub artist: A,
+    pub album: B,
+    pub song: S,
+}

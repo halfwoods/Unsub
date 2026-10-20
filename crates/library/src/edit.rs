@@ -51,6 +51,9 @@ pub struct TrackEdits {
     pub rating: Option<u8>,
     /// The song checkbox. Kept in the library, not written to files.
     pub enabled: Option<bool>,
+    /// Get Info › Options › Remember playback position. Turning it off also
+    /// forgets the place the track was left at.
+    pub remember_position: Option<bool>,
     /// Kept in the library, and pinned so a rescan does not guess it afresh.
     pub kind: Option<MediaKind>,
     /// New cover art (any common image format), or `Some(None)` to remove it.
@@ -331,9 +334,17 @@ impl Library {
                 .transpose()?;
             tx.execute(
                 "UPDATE tracks SET overrides = ?2, rating = COALESCE(?3, rating),
-                                   enabled = COALESCE(?4, enabled)
+                                   enabled = COALESCE(?4, enabled),
+                                   remember_position = COALESCE(?5, remember_position),
+                                   bookmark_ms = CASE WHEN ?5 = 0 THEN NULL ELSE bookmark_ms END
                  WHERE id = ?1",
-                params![track.id, json, edits.rating, edits.enabled],
+                params![
+                    track.id,
+                    json,
+                    edits.rating,
+                    edits.enabled,
+                    edits.remember_position
+                ],
             )?;
         }
         tx.commit()?;

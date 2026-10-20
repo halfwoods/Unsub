@@ -240,6 +240,7 @@ fn tracks(cd: &Inserted) -> Vec<Track> {
             in_cloud: false,
             missing: false,
             loudness: None,
+            remember_position: false,
             compilation: false,
             sort_title: None,
             sort_artist: None,

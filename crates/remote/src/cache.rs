@@ -1,6 +1,7 @@
 //! Housekeeping for the folder of downloaded songs. Every file this module manages is named
-//! `<key>.<ext>` or `<key>.part`, where the key is 32 hex digits, so it never touches anything
-//! else that happens to be in the folder.
+//! `<key>.<ext>`, or `<key>.<ext>.part` while it is still arriving, where the key is 32 hex
+//! digits, so it never touches anything else that happens to be in the folder. The extension is
+//! in the partial name too, so a download finished after a crash keeps its real one.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,12 +23,31 @@ pub(crate) fn key(base_url: &str, user: &str, song_id: &str) -> String {
     hex::encode(Md5::digest(format!("{base_url}\n{user}\n{song_id}")))
 }
 
-pub(crate) fn part_path(dir: &Path, key: &str) -> PathBuf {
-    dir.join(format!("{key}.{PART}"))
+pub(crate) fn part_path(dir: &Path, key: &str, extension: &str) -> PathBuf {
+    dir.join(format!("{key}.{extension}.{PART}"))
 }
 
-pub(crate) fn final_path(dir: &Path, key: &str, content_type: Option<&str>) -> PathBuf {
-    dir.join(format!("{key}.{}", extension(content_type)))
+pub(crate) fn final_path(dir: &Path, key: &str, extension: &str) -> PathBuf {
+    dir.join(format!("{key}.{extension}"))
+}
+
+/// The unfinished download of this song and the extension it was started with, if any.
+pub(crate) fn find_partial(dir: &Path, key: &str) -> Option<(PathBuf, String)> {
+    fs::read_dir(dir)
+        .ok()?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .find_map(|path| {
+            let (found, is_part, extension) = parse(&path)?;
+            // A partial file from before the extension went into its name has none to offer.
+            let extension = if extension.is_empty() {
+                "audio"
+            } else {
+                extension
+            };
+            let extension = extension.to_owned();
+            (found == key && is_part).then_some((path, extension))
+        })
 }
 
 /// The completed download of this song, if the cache has one.
@@ -36,7 +56,7 @@ pub(crate) fn find_finished(dir: &Path, key: &str) -> Option<PathBuf> {
         .ok()?
         .filter_map(std::result::Result::ok)
         .map(|entry| entry.path())
-        .find(|path| managed(path).is_some_and(|(found, is_part)| found == key && !is_part))
+        .find(|path| parse(path).is_some_and(|(found, is_part, _)| found == key && !is_part))
 }
 
 /// Marks a file as just used, so eviction removes the least recently used songs first.
@@ -54,7 +74,7 @@ pub(crate) fn make_room(dir: &Path, keep: &str, incoming: u64, limit: u64) -> Re
     let mut others: Vec<(PathBuf, u64, SystemTime, bool)> = Vec::new();
     for entry in fs::read_dir(dir)?.filter_map(std::result::Result::ok) {
         let path = entry.path();
-        let Some((key, is_part)) = managed(&path) else {
+        let Some((key, is_part, _)) = parse(&path) else {
             continue;
         };
         let Ok(metadata) = entry.metadata() else {
@@ -82,16 +102,24 @@ pub(crate) fn make_room(dir: &Path, keep: &str, incoming: u64, limit: u64) -> Re
     Ok(())
 }
 
-/// The key and whether it is a partial file, for files this module owns.
-fn managed(path: &Path) -> Option<(&str, bool)> {
+/// The key, whether it is a partial file, and the song's extension, for files this module owns.
+/// A bare `<key>.part` (the older naming) has no extension.
+fn parse(path: &Path) -> Option<(&str, bool, &str)> {
     let name = path.file_name()?.to_str()?;
-    let (key, extension) = name.split_once('.')?;
+    let (key, rest) = name.split_once('.')?;
     let is_key = key.len() == KEY_LEN && key.bytes().all(|byte| byte.is_ascii_hexdigit());
-    is_key.then_some((key, extension == PART))
+    if !is_key {
+        return None;
+    }
+    Some(match rest.strip_suffix(".part") {
+        Some(extension) => (key, true, extension),
+        None if rest == PART => (key, true, ""),
+        None => (key, false, rest),
+    })
 }
 
-/// What to call the finished file, so that a decoder can guess the format from the name.
-fn extension(content_type: Option<&str>) -> &'static str {
+/// What to call the file, so that a decoder can guess the format from the name.
+pub(crate) fn extension(content_type: Option<&str>) -> &'static str {
     let essence = content_type
         .and_then(|value| value.split(';').next())
         .map(|value| value.trim().to_ascii_lowercase());
@@ -149,12 +177,59 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (done, partial) = (key_of(1), key_of(2));
         let song = write(dir.path(), &format!("{done}.flac"), 10, 0);
-        write(dir.path(), &format!("{partial}.part"), 10, 0);
+        write(dir.path(), &format!("{partial}.flac.part"), 10, 0);
 
         assert_eq!(find_finished(dir.path(), &done), Some(song));
         assert_eq!(find_finished(dir.path(), &partial), None);
         assert_eq!(find_finished(dir.path(), &key_of(3)), None);
         assert_eq!(find_finished(&dir.path().join("missing"), &done), None);
+    }
+
+    #[test]
+    fn finds_a_partial_download_with_the_extension_it_started_with() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = write(dir.path(), &format!("{}.flac.part", key_of(1)), 10, 0);
+        write(dir.path(), &format!("{}.mp3", key_of(2)), 10, 0);
+
+        assert_eq!(
+            find_partial(dir.path(), &key_of(1)),
+            Some((part, "flac".to_owned()))
+        );
+        assert_eq!(
+            find_partial(dir.path(), &key_of(2)),
+            None,
+            "a finished song is not partial"
+        );
+        assert_eq!(find_partial(dir.path(), &key_of(3)), None);
+
+        let legacy = write(dir.path(), &format!("{}.part", key_of(4)), 10, 0);
+        assert_eq!(
+            find_partial(dir.path(), &key_of(4)),
+            Some((legacy, "audio".to_owned()))
+        );
+    }
+
+    #[test]
+    fn reads_the_parts_of_a_cache_file_name() {
+        let key = key_of(1);
+        let parsed = |name: String| {
+            parse(Path::new(&name))
+                .map(|(key, part, extension)| (key.to_owned(), part, extension.to_owned()))
+        };
+        assert_eq!(
+            parsed(format!("{key}.flac.part")),
+            Some((key.clone(), true, "flac".into()))
+        );
+        assert_eq!(
+            parsed(format!("{key}.part")),
+            Some((key.clone(), true, String::new()))
+        );
+        assert_eq!(
+            parsed(format!("{key}.flac")),
+            Some((key.clone(), false, "flac".into()))
+        );
+        assert_eq!(parsed("notes.txt".into()), None);
+        assert_eq!(parsed(key.clone()), None);
     }
 
     #[test]
@@ -185,7 +260,7 @@ mod tests {
     #[test]
     fn never_evicts_the_song_being_fetched_nor_foreign_files() {
         let dir = tempfile::tempdir().unwrap();
-        let mine = write(dir.path(), &format!("{}.part", key_of(1)), 500, 5000);
+        let mine = write(dir.path(), &format!("{}.flac.part", key_of(1)), 500, 5000);
         let foreign = write(dir.path(), "notes.txt", 500, 5000);
         let nearly_hex = write(dir.path(), &format!("{}.mp3", "g".repeat(32)), 500, 5000);
 
@@ -197,8 +272,8 @@ mod tests {
     #[test]
     fn spares_partial_files_that_may_be_downloading_now() {
         let dir = tempfile::tempdir().unwrap();
-        let active = write(dir.path(), &format!("{}.part", key_of(1)), 100, 5);
-        let abandoned = write(dir.path(), &format!("{}.part", key_of(2)), 100, 3600);
+        let active = write(dir.path(), &format!("{}.mp3.part", key_of(1)), 100, 5);
+        let abandoned = write(dir.path(), &format!("{}.mp3.part", key_of(2)), 100, 3600);
 
         make_room(dir.path(), &key_of(9), 100, 100).unwrap();
 

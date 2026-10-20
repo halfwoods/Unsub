@@ -1,5 +1,5 @@
 import { CdActions } from "../cd/Cd";
-import { cdIdOf, isPlaylistSource, useApp, type SourceId } from "../state/store";
+import { cdIdOf, isPlaylistSource, sharedIdOf, useApp, type SourceId } from "../state/store";
 import { formatBytes, formatTotalDuration, pluralize } from "../util/format";
 import "./BottomBar.css";
 
@@ -41,7 +41,8 @@ export function BottomBar() {
   const toggleArtwork = useApp((s) => s.toggleArtwork);
   const createPlaylist = useApp((s) => s.createPlaylist);
   const discId = cdIdOf(source);
-  const [one, many] = NOUN[source] ?? (isPlaylistSource(source) || discId !== null ? ["song", "songs"] : ["item", "items"]);
+  const songs = isPlaylistSource(source) || discId !== null || sharedIdOf(source) !== null;
+  const [one, many] = NOUN[source] ?? (songs ? ["song", "songs"] : ["item", "items"]);
 
   return (
     <footer className={discId === null ? "bottom-bar chrome-surface" : "bottom-bar bottom-bar--actions chrome-surface"} data-tauri-drag-region>

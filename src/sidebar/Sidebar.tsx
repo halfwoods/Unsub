@@ -1,7 +1,7 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject } from "../api/commands";
+import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject, remoteForget } from "../api/commands";
 import type { Device } from "../api/types";
-import { cdSource, deviceSource, playerSource, playSourceOf, useApp, type SourceId } from "../state/store";
+import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
 import { PlaylistRows, TRACKS_MIME } from "./PlaylistRows";
 import "./Sidebar.css";
@@ -49,7 +49,9 @@ function ArtworkPane() {
   const trackId = selectedId ?? nowPlaying?.id ?? null;
   const artSource = selectedId !== null ? listSource : playingSource;
   const cdCover = useApp((s) => (artSource.type === "cd" ? (s.cds.find((cd) => cd.id === artSource.discId)?.coverArtUrl ?? null) : null));
-  const src = trackId === null ? null : artSource.type === "cd" ? cdCover : artworkUrl(trackId, artSource);
+  // Shared songs' covers stay on their server, so the pane shows none for them.
+  const src =
+    trackId === null || artSource.type === "shared" ? null : artSource.type === "cd" ? cdCover : artworkUrl(trackId, artSource);
   return (
     <div className="artwork-pane">
       <div className="artwork-pane-title">{selectedId !== null ? "Selected Item" : "Now Playing"}</div>
@@ -191,6 +193,7 @@ export function Sidebar() {
   const devices = useApp((s) => s.devices);
   const cds = useApp((s) => s.cds);
   const players = useApp((s) => s.players);
+  const shared = useApp((s) => s.shared);
   const syncingId = useApp((s) => s.deviceSync?.deviceId ?? null);
   const showNotice = useApp((s) => s.showNotice);
   const [library, purchases, ...rest] = SECTIONS;
@@ -233,6 +236,21 @@ export function Sidebar() {
                 label={cd.name}
                 icon="cd"
                 after={<EjectButton name={cd.name} onEject={() => void cdEject(cd.id).catch((e: unknown) => showNotice(String(e)))} />}
+              />
+            ))}
+          </Section>
+        )}
+        {/* Like DEVICES, SHARED only shows while there's something in it. */}
+        {shared.length > 0 && (
+          <Section heading="Shared">
+            {shared.map((library) => (
+              <Row
+                key={library.id}
+                id={sharedSource(library.id)}
+                label={library.name}
+                icon="shared"
+                // Signing out forgets the saved login; a server added by hand leaves the list.
+                after={library.hasLogin ? <EjectButton name={library.name} onEject={() => void remoteForget(library.id)} /> : undefined}
               />
             ))}
           </Section>

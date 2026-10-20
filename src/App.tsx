@@ -6,8 +6,9 @@ import {
   libraryAddPaths,
   onCdChanged,
   onCdRip,
-  onCloudDownload,
+  onDownload,
   onDeviceSync,
+  onRemoteChanged,
   onOrganizeProgress,
   onDevicesChanged,
   onLibraryChanged,
@@ -26,6 +27,7 @@ import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { LibrarySheets } from "./info/LibrarySheets";
+import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
@@ -61,6 +63,8 @@ function runMenuAction(action: MenuAction) {
       return openLibrarySheet({ type: "organize" });
     case "set-up-player":
       return useApp.setState({ settingUpPlayer: true });
+    case "connect-to-server":
+      return useApp.setState({ connectingToServer: true });
     case "preferences":
       return setPreferencesOpen(true);
     case "new-playlist":
@@ -92,18 +96,19 @@ function runMenuAction(action: MenuAction) {
 /** Subscribes to backend events for the lifetime of the window. */
 function useBackendEvents() {
   useEffect(() => {
-    const { refresh, refreshDevices, refreshCds, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
+    const { refresh, refreshDevices, refreshCds, refreshShared, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onMenuAction(runMenuAction),
       onDevicesChanged(() => void refreshDevices()),
       onCdChanged(() => void refreshCds()),
+      onRemoteChanged(() => void refreshShared()),
       onCdRip((cdRip) => useApp.setState({ cdRip })),
       onDeviceSync((deviceSync) => useApp.setState({ deviceSync })),
       onOrganizeProgress((organize) => useApp.setState({ organize })),
       onScanProgress(setScan),
-      onCloudDownload((p) =>
-        useApp.setState({ cloudDownload: p && { trackId: p.trackId, fraction: p.total > 0 ? p.done / p.total : 0 } }),
+      onDownload((p) =>
+        useApp.setState({ download: p && { trackId: p.trackId, from: p.from, fraction: p.total > 0 ? p.done / p.total : 0 } }),
       ),
       onLibraryChanged(() => {
         setScan(null);
@@ -119,6 +124,7 @@ function useBackendEvents() {
     void refresh();
     void refreshDevices();
     void refreshCds();
+    void refreshShared();
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     if (loadBitPerfect()) void playerSetBitPerfect(true);
@@ -147,6 +153,7 @@ export default function App() {
   const smartEditor = useApp((s) => s.smartEditor);
   const preferencesOpen = useApp((s) => s.preferencesOpen);
   const settingUpPlayer = useApp((s) => s.settingUpPlayer);
+  const connectingToServer = useApp((s) => s.connectingToServer);
   useBackendEvents();
   useGlobalKeys();
 
@@ -163,6 +170,7 @@ export default function App() {
       {preferencesOpen && <Preferences />}
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
+      {connectingToServer && <ConnectToServer />}
     </div>
   );
 }
