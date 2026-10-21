@@ -23,93 +23,91 @@
 
 ---
 
-**It's 2004.** Your music lives on your computer, in a folder, as files. You can burn it, drag it, back it up, and sync it to a little white brick with a click wheel. Your playlists have names like *MIX 4 THE CAR (DO NOT DELETE)*. Your away message is a song lyric. Nobody can take any of it back.
+Your music used to live on your computer, in a folder, as files. You could burn it, back it up, and sync it to a small white device with a click wheel. Nobody could take it back.
 
-**Then someone had a brilliant idea:** what if you paid every month, forever, to rent the music you used to own? And what if it sometimes vanished on a Tuesday because two companies had a disagreement you'll never hear about? And what if it came with an algorithm that, having noticed you fell asleep to lo-fi beats *once*, decided that's your entire personality now?
+Then someone decided you should pay every month, forever, to rent the music you used to own. Songs disappear when two companies disagree about a contract. The recommendations treat the one night you played lo-fi beats as your personality.
 
-**Unsub** is a desktop music player for people who would like to go home.
-
-It's inspired by classic iTunes, the good one from before it became a storefront with a play button. It plays your files, organizes your library, rips your CDs, syncs your iPod, and then gets out of your way. No account. No feed. No "Made For You™". Just you, your music, and a progress bar that tells the truth.
+**Unsub** is a desktop music player for files you own. It's modeled on classic iTunes, from before it became a storefront with a play button. It plays your files, organizes your library, rips your CDs, syncs your iPod and gets out of the way. No account, no feed, no “Made For You”.
 
 <p align="center">
-  <img src="docs/readme/01-song-list.png" alt="Unsub's song list, playing “Terms Have Changed” from the album “Your Free Trial Has Ended” by The Subscriptions" width="100%">
+  <img src="docs/readme/01-song-list.png" alt="Song list view, playing “Terms Have Changed” from the album “Your Free Trial Has Ended” by The Subscriptions" width="100%">
 </p>
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/readme/03-album-artwork.png" alt="The Album Artwork view, centred on “You'll Own Nothing” by Rent Forever"><br><sub><b>Album Artwork.</b> It's back. It never should have left.</sub></td>
-    <td width="50%"><img src="docs/readme/02-album-grid.png" alt="The album grid with twenty album covers"><br><sub><b>Album grid.</b> Your albums, all of them, not a "Shelf for you".</sub></td>
+    <td width="50%"><img src="docs/readme/03-album-artwork.png" alt="Album Artwork view, centred on “You'll Own Nothing” by Rent Forever"><br><sub><b>Album Artwork.</b> Browse by cover.</sub></td>
+    <td width="50%"><img src="docs/readme/02-album-grid.png" alt="Album grid with twenty album covers"><br><sub><b>Album grid.</b> Every album in your library.</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/readme/04-from-spotify.png" alt="A “Liked Songs” playlist in a “From Spotify” folder, rebuilt from owned songs"><br><sub><b>From Spotify.</b> Your Liked Songs, rebuilt from music you actually own.</sub></td>
-    <td width="50%"><img src="docs/readme/05-visualizer.png" alt="The Classic visualizer filling the window"><br><sub><b>Visualizer.</b> Stare into it. You've earned it.</sub></td>
+    <td width="50%"><img src="docs/readme/04-from-spotify.png" alt="A “Liked Songs” playlist in a “From Spotify” folder, rebuilt from owned songs"><br><sub><b>From Spotify.</b> Liked Songs, rebuilt from songs you own.</sub></td>
+    <td width="50%"><img src="docs/readme/05-visualizer.png" alt="The Classic visualizer filling the window"><br><sub><b>Visualizer.</b> The Classic style.</sub></td>
   </tr>
 </table>
 
-<sub>The artists in these screenshots are fake. If you want to start a band called Rent Forever, it's all yours.</sub>
+<sub>The artists and albums in these screenshots are fictional.</sub>
 
 ## What it does
 
-- **Plays music you own.** MP3, AAC, ALAC, FLAC, Opus, Vorbis, WAV, AIFF, WavPack, APE, even DSD. Gapless. Bit-perfect, if you're the kind of person who says "bit-perfect" at parties. We don't judge. We *are* that person.
-- **Brings your stuff with you.** Import your Music or iTunes library with its play counts, ratings and playlists intact. Leaving Spotify or YouTube Music? Bring your playlists **and your listening history**. Songs you don't own yet land on a list called **To Own**, which is a bit like a guilt list, but productive.
-- **Plays to your speakers.** Chromecast, Sonos and other UPnP speakers, plus AirPlay on the Mac. Your music, in the kitchen, without a "premium tier".
-- **Works with an iCloud Drive library.** 37,000 songs that aren't actually on your Mac? Fine. Unsub reads them without downloading anything, and fetches each one when you press play.
-- **Syncs classic iPods.** Classic, video, mini, nano 1st–5th gen, shuffle. Yes, that one in your drawer. Go charge it. We'll wait. *(New, and so far tested only against very convincing simulated iPods. Tell us how yours does; your iPod's opinion matters to us.)*
+- **Plays music you own.** MP3, AAC, ALAC, FLAC, Opus, Vorbis, WAV, AIFF, WavPack, APE and DSD. Gapless and bit-perfect.
+- **Brings your stuff with you.** Import your Music or iTunes library with its play counts, ratings and playlists intact. Leaving Spotify or YouTube Music? Bring your playlists **and your listening history**. Songs you don't own yet go on a list called **To Own**.
+- **Plays to your speakers.** Chromecast, Sonos and other UPnP speakers, plus AirPlay on the Mac. No premium tier.
+- **Works with an iCloud Drive library.** A 37,000-song library that isn't actually on your Mac is fine. Unsub reads it without downloading anything and fetches each song when you press play.
+- **Syncs classic iPods.** Classic, video, mini, nano 1st–5th gen, shuffle. *(New, and so far tested only against simulated iPods. Tell us how yours does.)*
 - **Syncs other players too.** Rockbox, USB players, Android phones.
-- **Rescues the music trapped on your old iPod.** iTunes never let you. We will. Copy it back into your library with its play counts, ratings and playlists, and the iPod isn't touched. (Songs bought from the iTunes Store before 2009 are still copy-protected, so those stay behind. Take it up with 2007.)
-- **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations worked out *on your computer, for you*. Not for an ad network.
-- **Rips CDs** with MusicBrainz lookup and AccurateRip verification. For the fourteen CDs you kept "just in case". This is the case.
-- **Cleans up song info.** `01 - track01 (Official Video) [HQ] www.website.com` becomes a song title again. You'll see a preview first. We're not monsters.
-- **Podcasts** over RSS, the open standard that refuses to die and we love it for that.
-- **Internet radio**, like the radio but on the internet. 2004 called. It said this was already cool.
-- **A visualizer** that actually reacts to the music. Stare into it. You've earned it.
-- **Streams to your phone.** A Subsonic-compatible server is built in, so phone apps can play your library from your own computer. No middleman. Revolutionary, we know.
+- **Rescues the music trapped on your old iPod.** iTunes never let you. Unsub copies it back into your library with its play counts, ratings and playlists, and the iPod isn't touched. (Songs bought from the iTunes Store before 2009 are still copy-protected, so those stay behind.)
+- **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations are worked out on your computer, not for an ad network.
+- **Rips CDs** with MusicBrainz lookup and AccurateRip verification.
+- **Cleans up song info.** `01 - track01 (Official Video) [HQ] www.website.com` becomes a song title again. You see a preview first.
+- **Podcasts** over RSS.
+- **Internet radio** from the Radio Browser directory, playlist files and live streams.
+- **A visualizer** that actually reacts to the music.
+- **Streams to your phone.** A Subsonic-compatible server is built in, so phone apps can play your library from your own computer. No middleman.
 
 ## Download
 
 These links always download the newest version. The [download page](https://halfwoods.com/unsub/) picks the right one for you; older versions and release notes are on [Releases](https://github.com/halfwoods/Unsub/releases).
 
 - **Mac** (macOS 11 or later): **[Apple chip](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_arm64.dmg)** or **[Intel](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.dmg)**. Open the `.dmg` and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
-- **Windows** (10 or 11, 64-bit): **[installer](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64-setup.exe)**, or the [MSI](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64_en-US.msi) if you prefer. Until we buy a code-signing certificate (they cost money; see "no monthly fee"), Windows will say "Windows protected your PC". Choose **More info › Run anyway**.
+- **Windows** (10 or 11, 64-bit): **[installer](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64-setup.exe)**, or the [MSI](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64_en-US.msi) if you prefer. The Windows build isn't code-signed yet (certificates cost money), so you'll see “Windows protected your PC”. Choose **More info › Run anyway**.
 
-Unsub updates itself from new releases. Politely, and only when you let it.
+Unsub updates itself from new releases, and only when you let it.
 
 ## Leaving Spotify?
 
-Welcome. Have a seat. Here's the plan:
+Four steps:
 
-1. **Ask Spotify for your data.** Account › Privacy settings › *Download your data*. Tick **Account data** (your playlists, a few days) and **Extended streaming history** (every play you ever made, up to 30 days). They'll email you a ZIP. It's like a breakup letter, but in JSON.
-2. **Point Unsub at your music.** Drag your music folder onto the window, or use **File › Import Music Library**. On a first launch, the welcome sheet offers these too (and Unsub will wait while you decide).
+1. **Ask Spotify for your data.** Account › Privacy settings › *Download your data*. Tick **Account data** (your playlists; a few days) and **Extended streaming history** (every play you ever made; up to 30 days). They'll email you a ZIP.
+2. **Point Unsub at your music.** Drag your music folder onto the window, or use **File › Import Music Library**. On a first launch, the welcome sheet offers these too.
 3. **Bring your playlists and history.** **File › Import › From Spotify, YouTube Music or ListenBrainz…** Unsub matches every entry to songs you own, rebuilds your playlists in a *From Spotify* folder, adds your plays to your play counts, and puts everything you don't own yet on **To Own**, with links to buy it.
-4. **Cancel.** The button is in there somewhere. Spotify will remind you of everything you're about to lose. You're not losing it. You're taking it with you.
+4. **Cancel.** Spotify will remind you of everything you're about to lose. Your playlists and history are already in Unsub.
 
 Coming from Last.fm? Import your scrobbles into [ListenBrainz](https://listenbrainz.org) first. It does that in one click, and Unsub reads it from there.
 
 ## FAQ
 
 **Is this iTunes?**
-No. It's a tribute to how iTunes used to work, built from scratch. It contains no Apple code, art or fonts. Apple has nothing to do with it and would probably like to keep it that way.
+No. It's a tribute to how iTunes used to work, built from scratch. It contains no Apple code, art or fonts. Apple has nothing to do with it.
 
 **Does it have a social feed?**
-Your friends can see what you're listening to if you turn your screen toward them.
+No. Your friends can see what you're listening to if you turn your screen toward them.
 
 **Does it use AI?**
-It uses math. On your computer. The same kind your calculator uses, but more of it.
+It uses math, on your computer.
 
 **What does it send to the internet?**
-Only what you ask for: radio streams, podcast feeds, album info from MusicBrainz, and a check on GitHub for updates. No account, no analytics, no telemetry. We don't have a server. We don't want one.
+Only what you ask for: radio streams, podcast feeds, album info from MusicBrainz, and a check on GitHub for updates. No account, no analytics, no telemetry, and no server on our end.
 
 **Which iPods?**
-Classic, video, mini, nano 1st–5th generation and shuffle 1st–4th generation. Not the nano 6th/7th generation (their database checksum was never cracked) and not iPod touch or iPhone (they want Apple's private sync protocol, and Apple isn't sharing). On Windows, an iPod formatted on a Mac can't be read at all; that's a Windows thing, not an us thing.
+Classic, video, mini, nano 1st–5th generation and shuffle 1st–4th generation. Not the nano 6th/7th generation (their database checksum was never cracked) and not iPod touch or iPhone (they use Apple's private sync protocol). On Windows, an iPod formatted on a Mac can't be read at all; that's a Windows limitation.
 
 **Why does it look like 2010?**
-Because software peaked and we're not afraid to say it.
+Because that's the version worth copying.
 
 **Is it free?**
-GPL-3.0-or-later. Free like the web used to be: you can read it, change it, and share it.
+Yes. GPL-3.0-or-later: you can read it, change it and share it.
 
 **Linux?**
-It builds and passes its tests on Linux. It isn't packaged yet. You know who you are; pull requests welcome.
+It builds and passes its tests on Linux, but isn't packaged yet. Pull requests welcome.
 
 **Will you add NFTs?**
 No.
@@ -156,7 +154,7 @@ See [docs/SPEC.md](docs/SPEC.md) for decisions, the measured window anatomy and 
 
 ## Sign the guestbook
 
-Found a bug? Want a feature? Just want to say your iPod still works? [Open an issue](https://github.com/halfwoods/Unsub/issues). And if Unsub made your music feel like yours again, **a ⭐ is the 2026 version of a guestbook entry.**
+Found a bug or want a feature? [Open an issue](https://github.com/halfwoods/Unsub/issues). If Unsub is useful to you, **a ⭐ is the 2026 version of a guestbook entry.**
 
 <p align="center">
   <img src="docs/readme/visitor-counter.svg" alt="You are visitor number 00031337" width="232" height="26">
