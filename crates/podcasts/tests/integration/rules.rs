@@ -10,8 +10,14 @@ fn settings(auto_download_latest: u32, keep: KeepRule) -> FeedSettings {
 }
 
 #[test]
-fn nothing_is_pending_until_a_rule_is_set() {
-    let (env, _) = Env::subscribed();
+fn a_new_subscription_wants_its_newest_episode_until_the_rule_is_turned_off() {
+    let (mut env, feed) = Env::subscribed();
+    let newest = env.podcasts.episodes(feed.id).unwrap()[0].id;
+    assert_eq!(env.podcasts.pending_auto_downloads().unwrap(), vec![newest]);
+
+    env.podcasts
+        .set_settings(feed.id, settings(0, KeepRule::All))
+        .unwrap();
     assert!(env.podcasts.pending_auto_downloads().unwrap().is_empty());
 }
 
@@ -59,6 +65,9 @@ fn new_episodes_push_older_ones_out_of_the_window() {
 #[test]
 fn auto_download_rules_are_per_feed() {
     let (mut env, first) = Env::subscribed();
+    env.podcasts
+        .set_settings(first.id, settings(0, KeepRule::All))
+        .unwrap();
     env.server.serve_fixture("/atom.xml", "atom.xml");
     let second = env
         .podcasts

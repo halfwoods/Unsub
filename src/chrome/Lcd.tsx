@@ -206,6 +206,11 @@ export function Lcd() {
   const downloadingTitle = useApp((s) =>
     s.download ? (s.playingTracks.find((t) => t.id === s.download?.trackId)?.title ?? "") : "",
   );
+  // Downloads go one at a time, so at most one has started; until one does, any of those waiting stands in.
+  const podcastDownload = useApp((s) => {
+    const downloads = Object.values(s.podcastDownloads);
+    return downloads.find((d) => d.started) ?? downloads[0];
+  });
   const cdRip = useApp((s) => s.cdRip);
   const deviceSync = useApp((s) => s.deviceSync);
   const organize = useApp((s) => s.organize);
@@ -351,6 +356,13 @@ export function Lcd() {
   }
 
   if (scan) return <ProgressLcd title="Adding to Library" subtitle={scan.currentPath.split(/[\\/]/).pop() ?? ""} fraction={null} />;
+
+  if (podcastDownload) {
+    const { title, fraction } = podcastDownload;
+    // A notice shares the subtitle, as on the now-playing screen, since the download goes on for as long as the notice is up.
+    const subtitle = notice ?? (fraction === null ? "Starting…" : `${Math.round(fraction * 100)}%`);
+    return <ProgressLcd title={`Downloading “${title}”`} subtitle={subtitle} fraction={fraction} />;
+  }
 
   // A notice with nothing playing, such as a station that couldn't be reached.
   if (notice) {

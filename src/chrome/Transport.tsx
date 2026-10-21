@@ -35,7 +35,15 @@ export function Transport() {
 
   return (
     <div className="transport">
-      <button className="gloss-button gloss-button--small" aria-label="Previous" disabled={!hasCurrent || live} onClick={() => void playerPrevious()}>
+      <button
+        className="gloss-button gloss-button--small"
+        aria-label="Previous"
+        disabled={!hasCurrent || live}
+        onClick={() => {
+          useApp.setState({ podcastWish: null });
+          void playerPrevious();
+        }}
+      >
         <Glyph d={REWIND} width={14} height={8} />
       </button>
       <button
@@ -46,7 +54,15 @@ export function Transport() {
       >
         {playing ? <Glyph d={PAUSE} width={11} height={12} /> : <Glyph d={PLAY} width={11} height={13} nudge />}
       </button>
-      <button className="gloss-button gloss-button--small" aria-label="Next" disabled={!hasCurrent || live} onClick={() => void playerNext()}>
+      <button
+        className="gloss-button gloss-button--small"
+        aria-label="Next"
+        disabled={!hasCurrent || live}
+        onClick={() => {
+          useApp.setState({ podcastWish: null });
+          void playerNext();
+        }}
+      >
         <Glyph d={FORWARD} width={14} height={8} />
       </button>
     </div>

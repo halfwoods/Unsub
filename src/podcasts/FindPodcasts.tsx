@@ -289,7 +289,7 @@ export function ImportFromPodcastsAppSheet({ feeds, onClose }: { feeds: PodcastF
     for (const [index, show] of chosen.entries()) {
       setProgress({ done: index, total: chosen.length });
       try {
-        const feed = await podcastsSubscribe(show.feedUrl);
+        const feed = await podcastsSubscribe(show.feedUrl, true);
         markSubscribed(show.feedUrl);
         markSubscribed(feed.url);
         toggle(show.feedUrl, false);

@@ -28,6 +28,24 @@ pub struct FeedSettings {
     pub keep: KeepRule,
 }
 
+/// How a feed is being subscribed to, which decides what it starts out downloading: a show the user
+/// picked gets its newest episode so it can be played at once, while a bulk import must not start a
+/// download per show. Feeds stored before this keep the setting they were saved with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subscribe {
+    One,
+    Bulk,
+}
+
+impl Subscribe {
+    pub(crate) fn auto_download_latest(self) -> u32 {
+        match self {
+            Subscribe::One => 1,
+            Subscribe::Bulk => 0,
+        }
+    }
+}
+
 /// Which downloaded files `Podcasts::apply_cleanup` keeps.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

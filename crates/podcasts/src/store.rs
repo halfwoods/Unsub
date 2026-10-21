@@ -126,13 +126,15 @@ impl Store {
             .ok_or(Error::FeedNotFound(feed_id))
     }
 
-    /// Stores a fetched feed: updates `existing`, else the feed with the same URL, else inserts.
+    /// Stores a fetched feed: updates `existing`, else the feed with the same URL, else inserts it
+    /// with `new_auto_download_latest`. A feed already stored keeps the settings it has.
     pub fn save_feed(
         &mut self,
         existing: Option<i64>,
         url: &str,
         parsed: &ParsedFeed,
         validators: &Validators,
+        new_auto_download_latest: u32,
     ) -> Result<(i64, RefreshSummary)> {
         let now = unix_now();
         let tx = self.conn.transaction()?;
@@ -149,7 +151,7 @@ impl Store {
                 update_feed(&tx, id, parsed, validators, now)?;
                 id
             }
-            None => insert_feed(&tx, url, parsed, validators, now)?,
+            None => insert_feed(&tx, url, parsed, validators, now, new_auto_download_latest)?,
         };
         let summary = upsert_episodes(&tx, feed_id, &parsed.episodes, now)?;
         tx.commit()?;
@@ -335,6 +337,7 @@ fn insert_feed(
     parsed: &ParsedFeed,
     validators: &Validators,
     now: i64,
+    auto_download_latest: u32,
 ) -> Result<i64> {
     // A feed without a title is still listable by its address.
     let title = if parsed.title.is_empty() {
@@ -344,8 +347,8 @@ fn insert_feed(
     };
     tx.execute(
         "INSERT INTO feeds (url, title, author, description, artwork_url, link, etag,
-                            last_modified, last_refreshed)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                            last_modified, last_refreshed, auto_download_latest)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             url,
             title,
@@ -356,6 +359,7 @@ fn insert_feed(
             validators.etag,
             validators.last_modified,
             now,
+            auto_download_latest,
         ],
     )?;
     Ok(tx.last_insert_rowid())

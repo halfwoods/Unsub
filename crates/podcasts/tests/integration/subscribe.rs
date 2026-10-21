@@ -1,4 +1,4 @@
-use unsub_podcasts::{Error, KeepRule, Podcasts};
+use unsub_podcasts::{Error, FeedSettings, KeepRule, Podcasts, Subscribe};
 
 use crate::common::{Env, fixture};
 
@@ -14,7 +14,7 @@ fn subscribe_stores_the_feed_and_its_episodes() {
     assert_eq!(feed.link.as_deref(), Some("https://example.com/testcast"));
     assert_eq!(feed.unplayed_count, 3);
     assert!(feed.last_refreshed.is_some());
-    assert_eq!(feed.settings.auto_download_latest, 0);
+    assert_eq!(feed.settings.auto_download_latest, 1);
     assert_eq!(feed.settings.keep, KeepRule::All);
 
     let episodes = env.podcasts.episodes(feed.id).unwrap();
@@ -34,6 +34,69 @@ fn subscribe_stores_the_feed_and_its_episodes() {
     assert!(!newest.played);
     assert_eq!(newest.position_ms, 0);
     assert_eq!(newest.file, None);
+}
+
+#[test]
+fn a_new_feed_downloads_its_newest_episode_while_a_stored_one_keeps_its_own_setting() {
+    let (mut env, first) = Env::subscribed();
+    env.podcasts
+        .set_settings(
+            first.id,
+            FeedSettings {
+                auto_download_latest: 0,
+                keep: KeepRule::All,
+            },
+        )
+        .unwrap();
+
+    env.server.serve_fixture("/atom.xml", "atom.xml");
+    let second = env
+        .podcasts
+        .subscribe(&env.server.url("/atom.xml"))
+        .unwrap();
+    assert_eq!(second.settings.auto_download_latest, 1);
+
+    // Subscribing to a stored feed again refreshes it, and reopening the database changes nothing.
+    env.podcasts
+        .subscribe(&env.server.url("/feed.xml"))
+        .unwrap();
+    let reopened =
+        Podcasts::open(&env.dir.path().join("podcasts.db"), &env.download_dir()).unwrap();
+    let mut settings: Vec<_> = reopened
+        .feeds()
+        .unwrap()
+        .into_iter()
+        .map(|feed| (feed.id, feed.settings.auto_download_latest))
+        .collect();
+    settings.sort();
+    assert_eq!(settings, [(first.id, 0), (second.id, 1)]);
+}
+
+#[test]
+fn feeds_imported_in_bulk_start_with_nothing_downloading_but_a_single_subscribe_still_does() {
+    let mut env = Env::new();
+    env.server.serve_fixture("/feed.xml", "feed.xml");
+    env.server.serve_fixture("/atom.xml", "atom.xml");
+    env.server.serve_fixture("/noguid.xml", "no_guid.xml");
+    env.server.serve_fixture("/durations.xml", "durations.xml");
+
+    let opml = fixture("subscriptions.opml").replace("{{BASE}}", &env.server.base);
+    let imported = env.podcasts.import_opml(&opml).unwrap();
+    let fetched = Podcasts::fetch(&env.server.url("/noguid.xml")).unwrap();
+    let bulk = env.podcasts.save_fetched(fetched, Subscribe::Bulk).unwrap();
+
+    assert_eq!(imported.iter().flatten().count(), 2);
+    for feed in imported.iter().flatten().chain([&bulk]) {
+        assert_eq!(feed.settings.auto_download_latest, 0, "{}", feed.title);
+    }
+    assert!(env.podcasts.pending_auto_downloads().unwrap().is_empty());
+
+    let single = env
+        .podcasts
+        .subscribe(&env.server.url("/durations.xml"))
+        .unwrap();
+    assert_eq!(single.settings.auto_download_latest, 1);
+    assert_eq!(env.podcasts.pending_auto_downloads().unwrap().len(), 1);
 }
 
 #[test]
@@ -157,7 +220,7 @@ fn a_fetched_feed_can_be_stored_later_by_another_handle() {
     env.server.serve_fixture("/feed.xml", "feed.xml");
 
     let fetched = Podcasts::fetch(&env.server.url("/feed.xml")).unwrap();
-    let feed = env.podcasts.save_fetched(fetched).unwrap();
+    let feed = env.podcasts.save_fetched(fetched, Subscribe::One).unwrap();
 
     assert_eq!(feed.title, "Test Cast");
     assert_eq!(env.podcasts.feeds().unwrap(), [feed]);
@@ -337,7 +400,7 @@ fn public_types_serialize_with_camel_case_keys() {
     for key in ["artworkUrl", "lastRefreshed", "unplayedCount", "settings"] {
         assert!(feed_json.get(key).is_some(), "feed is missing {key}");
     }
-    assert_eq!(feed_json["settings"]["autoDownloadLatest"], 0);
+    assert_eq!(feed_json["settings"]["autoDownloadLatest"], 1);
     assert_eq!(feed_json["settings"]["keep"], "all");
 
     let episode = &env.podcasts.episodes(feed.id).unwrap()[0];

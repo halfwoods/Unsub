@@ -41,6 +41,7 @@ import type {
   PodcastFeed,
   PodcastListing,
   PodcastListings,
+  PodcastProgress,
   Purchase,
   RadioGenre,
   RadioLink,
@@ -280,7 +281,8 @@ export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => list
 
 export const podcastsFeeds = () => invoke<PodcastFeed[]>("podcasts_feeds");
 export const podcastsEpisodes = (feedId: number) => invoke<PodcastEpisode[]>("podcasts_episodes", { feedId });
-export const podcastsSubscribe = (url: string) => invoke<PodcastFeed>("podcasts_subscribe", { url });
+/** `bulk` is for importing many shows at once, which must not each start a download. */
+export const podcastsSubscribe = (url: string, bulk = false) => invoke<PodcastFeed>("podcasts_subscribe", { url, bulk });
 export const podcastsDirectoryCategories = () => invoke<PodcastCategory[]>("podcasts_directory_categories");
 export const podcastsDirectorySearch = (term: string) => invoke<PodcastListings>("podcasts_directory_search", { term });
 export const podcastsDirectoryTop = (category: number | null) => invoke<PodcastListings>("podcasts_directory_top", { category });
@@ -294,9 +296,8 @@ export const podcastsSetPlayed = (episodeId: number, played: boolean) =>
   invoke<void>("podcasts_set_played", { episodeId, played });
 export const podcastsDownload = (episodeIds: number[]) => invoke<void>("podcasts_download", { episodeIds });
 export const onPodcastsChanged = (handler: () => void): Promise<UnlistenFn> => listen("podcasts://changed", () => handler());
-export const onPodcastProgress = (
-  handler: (p: { episodeId: number; done: number; total: number | null }) => void,
-): Promise<UnlistenFn> => listen<{ episodeId: number; done: number; total: number | null }>("podcasts://progress", (e) => handler(e.payload));
+export const onPodcastProgress = (handler: (p: PodcastProgress) => void): Promise<UnlistenFn> =>
+  listen<PodcastProgress>("podcasts://progress", (e) => handler(e.payload));
 
 export const purchasesStatus = () => invoke<PurchasesStatus>("purchases_status");
 export const purchasesSetWatching = (watching: boolean) => invoke<void>("purchases_set_watching", { watching });

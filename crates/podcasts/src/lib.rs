@@ -23,7 +23,7 @@ pub use directory::{
     CATEGORIES, Category, Directory, Listing, Listings, Source, default_directory,
 };
 pub use error::{Error, Result};
-pub use model::{Episode, Feed, FeedSettings, KeepRule, RefreshSummary};
+pub use model::{Episode, Feed, FeedSettings, KeepRule, RefreshSummary, Subscribe};
 
 /// A feed that has been fetched and parsed but not stored. Fetching needs no store, so the app
 /// can do it without holding up whatever else is using the store.
@@ -120,17 +120,18 @@ impl Podcasts {
     /// already stored refreshes it instead of adding a duplicate.
     pub fn subscribe(&mut self, feed_url: &str) -> Result<Feed> {
         let fetched = fetch_new(&self.agent, feed_url)?;
-        self.save_fetched(fetched)
+        self.save_fetched(fetched, Subscribe::One)
     }
 
     /// Stores the feed under its post-redirect URL and remembers the address it was asked for,
     /// which directories list instead of it, so the show can be recognised as followed.
-    pub fn save_fetched(&mut self, fetched: FetchedFeed) -> Result<Feed> {
+    pub fn save_fetched(&mut self, fetched: FetchedFeed, subscribe: Subscribe) -> Result<Feed> {
         let (feed_id, _) = self.store.save_feed(
             None,
             &fetched.final_url,
             &fetched.parsed,
             &fetched.validators,
+            subscribe.auto_download_latest(),
         )?;
         if fetched.requested_url != fetched.final_url {
             self.store.add_alias(feed_id, &fetched.requested_url)?;
@@ -183,9 +184,10 @@ impl Podcasts {
                 ..RefreshSummary::default()
             });
         };
+        // The feed is stored, so the setting for a new one goes unused.
         let (_, summary) =
             self.store
-                .save_feed(Some(update.feed_id), &update.url, &parsed, &validators)?;
+                .save_feed(Some(update.feed_id), &update.url, &parsed, &validators, 0)?;
         Ok(summary)
     }
 
@@ -269,12 +271,17 @@ impl Podcasts {
         self.store.set_settings(feed_id, &settings)
     }
 
-    /// Subscribes to every feed in the document, one result per outline that has a feed URL.
+    /// Subscribes to every feed in the document, one result per outline that has a feed URL. The
+    /// feeds start with nothing downloading, as a bulk import should.
     pub fn import_opml(&mut self, opml: &str) -> Result<Vec<std::result::Result<Feed, String>>> {
         let urls = opml::feed_urls(opml)?;
         Ok(urls
             .iter()
-            .map(|url| self.subscribe(url).map_err(|err| err.to_string()))
+            .map(|url| {
+                fetch_new(&self.agent, url)
+                    .and_then(|fetched| self.save_fetched(fetched, Subscribe::Bulk))
+                    .map_err(|err| err.to_string())
+            })
             .collect())
     }
 

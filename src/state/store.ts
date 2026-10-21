@@ -26,6 +26,8 @@ import type {
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
+  PodcastEpisode,
+  PodcastProgress,
   Playlist,
   PlaylistKind,
   RadioLink,
@@ -266,6 +268,17 @@ interface AppState {
   notice: string | null;
   /** A song being fetched before it plays, from iCloud Drive or a shared library. */
   download: { trackId: number; from: string; fraction: number } | null;
+  /**
+   * Podcast episodes asked for or on their way, until each lands or fails: the title for the LCD, whether the download has
+   * started (the backend has begun it, rather than it waiting its turn), and how far along (null until the size is known).
+   */
+  podcastDownloads: Record<number, { title: string; started: boolean; fraction: number | null }>;
+  /**
+   * The episode to play as soon as its download lands. Only the listener choosing something else drops it (a song or station
+   * played, Next or Previous, another episode asked for): a song ending on its own, pausing, stopping or resuming isn't a
+   * choice, and the double-click that asked for the episode meant "play this now".
+   */
+  podcastWish: number | null;
   textSizes: TextSizes;
   rowHeight: number;
 
@@ -313,9 +326,19 @@ interface AppState {
   applyPlayerEvent: (event: PlayerEvent) => void;
   /** Shows a message in the LCD for a few seconds. */
   showNotice: (message: string) => void;
+  /** Downloads the episodes that aren't on their way already. */
+  downloadPodcasts: (episodes: PodcastEpisode[]) => void;
+  /** For an episode that isn't downloaded: fetches it, and plays it once it lands. */
+  playPodcastWhenDownloaded: (episode: PodcastEpisode) => void;
+  applyPodcastProgress: (progress: PodcastProgress) => void;
 }
 
 const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", one: "off" };
+
+function withoutKey<T>(record: Record<number, T>, key: number): Record<number, T> {
+  const { [key]: _removed, ...rest } = record;
+  return rest;
+}
 
 export const useApp = create<AppState>((set, get) => ({
   windowActive: true,
@@ -374,6 +397,8 @@ export const useApp = create<AppState>((set, get) => ({
   preferencesOpen: false,
   notice: null,
   download: null,
+  podcastDownloads: {},
+  podcastWish: null,
   textSizes: loadTextSizes(),
   rowHeight: listRowHeight(loadTextSizes()),
 
@@ -487,7 +512,7 @@ export const useApp = create<AppState>((set, get) => ({
     // iTunes skips unchecked songs when playing through a list, but plays one you double-click.
     // A station in the list plays alone; it can't queue behind songs.
     const queue = tracks.filter((t, i) => i === index || (t.enabled && t.kind !== "radio"));
-    set({ playingTracks: tracks, playingSource });
+    set({ playingTracks: tracks, playingSource, podcastWish: null });
     await api.playerPlayList(
       playingSource,
       queue.map((t) => t.id),
@@ -501,7 +526,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (playback.trackId !== null || get().liveStation !== null) return api.playerTogglePause();
     // In Party Shuffle, Play starts the party rather than the (empty) song list.
     if (source === "partyShuffle") {
-      set({ playingSource: { type: "library" } });
+      set({ playingSource: { type: "library" }, podcastWish: null });
       await api.partyPlay(null);
       return;
     }
@@ -618,14 +643,14 @@ export const useApp = create<AppState>((set, get) => ({
   // Mixes arrive as ids; playing them works like any library list.
   playTrackIds: async (trackIds) => {
     if (trackIds.length === 0) return;
-    set({ playingTracks: [], playingSource: { type: "library" } });
+    set({ playingTracks: [], playingSource: { type: "library" }, podcastWish: null });
     await api.playerPlayList({ type: "library" }, trackIds, 0);
   },
 
   playAlbum: async (key) => {
     const tracks = await api.libraryAlbumTracks(key);
     if (tracks.length === 0) return;
-    set({ playingTracks: tracks, playingSource: { type: "library" } });
+    set({ playingTracks: tracks, playingSource: { type: "library" }, podcastWish: null });
     await api.playerPlayList({ type: "library" }, tracks.map((t) => t.id), 0);
   },
 
@@ -721,5 +746,42 @@ export const useApp = create<AppState>((set, get) => ({
   showNotice: (message) => {
     set({ notice: message });
     setTimeout(() => get().notice === message && set({ notice: null }), NOTICE_MS);
+  },
+
+  downloadPodcasts: (episodes) => {
+    const fresh = episodes.filter((e) => !(e.id in get().podcastDownloads));
+    if (fresh.length === 0) return;
+    set((s) => ({
+      podcastDownloads: { ...s.podcastDownloads, ...Object.fromEntries(fresh.map((e) => [e.id, { title: e.title, started: false, fraction: null }])) },
+    }));
+    void api.podcastsDownload(fresh.map((e) => e.id));
+  },
+
+  // Asked again while the episode is already on its way, it still means "play it when it lands".
+  playPodcastWhenDownloaded: (episode) => {
+    set({ podcastWish: episode.id });
+    get().downloadPodcasts([episode]);
+  },
+
+  applyPodcastProgress: (progress) => {
+    switch (progress.state) {
+      case "downloading": {
+        const fraction = progress.total ? progress.done / progress.total : null;
+        set((s) => ({ podcastDownloads: { ...s.podcastDownloads, [progress.episodeId]: { title: progress.title, started: true, fraction } } }));
+        break;
+      }
+      case "done": {
+        set((s) => ({ podcastDownloads: withoutKey(s.podcastDownloads, progress.episodeId) }));
+        // Playing it is a choice like any other, which is what clears the wish.
+        if (get().podcastWish === progress.episodeId) void get().playTrackIds([progress.trackId]);
+        break;
+      }
+      case "failed":
+        set((s) => ({
+          podcastDownloads: withoutKey(s.podcastDownloads, progress.episodeId),
+          podcastWish: s.podcastWish === progress.episodeId ? null : s.podcastWish,
+        }));
+        break;
+    }
   },
 }));

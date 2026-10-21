@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   onPodcastProgress,
   onPodcastsChanged,
-  podcastsDownload,
   podcastsEpisodes,
   podcastsFeeds,
   podcastsRefresh,
@@ -121,17 +120,40 @@ function SettingsSheet({ feed, onClose }: { feed: PodcastFeed; onClose: () => vo
   );
 }
 
+/** What stands in for an episode that isn't downloaded: GET, then "Downloading…" until the size is known, then a bar with its percentage. */
+function EpisodeDownload({ download, onGet }: { download: { fraction: number | null } | undefined; onGet: () => void }) {
+  if (!download) {
+    return (
+      <button className="podcast-get" onClick={onGet}>
+        GET
+      </button>
+    );
+  }
+  if (download.fraction === null) return <span className="podcast-status">Downloading…</span>;
+  const percent = Math.round(download.fraction * 100);
+  return (
+    <>
+      <span className="podcast-progress">
+        <span style={{ width: `${percent}%` }} />
+      </span>
+      <span className="podcast-percent">{percent}%</span>
+    </>
+  );
+}
+
 /** iTunes 10's Podcasts list: shows with disclosure triangles, episodes underneath, GET buttons. */
 export function PodcastsView() {
   const [feeds, setFeeds] = useState<PodcastFeed[] | null>(null);
   const [episodes, setEpisodes] = useState<Record<number, PodcastEpisode[]>>({});
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const [selectedFeed, setSelectedFeed] = useState<number | null>(null);
-  const [progress, setProgress] = useState<Record<number, number>>({});
   const [sheet, setSheet] = useState<"find" | "import" | "subscribe" | "settings" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const playTrackIds = useApp((s) => s.playTrackIds);
   const showNotice = useApp((s) => s.showNotice);
+  const downloads = useApp((s) => s.podcastDownloads);
+  const downloadPodcasts = useApp((s) => s.downloadPodcasts);
+  const playPodcastWhenDownloaded = useApp((s) => s.playPodcastWhenDownloaded);
 
   useEffect(() => {
     const load = () =>
@@ -147,7 +169,12 @@ export function PodcastsView() {
         clearTimeout(reloadTimer);
         reloadTimer = setTimeout(load, RELOAD_DELAY_MS);
       }),
-      onPodcastProgress(({ episodeId, done, total }) => setProgress((p) => ({ ...p, [episodeId]: total ? done / total : 0 }))),
+      // The row turns into a playable one at once, instead of falling back to GET until the reload above catches up.
+      onPodcastProgress((p) => {
+        if (p.state !== "done") return;
+        const landed = (e: PodcastEpisode) => (e.id === p.episodeId ? { ...e, trackId: p.trackId } : e);
+        setEpisodes((all) => Object.fromEntries(Object.entries(all).map(([feedId, list]) => [feedId, list.map(landed)])));
+      }),
     ];
     return () => {
       clearTimeout(reloadTimer);
@@ -165,7 +192,7 @@ export function PodcastsView() {
       return next;
     });
   const play = (episode: PodcastEpisode) =>
-    episode.trackId !== null ? void playTrackIds([episode.trackId]) : void podcastsDownload([episode.id]);
+    episode.trackId !== null ? void playTrackIds([episode.trackId]) : playPodcastWhenDownloaded(episode);
 
   return (
     <div className="podcasts">
@@ -193,7 +220,7 @@ export function PodcastsView() {
         {feeds.map((f) => {
           const isOpen = open.has(f.id);
           const list = episodes[f.id] ?? [];
-          const missing = list.filter((e) => e.trackId === null && progress[e.id] === undefined).map((e) => e.id);
+          const missing = list.filter((e) => e.trackId === null && !(e.id in downloads));
           return (
             <div key={f.id}>
               <div className={selectedFeed === f.id ? "podcast-row podcast-row--feed song-row--selected" : "podcast-row podcast-row--feed"} onMouseDown={() => setSelectedFeed(f.id)}>
@@ -212,7 +239,7 @@ export function PodcastsView() {
                 <span className="podcast-description">
                   {plainText(f.description)}
                   {missing.length > 0 && (
-                    <button className="podcast-get" onClick={() => void podcastsDownload(missing)}>
+                    <button className="podcast-get" onClick={() => downloadPodcasts(missing)}>
                       GET ALL
                     </button>
                   )}
@@ -229,16 +256,7 @@ export function PodcastsView() {
                     <span>{formatDate(e.published)}</span>
                     <span className="podcast-description">
                       {plainText(e.description)}
-                      {e.trackId === null &&
-                        (progress[e.id] !== undefined ? (
-                          <span className="podcast-progress">
-                            <span style={{ width: `${Math.round(progress[e.id] * 100)}%` }} />
-                          </span>
-                        ) : (
-                          <button className="podcast-get" onClick={() => void podcastsDownload([e.id])}>
-                            GET
-                          </button>
-                        ))}
+                      {e.trackId === null && <EpisodeDownload download={downloads[e.id]} onGet={() => downloadPodcasts([e])} />}
                       {e.trackId !== null && !e.played && (
                         <button className="podcast-get" onClick={() => void podcastsSetPlayed(e.id, true)} title="Mark as played">
                           ✓

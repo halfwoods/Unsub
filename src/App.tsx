@@ -14,6 +14,7 @@ import {
   onCleanUpDone,
   onCleanUpProgress,
   onDetailsProgress,
+  onPodcastProgress,
   onDevicesChanged,
   onImportProgress,
   onLibraryChanged,
@@ -140,8 +141,10 @@ function runMenuAction(action: MenuAction) {
     case "play-pause":
       return void togglePlay();
     case "next":
+      useApp.setState({ podcastWish: null });
       return void playerNext();
     case "previous":
+      useApp.setState({ podcastWish: null });
       return void playerPrevious();
     case "next-chapter":
     case "previous-chapter": {
@@ -159,13 +162,31 @@ function runMenuAction(action: MenuAction) {
 /** Subscribes to backend events for the lifetime of the window. */
 function useBackendEvents() {
   useEffect(() => {
-    const { refresh, refreshDevices, refreshCds, refreshShared, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive, setWindowFullscreen } =
-      useApp.getState();
+    const {
+      refresh,
+      refreshDevices,
+      refreshCds,
+      refreshShared,
+      refreshPlaylists,
+      applyPlayerEvent,
+      applyPodcastProgress,
+      setScan,
+      setWindowActive,
+      setWindowFullscreen,
+    } = useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onCastTarget((castTarget) => useApp.setState({ castTarget })),
       onMenuAction(runMenuAction),
-      onRadioStation((liveStation) => useApp.setState({ liveStation, liveTitle: null })),
+      // Tuning in a different station is the listener's choice, which an episode waiting to play must not cut off. The same
+      // one again (renamed, or tuned back in after a pause) or none (removed) is not a choice.
+      onRadioStation((liveStation) =>
+        useApp.setState((s) => ({
+          liveStation,
+          liveTitle: null,
+          podcastWish: liveStation && liveStation.id !== s.liveStation?.id ? null : s.podcastWish,
+        })),
+      ),
       onRadioLink((liveLink) => useApp.setState({ liveLink })),
       onRadioNowPlaying((title) => useApp.setState((s) => (s.liveStation?.id === title.stationId ? { liveTitle: title } : {}))),
       onDevicesChanged(() => void refreshDevices()),
@@ -177,6 +198,7 @@ function useBackendEvents() {
       onCleanUpProgress((cleanUp) => useApp.setState({ cleanUp })),
       onCleanUpDone((done) => useApp.getState().showNotice(cleanUpNotice(done))),
       onDetailsProgress((details) => useApp.setState({ details })),
+      onPodcastProgress(applyPodcastProgress),
       onImportProgress((importProgress) => useApp.setState({ importProgress })),
       onScanProgress(setScan),
       onDownload((p) =>

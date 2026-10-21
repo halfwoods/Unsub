@@ -97,7 +97,11 @@ export function PartyShuffleView() {
                 else next.add(row.upcomingIndex);
                 setSelected(next);
               }}
-              onDoubleClick={() => row.part === "upcoming" && void partyPlay(row.upcomingIndex).then(setView)}
+              onDoubleClick={() => {
+                if (row.part !== "upcoming") return;
+                useApp.setState({ podcastWish: null });
+                void partyPlay(row.upcomingIndex).then(setView);
+              }}
             >
               <div className="song-cell song-cell--status">{row.part === "current" && <NowPlayingIcon playing={playing} />}</div>
               <div className="song-cell">{row.track.title}</div>

@@ -752,6 +752,12 @@ export interface PodcastEpisode {
   trackId: number | null;
 }
 
+/** What a podcast download says about an episode: how far it has got, and then how it ended. */
+export type PodcastProgress =
+  | { state: "downloading"; episodeId: number; title: string; done: number; total: number | null }
+  | { state: "done"; episodeId: number; trackId: number }
+  | { state: "failed"; episodeId: number };
+
 export type PurchaseStore = "bandcamp" | "qobuz" | "sevenDigital" | "hdtracks" | "unknown";
 
 export interface PurchaseCandidate {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -6,13 +6,15 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use unsub_library::{MediaKind, TrackOverrides};
+use unsub_playback::PlayerEvent;
 use unsub_podcasts::{
-    CATEGORIES, Category, Directory, Episode, Feed, FeedSettings, Listing, Listings, Podcasts, default_directory, podcasts_app,
+    CATEGORIES, Category, Directory, Episode, Feed, FeedSettings, Listing, Listings, Podcasts, Subscribe, default_directory, podcasts_app,
 };
 
 use crate::error::{CommandError, CommandResult};
 use crate::jobs::{self, Job, Kind};
 use crate::library::{self, LibraryState};
+use crate::playback::PLAYER_EVENT;
 
 pub const CHANGED_EVENT: &str = "podcasts://changed";
 pub const PROGRESS_EVENT: &str = "podcasts://progress";
@@ -46,6 +48,9 @@ pub struct PodcastsState {
     tracks: Mutex<HashMap<i64, i64>>,
     /// Downloads run one at a time on their own store handle; the UI stays responsive meanwhile.
     download_lock: Arc<Mutex<()>>,
+    /// Episodes handed to a download and not yet finished or failed. A single subscribe and every refresh ask again for
+    /// each auto-download still pending, so without this the ones under way, or waiting their turn, would be queued a second time.
+    in_flight: Arc<Mutex<HashSet<i64>>>,
     /// Searched without the store locked, since a slow directory shouldn't hold up the shows already followed.
     directory: Arc<dyn Directory>,
     /// Charts change slowly, so each is fetched once per run; a search is always fresh.
@@ -68,6 +73,7 @@ impl PodcastsState {
             tracks_path,
             tracks: Mutex::new(tracks),
             download_lock: Arc::new(Mutex::new(())),
+            in_flight: Arc::default(),
             directory: Arc::from(default_directory()),
             top_shows: Mutex::new(HashMap::new()),
         })
@@ -155,13 +161,17 @@ pub async fn podcasts_episodes(state: State<'_, PodcastsState>, feed_id: i64) ->
 }
 
 #[tauri::command]
-pub async fn podcasts_subscribe(app: AppHandle, state: State<'_, PodcastsState>, url: String) -> CommandResult<Feed> {
+pub async fn podcasts_subscribe(app: AppHandle, state: State<'_, PodcastsState>, url: String, bulk: bool) -> CommandResult<Feed> {
     // The fetch can take a minute; only the quick save holds the store.
     let url = url.trim().to_owned();
     let fetched = blocking(move || Podcasts::fetch(&url)).await?;
-    let feed = lock(&state.store).save_fetched(fetched).map_err(to_error)?;
+    let subscribe = if bulk { Subscribe::Bulk } else { Subscribe::One };
+    let feed = lock(&state.store).save_fetched(fetched, subscribe).map_err(to_error)?;
     let _ = app.emit(CHANGED_EVENT, ());
-    queue_auto_downloads(&app);
+    // A bulk import adds many shows; none of them download anything, so there is nothing to start.
+    if !bulk {
+        queue_auto_downloads(&app);
+    }
     Ok(feed)
 }
 
@@ -262,17 +272,81 @@ fn queue_auto_downloads(app: &AppHandle) {
     }
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Progress {
-    episode_id: i64,
-    done: u64,
-    total: Option<u64>,
+/// What the window hears about an episode: how far its download has got, and then how it ended, so a
+/// row or a wish to play it is never left waiting on an episode that is no longer coming.
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+enum Progress<'a> {
+    Downloading { episode_id: i64, title: &'a str, done: u64, total: Option<u64> },
+    Done { episode_id: i64, track_id: i64 },
+    Failed { episode_id: i64 },
+}
+
+/// What a download owes the window: to say how each episode it was given ended. Anything still owed when this is dropped,
+/// as when the job panics, is told as failed, so no row or wish to play waits for ever on an episode that isn't coming.
+struct Outcomes {
+    events: Arc<dyn jobs::Events>,
+    in_flight: Arc<Mutex<HashSet<i64>>>,
+    owed: Vec<i64>,
+}
+
+impl Outcomes {
+    fn done(&mut self, episode_id: i64, track_id: i64) {
+        self.end(episode_id, Progress::Done { episode_id, track_id });
+    }
+
+    /// `title` is None for an episode that could not be looked up.
+    fn failed(&mut self, episode_id: i64, title: Option<&str>) {
+        self.end(episode_id, Progress::Failed { episode_id });
+        self.notice(title.map_or_else(|| "Couldn't download an episode".to_owned(), |title| format!("Couldn't download “{title}”")));
+    }
+
+    fn end(&mut self, episode_id: i64, outcome: Progress) {
+        self.owed.retain(|owed| *owed != episode_id);
+        lock(&self.in_flight).remove(&episode_id);
+        self.send(PROGRESS_EVENT, outcome);
+    }
+
+    fn notice(&self, message: String) {
+        self.send(PLAYER_EVENT, PlayerEvent::Notice { message });
+    }
+
+    fn send(&self, event: &str, payload: impl Serialize) {
+        if let Ok(payload) = serde_json::to_value(payload) {
+            self.events.emit(event, payload);
+        }
+    }
+}
+
+impl Drop for Outcomes {
+    fn drop(&mut self) {
+        let owed = std::mem::take(&mut self.owed);
+        if owed.is_empty() {
+            return;
+        }
+        for episode_id in owed {
+            self.end(episode_id, Progress::Failed { episode_id });
+        }
+        self.notice("Couldn't download an episode".to_owned());
+    }
+}
+
+/// The episodes of `episode_ids` that no download has yet; they count as in flight from here until their outcome is told.
+fn claim(in_flight: &Mutex<HashSet<i64>>, episode_ids: Vec<i64>) -> Vec<i64> {
+    let mut claimed = lock(in_flight);
+    episode_ids.into_iter().filter(|episode_id| claimed.insert(*episode_id)).collect()
 }
 
 /// Downloads on a background thread with a second store handle (WAL makes that safe), then adds
 /// each episode to the library as a Podcast titled from the feed rather than whatever tags it has.
 fn download(app: &AppHandle, episode_ids: Vec<i64>) {
+    let in_flight = Arc::clone(&app.state::<PodcastsState>().in_flight);
+    let episode_ids = claim(&in_flight, episode_ids);
+    if episode_ids.is_empty() {
+        return;
+    }
+    // Made before the job exists, so that even a job that never starts gives the episodes back.
+    let mut outcomes = Outcomes { events: Arc::new(app.clone()), in_flight, owed: episode_ids.clone() };
     let job = Job::new(Kind::Podcasts, PROGRESS_EVENT).open_ended();
     let _ = jobs::start(app, job, move |app, ctx| {
         let state = app.state::<PodcastsState>();
@@ -283,24 +357,28 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
         };
         let feeds: HashMap<i64, Feed> = store.feeds().unwrap_or_default().into_iter().map(|f| (f.id, f)).collect();
         for episode_id in episode_ids {
+            let Some((feed, episode)) =
+                feeds.values().find_map(|feed| store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id).map(|e| (feed, e)))
+            else {
+                outcomes.failed(episode_id, None);
+                continue;
+            };
+            let downloading = |done, total| Progress::Downloading { episode_id, title: &episode.title, done, total };
+            // The window lists the episode as under way now, not once the server has answered.
+            ctx.progress(0, None, episode_id, downloading(0, None));
             let result = store.download(
                 episode_id,
-                &mut |done, total| ctx.progress(done, total, episode_id, Progress { episode_id, done, total }),
+                &mut |done, total| ctx.progress(done, total, episode_id, downloading(done, total)),
                 ctx.cancel_flag(),
             );
             let file = match result {
                 Ok(file) => file,
                 Err(error) => {
                     eprintln!("[podcasts] episode {episode_id}: {error}");
+                    outcomes.failed(episode_id, Some(&episode.title));
                     continue;
                 }
             };
-            let Some(episode) =
-                feeds.values().find_map(|feed| store.episodes(feed.id).ok()?.into_iter().find(|e| e.id == episode_id).map(|e| (feed, e)))
-            else {
-                continue;
-            };
-            let (feed, episode) = episode;
             let overrides = TrackOverrides {
                 kind: Some(MediaKind::Podcast),
                 title: Some(episode.title.clone()),
@@ -314,12 +392,17 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
             };
             let added = app.state::<LibraryState>().queries().add_files(&[(file, overrides)]);
             match added {
-                Ok(summary) => {
-                    if let Some(track_id) = summary.ids.first().copied().flatten() {
+                Ok(summary) => match summary.ids.first().copied().flatten() {
+                    Some(track_id) => {
                         state.remember(episode_id, track_id);
+                        outcomes.done(episode_id, track_id);
                     }
+                    None => outcomes.failed(episode_id, Some(&episode.title)),
+                },
+                Err(error) => {
+                    eprintln!("[podcasts] could not add episode {episode_id} to the library: {error}");
+                    outcomes.failed(episode_id, Some(&episode.title));
                 }
-                Err(error) => eprintln!("[podcasts] could not add episode {episode_id} to the library: {error}"),
             }
             let _ = app.emit(CHANGED_EVENT, ());
             let _ = app.emit(library::CHANGED_EVENT, ());
@@ -329,4 +412,112 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
             let _ = app.emit(library::CHANGED_EVENT, ());
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Recording(Mutex<Vec<(String, Value)>>);
+
+    impl jobs::Events for Recording {
+        fn emit(&self, event: &str, payload: Value) {
+            lock(&self.0).push((event.to_owned(), payload));
+        }
+    }
+
+    fn owing(episode_ids: &[i64]) -> (Outcomes, Arc<Recording>, Arc<Mutex<HashSet<i64>>>) {
+        let recording = Arc::new(Recording::default());
+        let in_flight = Arc::new(Mutex::new(episode_ids.iter().copied().collect()));
+        let outcomes = Outcomes {
+            events: Arc::clone(&recording) as Arc<dyn jobs::Events>,
+            in_flight: Arc::clone(&in_flight),
+            owed: episode_ids.to_vec(),
+        };
+        (outcomes, recording, in_flight)
+    }
+
+    fn sent(recording: &Recording) -> Vec<(String, Value)> {
+        lock(&recording.0).clone()
+    }
+
+    fn notice(message: &str) -> (String, Value) {
+        (PLAYER_EVENT.to_owned(), json!({ "type": "notice", "message": message }))
+    }
+
+    fn progress(payload: Value) -> (String, Value) {
+        (PROGRESS_EVENT.to_owned(), payload)
+    }
+
+    #[test]
+    fn each_outcome_is_told_when_it_happens_and_gives_the_episode_back() {
+        let (mut outcomes, recording, in_flight) = owing(&[1, 2]);
+        outcomes.done(1, 10);
+        assert!(!lock(&in_flight).contains(&1) && lock(&in_flight).contains(&2));
+        outcomes.failed(2, Some("Two"));
+        drop(outcomes);
+
+        assert_eq!(
+            sent(&recording),
+            [
+                progress(json!({ "state": "done", "episodeId": 1, "trackId": 10 })),
+                progress(json!({ "state": "failed", "episodeId": 2 })),
+                notice("Couldn't download “Two”"),
+            ]
+        );
+        assert!(lock(&in_flight).is_empty());
+    }
+
+    #[test]
+    fn an_episode_that_could_not_be_looked_up_is_not_named_in_quotes() {
+        let (mut outcomes, recording, _) = owing(&[1]);
+        outcomes.failed(1, None);
+        assert_eq!(sent(&recording)[1], notice("Couldn't download an episode"));
+    }
+
+    #[test]
+    fn a_job_that_panics_still_tells_the_window_how_the_rest_ended_with_one_notice() {
+        let (outcomes, recording, in_flight) = owing(&[1, 2, 3]);
+        let panicked = catch_unwind(AssertUnwindSafe(move || {
+            let mut outcomes = outcomes;
+            outcomes.done(1, 10);
+            panic!("on purpose");
+        }));
+
+        assert!(panicked.is_err());
+        assert_eq!(
+            sent(&recording),
+            [
+                progress(json!({ "state": "done", "episodeId": 1, "trackId": 10 })),
+                progress(json!({ "state": "failed", "episodeId": 2 })),
+                progress(json!({ "state": "failed", "episodeId": 3 })),
+                notice("Couldn't download an episode"),
+            ]
+        );
+        assert!(lock(&in_flight).is_empty());
+    }
+
+    #[test]
+    fn a_job_that_never_ran_gives_its_episodes_back() {
+        let (outcomes, recording, in_flight) = owing(&[4]);
+        drop(outcomes);
+        assert_eq!(sent(&recording).len(), 2);
+        assert!(lock(&in_flight).is_empty());
+    }
+
+    #[test]
+    fn an_episode_is_claimed_once_until_its_outcome_is_told() {
+        let in_flight = Arc::default();
+        assert_eq!(claim(&in_flight, vec![1, 2, 2]), [1, 2]);
+        assert_eq!(claim(&in_flight, vec![2, 3]), [3]);
+
+        let mut outcomes = Outcomes { events: Arc::new(Recording::default()), in_flight: Arc::clone(&in_flight), owed: vec![2] };
+        outcomes.done(2, 20);
+        assert_eq!(claim(&in_flight, vec![2]), [2]);
+    }
 }
