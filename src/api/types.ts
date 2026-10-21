@@ -386,11 +386,62 @@ export interface SyncPreview {
 
 export interface DeviceSyncStatus {
   deviceId: string;
-  // iPods report preparing, downloading and writingDatabase; players report skipped and playlists.
-  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists";
+  // iPods report preparing, downloading and writingDatabase; players report skipped and playlists. Copy to Library
+  // reports rescuing, which takes the place of a sync.
+  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists" | "rescuing";
   done: number;
   total: number;
   current: string;
+}
+
+/** Which of an iPod's songs Copy to Library takes: all, those in some playlists (by key), or songs picked in its list. */
+export type RescueScope = { type: "all" } | { type: "playlists"; keys: string[] } | { type: "songs"; ids: number[] };
+
+export interface RescueOptions {
+  /** Leave alone the songs the library already has. */
+  skipKnown: boolean;
+  /** Merge the iPod's play counts, skips, ratings and dates into the songs. */
+  playCounts: boolean;
+  /** Make the iPod's playlists, in a folder named for it. */
+  playlists: boolean;
+  /** Restore songs whose disk isn't connected from the iPod too, for a disk that is gone for good. */
+  restoreOffline: boolean;
+}
+
+export interface RescuePreview {
+  songs: number;
+  /** Songs that would be copied. */
+  new: number;
+  /** Songs the library lists but has lost the files of, which would be restored from the iPod's. */
+  restored: number;
+  /** Of the new, those that look like another version of a song the library has, and are copied too. */
+  similar: number;
+  /** Songs the library already has, including the ones Unsub synced to the iPod. */
+  known: number;
+  /** Songs the library lists whose disk isn't connected, so they are left alone rather than taken for lost. None if they are to be restored. */
+  offline: number;
+  /** The disks of those songs, whether they are left alone or restored. */
+  offlineVolumes: string[];
+  /** Songs copy-protected by their names; a protected file with another name is only found as it is copied. */
+  protected: number;
+  /** Songs that could be more than one of the library's, so they are left out. */
+  unsure: number;
+  /** Songs whose file isn't on the iPod. */
+  missing: number;
+  bytes: number;
+  freeBytes: number;
+  fits: boolean;
+  /** The playlists the sheet can offer, whatever the choices. */
+  playlists: RescuePlaylist[];
+}
+
+/** A playlist Copy to Library can make: the iPod's own, or one made on it with the On-The-Go menu. */
+export interface RescuePlaylist {
+  key: string;
+  name: string;
+  onTheGo: boolean;
+  smart: boolean;
+  songs: number;
 }
 
 /** Which slice of a device a list shows: one media kind, or one of its playlists. */

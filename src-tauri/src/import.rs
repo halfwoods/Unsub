@@ -77,8 +77,17 @@ pub(crate) struct PlaylistMapping {
 
 impl PlaylistMapping {
     pub(crate) fn load(path: &Path) -> Self {
-        let stored: HashMap<String, Stored> =
-            std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        // No file means nothing was imported yet. One that can't be read holds what the user's earlier imports made, so
+        // it is kept aside rather than left to be written over by the next playlist.
+        let stored: HashMap<String, Stored> = match std::fs::read(path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                let aside = path.with_extension("json.bad");
+                eprintln!("[import] {} could not be read ({error}); keeping it as {} and starting again", path.display(), aside.display());
+                let _ = std::fs::rename(path, aside);
+                HashMap::new()
+            }),
+            Err(_) => HashMap::new(),
+        };
         let ids = stored
             .into_iter()
             .map(|(key, stored)| {
@@ -97,10 +106,12 @@ impl PlaylistMapping {
         self.ids.get(key).copied()
     }
 
+    /// Written to a copy beside it that is renamed into place, so a crash part-way through can't leave the user's
+    /// mapping half written.
     fn insert(&mut self, key: String, playlist: i64) -> std::io::Result<()> {
         self.ids.insert(key, playlist);
         match &self.path {
-            Some(path) => std::fs::write(path, serde_json::to_vec(self)?),
+            Some(path) => unsub_library::write_beside(path, |temp| std::fs::write(temp, serde_json::to_vec(self)?)),
             None => Ok(()),
         }
     }
@@ -182,7 +193,7 @@ pub struct ImportSummary {
 }
 
 /// Music stores half stars (10, 30, …); Unsub's ratings are whole stars like iTunes 10.
-fn whole_stars(rating: u8) -> u8 {
+pub(crate) fn whole_stars(rating: u8) -> u8 {
     ((u16::from(rating) + 10) / 20 * 20).min(100) as u8
 }
 
@@ -234,7 +245,7 @@ fn stats_of(item: &MusicLibraryItem) -> ExternalStats {
 
 /// Duplicates in Music can end up on one file; combining their stats the same way in any order keeps
 /// the result from depending on which came last.
-fn merged(a: ExternalStats, b: ExternalStats) -> ExternalStats {
+pub(crate) fn merged(a: ExternalStats, b: ExternalStats) -> ExternalStats {
     ExternalStats {
         play_count: a.play_count.saturating_add(b.play_count),
         skip_count: a.skip_count.saturating_add(b.skip_count),
@@ -825,6 +836,39 @@ mod tests {
         };
         assert_eq!(merged(a.clone(), b.clone()), expected);
         assert_eq!(merged(b, a), expected);
+    }
+
+    #[test]
+    fn a_mapping_file_that_cannot_be_read_is_kept_aside_not_written_over() {
+        let saved = TempDir::new().unwrap();
+        let path = saved.path().join("ImportedPlaylists.json");
+        std::fs::write(&path, b"{\"F1\": 12, \"L1\"").unwrap();
+
+        let mut mapping = PlaylistMapping::load(&path);
+        let mut library = Library::open_in_memory().unwrap();
+        let (id, created) = mapping.place(&mut library, &[], "L2".to_owned(), "Mine", PlaylistKind::Regular, None).unwrap();
+
+        assert_eq!(mapping.id("F1"), None);
+        assert!(created);
+        assert_eq!(std::fs::read(path.with_extension("json.bad")).unwrap(), b"{\"F1\": 12, \"L1\"");
+        let saved_now: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved_now, serde_json::json!({"L2": id}));
+    }
+
+    #[test]
+    fn a_missing_mapping_file_is_just_empty_and_saving_leaves_no_temporary_file_behind() {
+        let saved = TempDir::new().unwrap();
+        let path = saved.path().join("ImportedPlaylists.json");
+        let mut mapping = PlaylistMapping::load(&path);
+        let mut library = Library::open_in_memory().unwrap();
+
+        mapping.place(&mut library, &[], "L1".to_owned(), "One", PlaylistKind::Regular, None).unwrap();
+        mapping.place(&mut library, &[], "L2".to_owned(), "Two", PlaylistKind::Regular, None).unwrap();
+
+        let mut files: Vec<_> = std::fs::read_dir(saved.path()).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+        files.sort();
+        assert_eq!(files, ["ImportedPlaylists.json"]);
+        assert_eq!(PlaylistMapping::load(&path).id("L2"), mapping.id("L2"));
     }
 
     #[test]

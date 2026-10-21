@@ -1,12 +1,22 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { libraryAddToPlaylist, libraryMoveInPlaylist } from "../api/commands";
-import { TRACKS_MIME } from "../sidebar/PlaylistRows";
+import { DEVICE_TRACKS_MIME, TRACKS_MIME, type DeviceDrag } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
-import { cdIdOf, isLibrarySource, isPlaylistSource, playlistIdOf, playSourceOf, sameSource, sharedIdOf, useApp } from "../state/store";
+import {
+  cdIdOf,
+  isLibrarySource,
+  isPlaylistSource,
+  parseDeviceSource,
+  playlistIdOf,
+  playSourceOf,
+  sameSource,
+  sharedIdOf,
+  useApp,
+} from "../state/store";
 import { IS_MAC } from "../util/platform";
 import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN, SHARED_COLUMNS } from "./columns";
-import { showSongMenu } from "./songMenu";
+import { showDeviceSongMenu, showSongMenu } from "./songMenu";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
@@ -49,6 +59,8 @@ export function SongList() {
   // Only the library's songs can be edited; a CD's, iPod's or shared library's are read-only.
   const isEditable = useApp((s) => isLibrarySource(s.source) || isPlaylistSource(s.source));
   const isShared = useApp((s) => sharedIdOf(s.source) !== null);
+  // An iPod's songs can't be edited, but they can be copied into the library.
+  const deviceId = useApp((s) => parseDeviceSource(s.source)?.deviceId ?? null);
   const columns = useMemo(
     () => (isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS),
     [isCd, isShared, isRegularPlaylist],
@@ -94,15 +106,20 @@ export function SongList() {
   };
 
   const onContextMenu = (e: MouseEvent, index: number) => {
-    if (!isEditable) return;
+    if (!isEditable && deviceId === null) return;
     e.preventDefault();
     if (!selection.has(tracks[index].id)) selectRow(index, { extend: false, toggle: false });
-    void showSongMenu(tracks[index], isRegularPlaylist);
+    void (deviceId !== null ? showDeviceSongMenu(deviceId) : showSongMenu(tracks[index], isRegularPlaylist));
   };
 
   const onDragStart = (e: DragEvent, index: number) => {
     const dragged = selection.has(tracks[index].id) ? tracks.filter((t) => selection.has(t.id)) : [tracks[index]];
     e.dataTransfer.effectAllowed = "copyMove";
+    if (deviceId !== null) {
+      const drag: DeviceDrag = { deviceId, ids: dragged.map((t) => t.id) };
+      e.dataTransfer.setData(DEVICE_TRACKS_MIME, JSON.stringify(drag));
+      return;
+    }
     e.dataTransfer.setData(TRACKS_MIME, JSON.stringify(dragged.map((t) => t.id)));
     if (reorderable) {
       e.dataTransfer.setData(ROWS_MIME, JSON.stringify(selection.has(tracks[index].id) ? selectedPositions() : [index]));
@@ -176,9 +193,9 @@ export function SongList() {
                 onDragStart={(e) => onDragStart(e, row.index)}
                 onDragOver={(e) => onDragOver(e, row.index)}
                 onMouseDown={(e) => {
-                  // An editable list settles a context click (a right-click, or Ctrl-click on a Mac) in onContextMenu, so it can keep a multi-selection.
+                  // A list with a menu settles a context click (a right-click, or Ctrl-click on a Mac) in onContextMenu, so it can keep a multi-selection.
                   const contextClick = e.button === 2 || (IS_MAC && e.ctrlKey);
-                  if (!(isEditable && contextClick)) selectRow(row.index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
+                  if (!((isEditable || deviceId !== null) && contextClick)) selectRow(row.index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
                 }}
                 onContextMenu={(e) => onContextMenu(e, row.index)}
                 onDoubleClick={() => void playRow(row.index)}

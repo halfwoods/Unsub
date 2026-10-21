@@ -16,6 +16,7 @@ mod purchases;
 mod queue;
 mod radio;
 mod remote;
+mod rescue;
 mod sharing;
 mod sync;
 #[cfg(test)]
@@ -208,6 +209,8 @@ pub fn run() {
             sync::device_sync_preview,
             sync::device_sync,
             sync::device_cancel_sync,
+            rescue::device_rescue_preview,
+            rescue::device_rescue,
             updates::updates_status,
             updates::updates_set_auto_check,
             updates::updates_install,

@@ -11,6 +11,7 @@ use unsub_library::{Library, LibraryStats, MediaKind, Track, TrackQuery};
 use crate::cd::Cds;
 use crate::error::{CommandError, CommandResult};
 use crate::playback::{PlaySource, PlaybackState};
+use crate::sync::SyncState;
 
 pub const CHANGED_EVENT: &str = "devices://changed";
 
@@ -143,7 +144,7 @@ pub enum DeviceView {
     },
 }
 
-fn media_kind(kind: &IpodMediaKind) -> Option<MediaKind> {
+pub(crate) fn media_kind(kind: &IpodMediaKind) -> Option<MediaKind> {
     match kind {
         IpodMediaKind::Music => Some(MediaKind::Music),
         IpodMediaKind::Podcast => Some(MediaKind::Podcast),
@@ -380,8 +381,12 @@ pub fn device_stats(state: State<'_, DevicesState>, device_id: String, view: Dev
 }
 
 #[tauri::command]
-pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, device_id: String) -> CommandResult<()> {
+pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, syncs: State<'_, SyncState>, device_id: String) -> CommandResult<()> {
     let device = state.find(&device_id)?;
+    // Taking the iPod away mid-way would cut the sync or the copy off from its files.
+    if syncs.is_busy_with(&device_id) {
+        return Err(CommandError::from(format!("“{}” is being synced or copied. Stop that first.", device.ipod.name)));
+    }
     // Release our open files first, or the OS refuses to unmount.
     app.state::<PlaybackState>().stop_if_playing(&PlaySource::Device { device_id: device_id.clone() });
     unsub_ipod::eject(&device.ipod).map_err(|error| CommandError::from(error.to_string()))?;

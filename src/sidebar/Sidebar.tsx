@@ -3,7 +3,8 @@ import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject, remoteForget }
 import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
-import { PlaylistRows, TRACKS_MIME } from "./PlaylistRows";
+import { copySongsToLibrary } from "../devices/CopyToLibrary";
+import { DEVICE_TRACKS_MIME, PlaylistRows, TRACKS_MIME, type DeviceDrag } from "./PlaylistRows";
 import "./Sidebar.css";
 
 interface SourceItem {
@@ -75,7 +76,14 @@ function Row({
   before,
   after,
   onDropTracks,
-}: SourceItem & { depth?: number; before?: ReactNode; after?: ReactNode; onDropTracks?: (trackIds: number[]) => void }) {
+  onDropDeviceTracks,
+}: SourceItem & {
+  depth?: number;
+  before?: ReactNode;
+  after?: ReactNode;
+  onDropTracks?: (trackIds: number[]) => void;
+  onDropDeviceTracks?: (drag: DeviceDrag) => void;
+}) {
   const selected = useApp((s) => s.source === id);
   const setSource = useApp((s) => s.setSource);
   const [dropTarget, setDropTarget] = useState(false);
@@ -86,7 +94,9 @@ function Row({
       className={[depth > 0 ? "sidebar-item sidebar-item--child" : "sidebar-item", dropTarget ? "sidebar-item--drop" : ""].join(" ")}
       onMouseDown={() => setSource(id)}
       onDragOver={(e) => {
-        if (!onDropTracks || !e.dataTransfer.types.includes(TRACKS_MIME)) return;
+        const accepts =
+          (onDropTracks && e.dataTransfer.types.includes(TRACKS_MIME)) || (onDropDeviceTracks && e.dataTransfer.types.includes(DEVICE_TRACKS_MIME));
+        if (!accepts) return;
         e.preventDefault();
         setDropTarget(true);
       }}
@@ -95,6 +105,8 @@ function Row({
         setDropTarget(false);
         const tracks = e.dataTransfer.getData(TRACKS_MIME);
         if (onDropTracks && tracks) onDropTracks(JSON.parse(tracks) as number[]);
+        const device = e.dataTransfer.getData(DEVICE_TRACKS_MIME);
+        if (onDropDeviceTracks && device) onDropDeviceTracks(JSON.parse(device) as DeviceDrag);
       }}
     >
       {before}
@@ -140,6 +152,7 @@ function DeviceRows({ device }: { device: Device }) {
   const expanded = useApp((s) => s.expandedDevices.has(device.id));
   const syncing = useApp((s) => s.deviceSync?.deviceId === device.id);
   const toggleDevice = useApp((s) => s.toggleDevice);
+  const showNotice = useApp((s) => s.showNotice);
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   const kinds = [
@@ -163,7 +176,13 @@ function DeviceRows({ device }: { device: Device }) {
             onClick={() => toggleDevice(device.id)}
           />
         }
-        after={syncing ? <SyncingIcon /> : <EjectButton name={device.name} onEject={() => void deviceEject(device.id)} />}
+        after={
+          syncing ? (
+            <SyncingIcon />
+          ) : (
+            <EjectButton name={device.name} onEject={() => void deviceEject(device.id).catch((e: unknown) => showNotice(String(e)))} />
+          )
+        }
       />
       {expanded && (
         <>
@@ -205,7 +224,12 @@ export function Sidebar() {
         {[library, purchases].map((section) => (
           <Section key={section.heading} heading={section.heading}>
             {section.items.map((item) => (
-              <Row key={item.id} {...item} />
+              <Row
+                key={item.id}
+                {...item}
+                // Songs dropped on Music from an iPod are copied into the library.
+                onDropDeviceTracks={item.id === "music" ? ({ deviceId, ids }) => copySongsToLibrary(deviceId, ids) : undefined}
+              />
             ))}
           </Section>
         ))}

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
@@ -411,6 +413,16 @@ impl TrackOverrides {
         self.lyrics = self.lyrics.or_else(|| theirs.lyrics.clone());
         self
     }
+}
+
+/// A file for `copy_files_in`: the details its song is to have, and what the caller knows it by.
+#[derive(Debug, Clone)]
+pub struct CopyIn {
+    pub path: PathBuf,
+    pub overrides: TrackOverrides,
+    /// Recorded with the song in the same transaction, so `rescued` can say later that this one is
+    /// already in the library.
+    pub source_key: String,
 }
 
 /// What `add_files` made of its input.

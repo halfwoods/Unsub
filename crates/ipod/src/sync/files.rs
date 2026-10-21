@@ -250,10 +250,7 @@ pub(super) fn detect_codec(path: &Path, extension: &str) -> Codec {
         "wav" => Codec::Wav,
         "aif" | "aiff" => Codec::Aiff,
         "m4a" | "m4b" | "mp4" => {
-            let sniffed = File::open(path).ok().and_then(|mut file| {
-                let end = file.metadata().ok()?.len();
-                audio_sample_entry(&mut file, 0, end, 0).ok().flatten()
-            });
+            let sniffed = sample_entry(path, &AUDIO_ENTRIES);
             match (sniffed.as_ref(), extension) {
                 (Some(b"alac"), _) => Codec::Alac,
                 (Some(_), _) | (None, "m4a" | "m4b") => Codec::Aac,
@@ -267,14 +264,33 @@ pub(super) fn detect_codec(path: &Path, extension: &str) -> Codec {
 /// Atoms that only contain other atoms on the way from `moov` to a sample description.
 const CONTAINERS: [&[u8; 4]; 4] = [b"moov", b"trak", b"mdia", b"minf"];
 const MAX_DEPTH: u32 = 8;
+const AUDIO_ENTRIES: [&[u8; 4]; 2] = [b"alac", b"mp4a"];
+/// FairPlay's sample description, the generic one for encrypted audio, and Audible's: any of them
+/// means the audio cannot be played without the keys of the account that bought it.
+const PROTECTED_ENTRIES: [&[u8; 4]; 3] = [b"drms", b"enca", b"aavd"];
 
-/// Walks the MP4 atoms in `start..end` for the first audio sample description (`alac` or `mp4a`)
-/// and returns its four-character code.
-fn audio_sample_entry<F: Read + Seek>(
+/// Whether an MPEG-4 file holds encrypted audio. The extension and the database's file type say
+/// so for the files iTunes sold, but only the file knows when a protected one has been renamed.
+pub(super) fn has_protected_audio(path: &Path) -> bool {
+    sample_entry(path, &PROTECTED_ENTRIES).is_some()
+}
+
+/// The four-character code of the first sample description among `wanted`, found by opening the
+/// file read-only.
+fn sample_entry(path: &Path, wanted: &[&[u8; 4]]) -> Option<[u8; 4]> {
+    let mut file = File::open(path).ok()?;
+    let end = file.metadata().ok()?.len();
+    walk_for_entry(&mut file, 0, end, 0, wanted).ok().flatten()
+}
+
+/// Walks the MP4 atoms in `start..end` for the first sample description whose four-character
+/// code is one of `wanted`.
+fn walk_for_entry<F: Read + Seek>(
     file: &mut F,
     start: u64,
     end: u64,
     depth: u32,
+    wanted: &[&[u8; 4]],
 ) -> io::Result<Option<[u8; 4]>> {
     let mut at = start;
     while depth < MAX_DEPTH && at.saturating_add(8) <= end {
@@ -297,7 +313,7 @@ fn audio_sample_entry<F: Read + Seek>(
         }
         let body = (at + header_len, at + size);
         if CONTAINERS.contains(&&kind) || &kind == b"stbl" {
-            if let Some(found) = audio_sample_entry(file, body.0, body.1, depth + 1)? {
+            if let Some(found) = walk_for_entry(file, body.0, body.1, depth + 1, wanted)? {
                 return Ok(Some(found));
             }
         } else if &kind == b"stsd" && body.1 - body.0 >= 16 {
@@ -305,7 +321,7 @@ fn audio_sample_entry<F: Read + Seek>(
             file.seek(SeekFrom::Start(body.0 + 12))?;
             let mut entry = [0u8; 4];
             file.read_exact(&mut entry)?;
-            if &entry == b"alac" || &entry == b"mp4a" {
+            if wanted.contains(&&entry) {
                 return Ok(Some(entry));
             }
         }
@@ -378,15 +394,31 @@ mod tests {
         .concat()
     }
 
-    fn sniff(bytes: Vec<u8>) -> Option<[u8; 4]> {
+    fn sniff_for(bytes: Vec<u8>, wanted: &[&[u8; 4]]) -> Option<[u8; 4]> {
         let len = bytes.len() as u64;
-        audio_sample_entry(&mut Cursor::new(bytes), 0, len, 0).unwrap()
+        walk_for_entry(&mut Cursor::new(bytes), 0, len, 0, wanted).unwrap()
+    }
+
+    fn sniff(bytes: Vec<u8>) -> Option<[u8; 4]> {
+        sniff_for(bytes, &AUDIO_ENTRIES)
     }
 
     #[test]
     fn finds_apple_lossless_and_aac_sample_entries() {
         assert_eq!(sniff(mp4_with_entry(b"alac")), Some(*b"alac"));
         assert_eq!(sniff(mp4_with_entry(b"mp4a")), Some(*b"mp4a"));
+    }
+
+    #[test]
+    fn finds_encrypted_sample_entries_only_when_asked_for() {
+        for entry in [b"drms", b"enca", b"aavd"] {
+            assert_eq!(
+                sniff_for(mp4_with_entry(entry), &PROTECTED_ENTRIES),
+                Some(*entry)
+            );
+            assert_eq!(sniff(mp4_with_entry(entry)), None);
+        }
+        assert_eq!(sniff_for(mp4_with_entry(b"mp4a"), &PROTECTED_ENTRIES), None);
     }
 
     #[test]

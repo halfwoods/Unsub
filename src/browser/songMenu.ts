@@ -1,6 +1,7 @@
 import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
 import { libraryAddToPlaylist, libraryEditTracks, librarySetEnabled, type MenuAction } from "../api/commands";
 import type { Playlist, Track } from "../api/types";
+import { copySongsToLibrary } from "../devices/CopyToLibrary";
 import { playlistsByParent } from "../sidebar/PlaylistRows";
 import { useApp } from "../state/store";
 
@@ -22,6 +23,18 @@ function playlistItems(byParent: Map<number | null, Playlist[]>, parent: number 
     const items = playlist.kind === "folder" ? playlistItems(byParent, playlist.id, add) : [];
     return items.length > 0 ? [{ text: playlist.name, items }] : [];
   });
+}
+
+async function popUp(menu: Menu) {
+  void lastMenu?.close();
+  lastMenu = menu;
+  await menu.popup();
+}
+
+/** The right-click menu for songs on an iPod, which can't be edited but can be copied into the library. */
+export async function showDeviceSongMenu(deviceId: string) {
+  const ids = [...useApp.getState().selection];
+  await popUp(await Menu.new({ items: [{ text: "Copy to Library", action: () => copySongsToLibrary(deviceId, ids) }] }));
 }
 
 /** The right-click menu for the selected songs of the library list; `clicked` is the row under the cursor. */
@@ -59,7 +72,5 @@ export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean) {
       { text: "Delete from Library…", action: () => void deleteSelection(true) },
     ],
   });
-  void lastMenu?.close();
-  lastMenu = menu;
-  await menu.popup();
+  await popUp(menu);
 }

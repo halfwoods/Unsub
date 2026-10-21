@@ -269,3 +269,54 @@
   text-overflow: ellipsis;
   color: #444444;
 }
+
+/* Under the iPod's facts, beside the button that rescues its music. */
+.device-rescue {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 22px;
+  border: 1px solid #d9d9d9;
+  border-top: 0;
+  background: #f1f1f1;
+}
+
+.device-rescue .prefs-note {
+  margin: 0;
+}
+
+.copy-to-library {
+  min-width: 0;
+  width: 480px;
+}
+
+.copy-to-library p {
+  margin: 0 0 10px;
+  font-size: var(--font-size);
+  line-height: 16px;
+}
+
+.copy-to-library .device-playlists {
+  margin-bottom: 8px;
+}
+
+.copy-to-library-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.copy-to-library-options .prefs-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-to-library .copy-to-library-status {
+  font-weight: bold;
+}
+
+.copy-to-library .copy-to-library-status--warning {
+  color: #b35a00;
+}

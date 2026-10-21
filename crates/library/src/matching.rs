@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 use rusqlite::OptionalExtension;
 
@@ -7,6 +8,7 @@ use crate::error::Result;
 use crate::library::Library;
 use crate::model::{ExternalTrack, MatchOutcome, MatchQuality, RADIO, TrackMatch};
 use crate::normalize::{GENERIC_TITLES, artist_key, title_key};
+use crate::tags;
 
 const EXACT_TOLERANCE_MS: u64 = 3_000;
 const CLOSE_TOLERANCE_MS: u64 = 8_000;
@@ -68,6 +70,26 @@ enum Search {
     Found(Best),
     Unsure,
     Nothing,
+}
+
+impl ExternalTrack {
+    /// A song described by its own file's tags, for a source that has no database to say what its
+    /// files are.
+    pub fn from_file(external_id: impl Into<String>, path: &Path) -> Result<Self> {
+        let meta = tags::read(path)?;
+        Ok(Self {
+            external_id: external_id.into(),
+            title: meta.title,
+            artist: meta.artist,
+            album_artist: meta.album_artist,
+            album: meta.album,
+            duration_ms: Some(meta.duration_ms),
+            track_number: meta.track_number,
+            disc_number: meta.disc_number,
+            path: None,
+            heard_ms: None,
+        })
+    }
 }
 
 impl Library {

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
-use unsub_library::{Error, Library, PlaylistKind};
+use unsub_library::{Error, Library, Loudness, PlaylistKind};
 
 use crate::common::{all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 
@@ -140,6 +140,165 @@ fn relinking_points_a_track_at_a_new_file_and_keeps_its_history() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+#[test]
+fn restoring_copies_a_file_into_the_media_folder_and_keeps_the_tracks_history() {
+    let dir = copy_fixtures();
+    let media = tempfile::TempDir::new().unwrap();
+    let mut library = Library::open_in_memory().unwrap();
+    library.set_media_folder(media.path()).unwrap();
+    scan(&mut library, dir.path());
+    let halo = track_titled(&library, "Halo");
+    library.record_play(halo.id, 10).unwrap();
+    library.set_rating(halo.id, 80).unwrap();
+    let playlist = library
+        .create_playlist("Mine", PlaylistKind::Regular, None)
+        .unwrap()
+        .id;
+    library.add_to_playlist(playlist, &[halo.id], None).unwrap();
+    // The disk the song was on is gone, and the copy at hand is on another.
+    let elsewhere = tempfile::TempDir::new().unwrap();
+    let source = elsewhere.path().join("ABCD.mp3");
+    fs::copy(&halo.path, &source).unwrap();
+    fs::remove_file(&halo.path).unwrap();
+    library.check_missing().unwrap();
+
+    assert!(library.restore_from(halo.id, &source, "ipod:7").unwrap());
+
+    let row = library.track(halo.id).unwrap().unwrap();
+    let expected = media
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("Compilations/I Am... Sasha Fierce/2-03 Halo.mp3");
+    assert_eq!(row.path, expected.to_str().unwrap());
+    assert!(!row.missing && expected.is_file());
+    assert_eq!(
+        (row.title.as_str(), row.play_count, row.rating),
+        ("Halo", 1, 80)
+    );
+    assert_eq!(fs::read(&expected).unwrap(), fs::read(&source).unwrap());
+    assert!(source.is_file(), "the original is only read");
+    assert_eq!(library.tracks(&all_kinds()).unwrap().len(), 8);
+    assert!(library.check_missing().unwrap().is_empty());
+    assert_eq!(
+        library.rescued(&["ipod:7".to_owned()]).unwrap()["ipod:7"],
+        halo.id
+    );
+}
+
+#[test]
+fn restoring_needs_a_known_track_a_media_folder_and_a_file_to_copy() {
+    let dir = copy_fixtures();
+    let mut library = Library::open_in_memory().unwrap();
+    scan(&mut library, dir.path());
+    let halo = track_titled(&library, "Halo");
+
+    let lost = dir.path().join("lost.mp3");
+    fs::rename(&halo.path, &lost).unwrap();
+    library.check_missing().unwrap();
+    let no_folder = library.restore_from(halo.id, &lost, "k");
+    library.set_media_folder(&dir.path().join("media")).unwrap();
+    let unknown = library.restore_from(9_999, &lost, "k");
+    let no_file = library.restore_from(halo.id, &dir.path().join("nothing.mp3"), "k");
+
+    assert!(matches!(no_folder, Err(Error::NoMediaFolder)));
+    assert!(matches!(unknown, Err(Error::TrackNotFound(9_999))));
+    assert!(no_file.is_err());
+    assert_eq!(library.track(halo.id).unwrap().unwrap().path, halo.path);
+    assert!(!dir.path().join("media").join("Compilations").exists());
+    assert!(library.rescued(&["k".to_owned()]).unwrap().is_empty());
+}
+
+#[test]
+fn restoring_leaves_a_track_alone_whose_own_file_has_come_back() {
+    let dir = copy_fixtures();
+    let media = TempDir::new().unwrap();
+    let mut library = Library::open_in_memory().unwrap();
+    library.set_media_folder(media.path()).unwrap();
+    scan(&mut library, dir.path());
+    let halo = track_titled(&library, "Halo");
+    let hidden = dir.path().join("away.mp3");
+    fs::rename(&halo.path, &hidden).unwrap();
+    library.check_missing().unwrap();
+    // The disk it was on is plugged in again before the song is restored.
+    fs::rename(&hidden, &halo.path).unwrap();
+
+    let restored = library.restore_from(halo.id, &hidden, "ipod:7").unwrap();
+
+    assert!(!restored);
+    assert_eq!(library.track(halo.id).unwrap().unwrap().path, halo.path);
+    assert!(media.path().read_dir().unwrap().next().is_none());
+    assert!(library.rescued(&["ipod:7".to_owned()]).unwrap().is_empty());
+}
+
+#[test]
+fn a_restored_track_takes_the_audio_details_of_the_copy_and_is_measured_again() {
+    let dir = copy_fixtures();
+    let media = TempDir::new().unwrap();
+    let mut library = Library::open_in_memory().unwrap();
+    library.set_media_folder(media.path()).unwrap();
+    scan(&mut library, dir.path());
+    let flac = track_titled(&library, "Come Together");
+    let aac = track_titled(&library, "Bohemian Rhapsody");
+    library
+        .set_loudness(
+            flac.id,
+            &Loudness {
+                lufs: -9.0,
+                true_peak_dbtp: -0.5,
+                state: Some(vec![1, 2, 3]),
+            },
+        )
+        .unwrap();
+    library.record_play(flac.id, 10).unwrap();
+    assert_eq!(flac.codec, "FLAC");
+    fs::remove_file(&flac.path).unwrap();
+    library.check_missing().unwrap();
+
+    library
+        .restore_from(flac.id, Path::new(&aac.path), "ipod:9")
+        .unwrap();
+
+    let row = library.track(flac.id).unwrap().unwrap();
+    assert_eq!(row.codec, aac.codec, "{row:?}");
+    assert_eq!(
+        (
+            row.duration_ms,
+            row.bitrate_kbps,
+            row.sample_rate,
+            row.bit_depth,
+            row.channels
+        ),
+        (
+            aac.duration_ms,
+            aac.bitrate_kbps,
+            aac.sample_rate,
+            aac.bit_depth,
+            aac.channels
+        )
+    );
+    assert_eq!(
+        (
+            row.title.as_str(),
+            row.artist.as_str(),
+            row.album.as_str(),
+            row.play_count
+        ),
+        ("Come Together", "The Beatles", "Abbey Road", 1),
+        "the library's tags and counts stay"
+    );
+    assert!(Path::new(&row.path).extension().is_some_and(|e| e == "m4a"));
+    assert!(row.loudness.is_none());
+    assert_eq!(library.loudness_state(flac.id).unwrap(), None);
+    assert!(
+        library
+            .tracks_needing_loudness(10)
+            .unwrap()
+            .iter()
+            .any(|(id, _)| *id == flac.id)
     );
 }
 

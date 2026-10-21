@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
-use unsub_library::{Error, Library, TrackEdits, TrackOverrides};
+use unsub_library::{CopyIn, Error, Library, TrackEdits, TrackOverrides};
 
 use crate::common::{added_ids, all_kinds, copy_fixtures, fixtures_dir, scan, track_titled};
 
@@ -35,6 +35,14 @@ fn copy_fixture(fixture: &str, to: &Path) -> PathBuf {
     fs::create_dir_all(to.parent().unwrap()).unwrap();
     fs::copy(fixtures_dir().join(fixture), to).unwrap();
     fs::canonicalize(to).unwrap()
+}
+
+fn copy_in(path: &Path, overrides: TrackOverrides, source_key: &str) -> CopyIn {
+    CopyIn {
+        path: path.to_path_buf(),
+        overrides,
+        source_key: source_key.to_owned(),
+    }
 }
 
 fn paths_in(library: &Library, media: &Path) -> Vec<PathBuf> {
@@ -371,6 +379,132 @@ fn add_files_copies_in_once_per_file() {
         [Path::new("Radiolab/Radiolab/Episode 12.mp3")]
     );
     assert!(download.exists());
+}
+
+#[test]
+fn copy_files_in_copies_whatever_copy_on_add_says_and_files_by_the_given_details() {
+    let s = setup();
+    let song = copy_fixture("halo.mp3", &s.incoming.join("TRK1.mp3"));
+    let original = fs::read(&song).unwrap();
+    let mut library = library_with_media(&s);
+    let details = TrackOverrides {
+        title: Some("Single Version".into()),
+        artist: Some("Someone".into()),
+        album_artist: Some("Someone".into()),
+        album: Some("Their Album".into()),
+        track_number: Some(7),
+        // The file says this is disc 2 of a compilation.
+        disc_number: Some(1),
+        disc_count: Some(1),
+        compilation: Some(false),
+        ..TrackOverrides::default()
+    };
+
+    let summary = library
+        .copy_files_in(&[copy_in(&song, details, "ipod:1")])
+        .unwrap();
+
+    assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+    assert_eq!(
+        files_under(&s.media),
+        [Path::new("Someone/Their Album/07 Single Version.mp3")]
+    );
+    let copied = track_titled(&library, "Single Version");
+    assert_eq!(
+        copied.path,
+        fs::canonicalize(s.media.join("Someone/Their Album/07 Single Version.mp3"))
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(summary.ids, [Some(copied.id)]);
+    assert_eq!(
+        fs::read(&song).unwrap(),
+        original,
+        "the original is only read"
+    );
+}
+
+#[test]
+fn what_copy_files_in_copies_is_recorded_by_its_key_with_the_song_and_a_failure_shifts_nothing() {
+    let s = setup();
+    let first = copy_fixture("halo.mp3", &s.incoming.join("A.mp3"));
+    let third = copy_fixture("zombie.ogg", &s.incoming.join("C.ogg"));
+    let mut library = library_with_media(&s);
+
+    let summary = library
+        .copy_files_in(&[
+            copy_in(&first, TrackOverrides::default(), "ipod:1"),
+            copy_in(
+                &s.incoming.join("gone.mp3"),
+                TrackOverrides::default(),
+                "ipod:2",
+            ),
+            copy_in(&third, TrackOverrides::default(), "ipod:3"),
+        ])
+        .unwrap();
+
+    assert_eq!(summary.failed.len(), 1);
+    let keys = ["ipod:1", "ipod:2", "ipod:3", "ipod:4"].map(str::to_owned);
+    let rescued = library.rescued(&keys).unwrap();
+    assert_eq!(
+        rescued.len(),
+        2,
+        "not the file that failed, and not one never copied"
+    );
+    assert_eq!(rescued["ipod:1"], summary.ids[0].unwrap());
+    assert_eq!(rescued["ipod:3"], summary.ids[2].unwrap());
+}
+
+#[test]
+fn a_rescued_entry_goes_with_its_song_and_an_id_that_is_handed_out_again_inherits_none() {
+    let s = setup();
+    let song = copy_fixture("halo.mp3", &s.incoming.join("A.mp3"));
+    let mut library = library_with_media(&s);
+    let key = vec!["ipod:1".to_owned()];
+    let id = library
+        .copy_files_in(&[copy_in(&song, TrackOverrides::default(), "ipod:1")])
+        .unwrap()
+        .ids[0]
+        .unwrap();
+    assert_eq!(library.rescued(&key).unwrap()["ipod:1"], id);
+
+    // The newest row is the one whose number SQLite gives to the next.
+    library.remove_tracks(&[id]).unwrap();
+    assert!(library.rescued(&key).unwrap().is_empty());
+    let next = added_ids(
+        &mut library,
+        &[(
+            copy_fixture("zombie.ogg", &s.incoming.join("B.ogg")),
+            TrackOverrides::default(),
+        )],
+    )[0];
+
+    assert_eq!(next, id, "the number is used again");
+    assert!(library.rescued(&key).unwrap().is_empty());
+    // Copying the song again, as it is wanted back, records it for the new row.
+    let again = library
+        .copy_files_in(&[copy_in(&song, TrackOverrides::default(), "ipod:1")])
+        .unwrap()
+        .ids[0]
+        .unwrap();
+    assert_eq!(library.rescued(&key).unwrap()["ipod:1"], again);
+    assert_ne!(again, id);
+}
+
+#[test]
+fn copy_files_in_needs_a_media_folder_and_adds_nothing_without_one() {
+    let s = setup();
+    let song = copy_fixture("halo.mp3", &s.incoming.join("TRK1.mp3"));
+    let mut library = Library::open_in_memory().unwrap();
+
+    let error = library
+        .copy_files_in(&[copy_in(&song, TrackOverrides::default(), "ipod:1")])
+        .unwrap_err();
+
+    assert!(matches!(error, Error::NoMediaFolder), "{error}");
+    assert!(library.tracks(&all_kinds()).unwrap().is_empty());
+    assert!(song.exists());
 }
 
 #[test]

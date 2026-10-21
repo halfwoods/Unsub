@@ -43,9 +43,8 @@ pub struct OnTheGo {
 pub fn read_on_the_go(ipod: &Ipod, database: &Database) -> Result<Vec<OnTheGo>> {
     let library_id_of = Mapping::load(&ipod.mount_path)?.library_id_by_dbid();
     let mut playlists = Vec::new();
-    for (number, path) in contiguous(files(&ipod.mount_path)?) {
-        let bytes = fs::read(&path).map_err(|source| Error::io(&path, source))?;
-        let tracks: Vec<i64> = positions(&bytes, &path, database.tracks.len())?
+    for (number, places) in listed(&ipod.mount_path, database.tracks.len())? {
+        let tracks: Vec<i64> = places
             .into_iter()
             .filter_map(|position| {
                 library_id_of
@@ -61,6 +60,17 @@ pub fn read_on_the_go(ipod: &Ipod, database: &Database) -> Result<Vec<OnTheGo>> 
         }
     }
     Ok(playlists)
+}
+
+/// Each On-The-Go playlist's number and the database positions of its tracks, whoever put the
+/// tracks there. Errors as [`read_on_the_go`] does.
+pub(super) fn listed(mount: &Path, track_count: usize) -> Result<Vec<(u32, Vec<usize>)>> {
+    contiguous(files(mount)?)
+        .map(|(number, path)| {
+            let bytes = fs::read(&path).map_err(|source| Error::io(&path, source))?;
+            Ok((number, positions(&bytes, &path, track_count)?))
+        })
+        .collect()
 }
 
 /// Deletes the iPod's On-The-Go playlist files, as iTunes does once it has imported them. They

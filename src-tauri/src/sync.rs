@@ -82,11 +82,17 @@ impl Default for SyncSettings {
     }
 }
 
+/// A sync or a copy off an iPod in progress: the device it is for, and the flag that stops it.
+struct Running {
+    device_id: String,
+    cancel: Arc<AtomicBool>,
+}
+
 /// Sync settings per iPod, kept in DeviceSync.json, and the sync in progress if any.
 pub struct SyncState {
     path: PathBuf,
     settings: Mutex<HashMap<String, SyncSettings>>,
-    running: Mutex<Option<Arc<AtomicBool>>>,
+    running: Mutex<Option<Running>>,
 }
 
 impl SyncState {
@@ -97,6 +103,27 @@ impl SyncState {
 
     fn settings_for(&self, device_id: &str) -> SyncSettings {
         lock(&self.settings).get(device_id).cloned().unwrap_or_default()
+    }
+
+    /// Takes the one slot a sync or a copy off an iPod runs in, so the two can't run at once, and
+    /// returns the flag that stops it. `finish` gives the slot back.
+    pub(crate) fn begin(&self, device_id: &str) -> CommandResult<Arc<AtomicBool>> {
+        let mut running = lock(&self.running);
+        if running.is_some() {
+            return Err(CommandError::from("Another sync or copy is still running.".to_owned()));
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        *running = Some(Running { device_id: device_id.to_owned(), cancel: Arc::clone(&cancel) });
+        Ok(cancel)
+    }
+
+    pub(crate) fn finish(&self) {
+        *lock(&self.running) = None;
+    }
+
+    /// Whether a sync or a copy is using this device, which then can't be taken away.
+    pub(crate) fn is_busy_with(&self, device_id: &str) -> bool {
+        lock(&self.running).as_ref().is_some_and(|running| running.device_id == device_id)
     }
 
     fn save(&self, device_id: &str, settings: SyncSettings) -> CommandResult<()> {
@@ -1074,17 +1101,10 @@ fn run_sync(app: &AppHandle, device_id: &str, cancel: &AtomicBool) -> CommandRes
 
 #[tauri::command]
 pub fn device_sync(app: AppHandle, state: State<'_, SyncState>, device_id: String) -> CommandResult<()> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let mut running = lock(&state.running);
-        if running.is_some() {
-            return Err(CommandError::from("a device is already syncing".to_owned()));
-        }
-        *running = Some(Arc::clone(&cancel));
-    }
+    let cancel = state.begin(&device_id)?;
     std::thread::spawn(move || {
         let result = run_sync(&app, &device_id, &cancel);
-        *lock(&app.state::<SyncState>().running) = None;
+        app.state::<SyncState>().finish();
         let _ = app.emit(SYNC_EVENT, None::<SyncStatus>);
         if let Err(error) = result {
             let message = if cancel.load(Ordering::Relaxed) { "Sync stopped".to_owned() } else { format!("Sync failed: {error}") };
@@ -1096,8 +1116,8 @@ pub fn device_sync(app: AppHandle, state: State<'_, SyncState>, device_id: Strin
 
 #[tauri::command]
 pub fn device_cancel_sync(state: State<'_, SyncState>) {
-    if let Some(cancel) = lock(&state.running).as_ref() {
-        cancel.store(true, Ordering::Relaxed);
+    if let Some(running) = lock(&state.running).as_ref() {
+        running.cancel.store(true, Ordering::Relaxed);
     }
 }
 
@@ -1861,6 +1881,22 @@ mod tests {
         assert_eq!(kept.iter().map(|left| &left.path).collect::<Vec<_>>(), [&other]);
         leftovers.forget(&other, 7);
         assert!(!leftovers.file.exists());
+    }
+
+    #[test]
+    fn a_sync_or_copy_holds_its_device_and_is_the_only_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = SyncState::load(dir.path().join("DeviceSync.json"));
+        assert!(!state.is_busy_with("ipod"));
+
+        let cancel = state.begin("ipod").unwrap();
+
+        assert!(state.is_busy_with("ipod") && !state.is_busy_with("another"));
+        assert_eq!(state.begin("another").unwrap_err().to_string(), "Another sync or copy is still running.");
+        assert!(!cancel.load(Ordering::Relaxed));
+        state.finish();
+        assert!(!state.is_busy_with("ipod"));
+        assert!(state.begin("another").is_ok());
     }
 
     #[test]

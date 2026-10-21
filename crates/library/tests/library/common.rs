@@ -130,6 +130,9 @@ pub fn library_of(tracks: &[Track]) -> Library {
 /// been created by an older build, so migrations can be run on real data.
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
+    if version < 12 {
+        conn.execute_batch("DROP TABLE rescued;").unwrap();
+    }
     if version < 11 {
         conn.execute_batch(
             "DROP TRIGGER play_duplicates_cleanup;

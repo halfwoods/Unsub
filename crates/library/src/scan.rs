@@ -11,7 +11,7 @@ use crate::cloud::placeholder_meta;
 use crate::error::{Error, Result};
 use crate::library::Library;
 use crate::model::{
-    AddSummary, MediaKind, RADIO, ScanProgress, ScanSummary, Track, TrackOverrides,
+    AddSummary, CopyIn, MediaKind, RADIO, ScanProgress, ScanSummary, Track, TrackOverrides,
 };
 use crate::organize::MediaSettings;
 use crate::store::{WriteMode, write_tracks};
@@ -32,6 +32,17 @@ struct Stored {
     overrides: Option<String>,
     in_cloud: bool,
     missing: bool,
+}
+
+/// Where `add_files_with` leaves the files it is given.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    /// Where "copy on add" and "keep organized" say.
+    Settings,
+    /// Exactly where they are.
+    InPlace,
+    /// In the media folder, whatever the settings say.
+    CopyIn,
 }
 
 enum Outcome {
@@ -252,7 +263,7 @@ impl Library {
     /// One already in the library as a placeholder keeps what is known of it.
     /// A file that cannot be added is reported in `failed`; the rest are added.
     pub fn add_files(&mut self, files: &[(PathBuf, TrackOverrides)]) -> Result<AddSummary> {
-        self.add_files_with(files, false)
+        self.add_files_with(files, Placement::Settings, &[])
     }
 
     /// `add_files` for songs another library already filed. Each file stays exactly where it is,
@@ -263,16 +274,40 @@ impl Library {
         &mut self,
         files: &[(PathBuf, TrackOverrides)],
     ) -> Result<AddSummary> {
-        self.add_files_with(files, true)
+        self.add_files_with(files, Placement::InPlace, &[])
+    }
+
+    /// `add_files` for songs on a disk that will be unplugged: each file is always copied into
+    /// the media folder, at the path it would be organized to, whatever "copy on add" says. The
+    /// copy appears whole or not at all, and the original is only read. Without a media folder
+    /// there is nowhere to copy to, which is an error rather than a library of files that go
+    /// when the disk does. Each song's `source_key` is recorded in the same transaction as the
+    /// song, for `rescued` to find it by.
+    pub fn copy_files_in(&mut self, files: &[CopyIn]) -> Result<AddSummary> {
+        let added: Vec<(PathBuf, TrackOverrides)> = files
+            .iter()
+            .map(|file| (file.path.clone(), file.overrides.clone()))
+            .collect();
+        let keys: Vec<String> = files.iter().map(|file| file.source_key.clone()).collect();
+        self.add_files_with(&added, Placement::CopyIn, &keys)
     }
 
     fn add_files_with(
         &mut self,
         files: &[(PathBuf, TrackOverrides)],
-        in_place: bool,
+        placement: Placement,
+        // What the caller knows each file by, parallel to `files`, or empty to record nothing.
+        source_keys: &[String],
     ) -> Result<AddSummary> {
         let now = now_unix();
-        let media = self.media_settings()?;
+        let mut media = self.media_settings()?;
+        if placement == Placement::CopyIn {
+            if media.folder.is_none() {
+                return Err(Error::NoMediaFolder);
+            }
+            media.copy_on_add = true;
+        }
+        let in_place = placement == Placement::InPlace;
         let mut summary = AddSummary {
             ids: vec![None; files.len()],
             failed: Vec::new(),
@@ -311,6 +346,15 @@ impl Library {
                         row.get(0)
                     })?,
                 );
+            }
+        }
+        {
+            let mut record = tx
+                .prepare("INSERT OR REPLACE INTO rescued (source_key, track_id) VALUES (?1, ?2)")?;
+            for (index, ..) in &tracks {
+                if let Some(key) = source_keys.get(*index) {
+                    record.execute(params![key, summary.ids[*index]])?;
+                }
             }
         }
         tx.commit()?;

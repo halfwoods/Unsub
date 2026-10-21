@@ -87,6 +87,21 @@ impl Library {
         Ok(())
     }
 
+    /// The songs among `source_keys` that `copy_files_in` or `restore_from` has put in the library,
+    /// with their track ids. An entry goes when its song does.
+    pub fn rescued(&self, source_keys: &[String]) -> Result<HashMap<String, i64>> {
+        let mut find = self
+            .conn
+            .prepare_cached("SELECT track_id FROM rescued WHERE source_key = ?1")?;
+        let mut found = HashMap::new();
+        for key in source_keys {
+            if let Some(id) = find.query_row([key], |row| row.get(0)).optional()? {
+                found.insert(key.clone(), id);
+            }
+        }
+        Ok(found)
+    }
+
     pub fn record_play(&mut self, track_id: i64, played_at_unix: i64) -> Result<()> {
         self.record_event(
             track_id,

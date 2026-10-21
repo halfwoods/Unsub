@@ -8,8 +8,9 @@ use walkdir::WalkDir;
 
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::RADIO;
+use crate::model::{RADIO, Track};
 use crate::normalize::{artist_key, title_key};
+use crate::organize::{copy_file, organized_path, prune_empty_dirs};
 use crate::scan::{FileFacts, is_audio, is_hidden};
 use crate::tags;
 
@@ -80,6 +81,74 @@ impl Library {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a file").into());
         }
         self.relink_to(id, &canonical)
+    }
+
+    /// Puts a copy of `source` in the media folder, at the path the track's details file it under,
+    /// and points the track at it, for a track whose own file is lost and whose song is at hand on
+    /// a disk that will be unplugged. The library's tags, overrides, counts and playlists are
+    /// kept, but the audio details (codec, bit rate, sample rate, bit depth, channels, length) are
+    /// those of the copy, which need not be the lost file's format, and the stored loudness goes
+    /// so Sound Check measures the copy. `source` is only read, the copy is whole or not at all,
+    /// and `source_key` is recorded for `rescued`.
+    ///
+    /// Returns `false`, having changed nothing, if the track's own file is there after all: a
+    /// disk that was only unplugged has come back, and is not lost.
+    pub fn restore_from(&mut self, id: i64, source: &Path, source_key: &str) -> Result<bool> {
+        let track = self.track(id)?.ok_or(Error::TrackNotFound(id))?;
+        if fs::metadata(&track.path).is_ok() {
+            return Ok(false);
+        }
+        let folder = self.media_settings()?.folder.ok_or(Error::NoMediaFolder)?;
+        // The name takes its extension from the file it holds, which is not the lost one's.
+        let filed = Track {
+            path: source.to_string_lossy().into_owned(),
+            ..track
+        };
+        let target = self.free_path(organized_path(&folder, &filed), None)?;
+        let pointed = copy_file(source, &target)
+            .map_err(Error::from)
+            .and_then(|()| tags::read(&target))
+            .and_then(|meta| {
+                self.relink(id, &target)?;
+                Ok(meta)
+            });
+        let meta = match pointed {
+            Ok(meta) => meta,
+            Err(err) => {
+                let _ = fs::remove_file(&target);
+                if let Some(parent) = target.parent() {
+                    prune_empty_dirs(&folder, parent);
+                }
+                return Err(err);
+            }
+        };
+        let loudness = meta.loudness.as_ref();
+        self.conn.execute(
+            "UPDATE tracks SET duration_ms = ?2, bitrate_kbps = ?3, sample_rate = ?4, bit_depth = ?5,
+                               channels = ?6, codec = ?7, loudness_lufs = ?8, true_peak_dbtp = ?9,
+                               loudness_source = ?10, album_loudness_lufs = ?11,
+                               album_true_peak_dbtp = ?12, loudness_state = NULL
+             WHERE id = ?1",
+            params![
+                id,
+                meta.duration_ms,
+                meta.bitrate_kbps,
+                meta.sample_rate,
+                meta.bit_depth,
+                meta.channels,
+                meta.codec,
+                loudness.map(|l| l.lufs),
+                loudness.and_then(|l| l.true_peak_dbtp),
+                loudness.map(|l| l.source),
+                loudness.and_then(|l| l.album_lufs),
+                loudness.and_then(|l| l.album_true_peak_dbtp),
+            ],
+        )?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO rescued (source_key, track_id) VALUES (?1, ?2)",
+            params![source_key, id],
+        )?;
+        Ok(true)
     }
 
     /// iTunes' "locate other missing files": every missing track whose file name

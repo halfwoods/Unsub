@@ -1,6 +1,6 @@
 //! Classic iPods that mount as USB disks: discovery, model identification, the music database
-//! (`iTunesDB`, or zlib-compressed `iTunesCDB`), and syncing music to the ones whose database can
-//! be written safely. The database format is reverse-engineered; offsets follow libgpod
+//! (`iTunesDB`, or zlib-compressed `iTunesCDB`), syncing music to the ones whose database can be
+//! written safely, and reading music back off any of them. The database format is reverse-engineered; offsets follow libgpod
 //! (LGPL-2.1+), cited where each table is read or written.
 
 mod bytes;
@@ -25,9 +25,10 @@ pub use eject::eject;
 pub use error::{Error, Result};
 pub use models::{IpodFamily, IpodModel, SyncSupport};
 pub use sync::{
-    OnTheGo, PlayDelta, Prepared, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack,
-    apply_sync, artwork_supported, clear_on_the_go, clear_play_counts, plan_sync, read_on_the_go,
-    read_play_counts_for_sync_back, restore_backup,
+    OnTheGo, PlayDelta, Prepared, Rescue, RescuePlaylist, RescueSong, SyncPlan, SyncPlaylist,
+    SyncProgress, SyncStage, SyncTrack, apply_sync, artwork_supported, clear_on_the_go,
+    clear_play_counts, ensure_room, free_space, holds_protected_audio, is_copy_protected,
+    plan_sync, read_on_the_go, read_play_counts_for_sync_back, read_rescue, restore_backup,
 };
 pub use verify::{
     ArtworkCheck, ChecksumCheck, ChunkCount, FieldDifference, HeaderChange, RecordDifference,

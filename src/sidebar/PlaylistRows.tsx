@@ -7,6 +7,12 @@ import { SourceIcon } from "./icons";
 
 /** Song rows put their ids here when dragged; playlist rows put their own id. */
 export const TRACKS_MIME = "application/x-unsub-tracks";
+/** Songs dragged off an iPod. Their ids can't be told from the library's, so they travel with the iPod they are on. */
+export const DEVICE_TRACKS_MIME = "application/x-unsub-device-tracks";
+export interface DeviceDrag {
+  deviceId: string;
+  ids: number[];
+}
 const PLAYLIST_MIME = "application/x-unsub-playlist";
 
 function RenameField({ playlist }: { playlist: Playlist }) {

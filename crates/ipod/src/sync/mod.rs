@@ -22,6 +22,7 @@ mod mapping;
 mod on_the_go;
 mod plan;
 mod play_deltas;
+mod rescue;
 mod restore;
 
 use std::path::PathBuf;
@@ -41,6 +42,10 @@ pub use artwork_support::artwork_supported;
 pub use on_the_go::{OnTheGo, clear_on_the_go, read_on_the_go};
 pub use plan::plan_sync;
 pub use play_deltas::{PlayDelta, clear_play_counts, read_play_counts_for_sync_back};
+pub use rescue::{
+    Rescue, RescuePlaylist, RescueSong, ensure_room, free_space, holds_protected_audio,
+    is_copy_protected, read_rescue,
+};
 pub use restore::restore_backup;
 
 /// A library track as the sync sees it. Tags describe the track on the iPod; the audio file comes

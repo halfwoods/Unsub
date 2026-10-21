@@ -4,6 +4,7 @@ import type { Device, Player, SyncPreview, SyncSettings } from "../api/types";
 import { SourceIcon } from "../sidebar/icons";
 import { useApp } from "../state/store";
 import { formatBytes, pluralize } from "../util/format";
+import { CopyToLibrary } from "./CopyToLibrary";
 import { IpodArt } from "./IpodArt";
 import "./DeviceSummary.css";
 
@@ -70,6 +71,9 @@ type Update = (patch: Partial<SyncSettings>) => void;
 
 function SummaryTab({ device, settings, update }: { device: Device; settings: SyncSettings; update: Update }) {
   const model = device.model;
+  const [copying, setCopying] = useState(false);
+  // A copy takes a sync's place, so the two can't run at once.
+  const busy = useApp((s) => s.deviceSync !== null);
   return (
     <>
       <section className="device-box">
@@ -95,7 +99,14 @@ function SummaryTab({ device, settings, update }: { device: Device; settings: Sy
             <dd>{device.counts.music.toLocaleString()}</dd>
           </dl>
         </div>
+        <div className="device-rescue">
+          <button className="push-button" disabled={busy} onClick={() => setCopying(true)}>
+            Copy to Library…
+          </button>
+          <span className="prefs-note">Rescue the music on this iPod: copy it, with its play counts and playlists, into your library.</span>
+        </div>
       </section>
+      {copying && <CopyToLibrary device={device} onClose={() => setCopying(false)} />}
       <section className="device-box">
         <h2>Options</h2>
         <div className="device-box-content device-options">
@@ -312,6 +323,7 @@ function SyncPage({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const syncing = useApp((s) => s.deviceSync !== null);
+  const copying = useApp((s) => s.deviceSync?.stage === "rescuing");
   const showNotice = useApp((s) => s.showNotice);
 
   useEffect(() => {
@@ -386,7 +398,7 @@ function SyncPage({
           disabled={!writable || syncing || !preview?.fits}
           onClick={() => (firstSync && !settings?.confirmed ? setConfirming(true) : sync())}
         >
-          {syncing ? "Syncing…" : "Sync"}
+          {copying ? "Copying…" : syncing ? "Syncing…" : "Sync"}
         </button>
       </footer>
       {confirming &&

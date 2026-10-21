@@ -56,6 +56,7 @@ It's inspired by classic iTunes, the good one from before it became a storefront
 - **Works with an iCloud Drive library.** 37,000 songs that aren't actually on your Mac? Fine. Unsub reads them without downloading anything, and fetches each one when you press play.
 - **Syncs classic iPods.** Classic, video, mini, nano 1st–5th gen, shuffle. Yes, that one in your drawer. Go charge it. We'll wait. *(New, and so far tested only against very convincing simulated iPods. Tell us how yours does; your iPod's opinion matters to us.)*
 - **Syncs other players too.** Rockbox, USB players, Android phones.
+- **Rescues the music trapped on your old iPod.** iTunes never let you. We will. Copy it back into your library with its play counts, ratings and playlists, and the iPod isn't touched. (Songs bought from the iTunes Store before 2009 are still copy-protected, so those stay behind. Take it up with 2007.)
 - **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations worked out *on your computer, for you*. Not for an ad network.
 - **Rips CDs** with MusicBrainz lookup and AccurateRip verification. For the fourteen CDs you kept "just in case". This is the case.
 - **Cleans up song info.** `01 - track01 (Official Video) [HQ] www.website.com` becomes a song title again. You'll see a preview first. We're not monsters.

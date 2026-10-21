@@ -50,6 +50,9 @@ import type {
   Playlist,
   PlaylistKind,
   RepeatMode,
+  RescueOptions,
+  RescuePreview,
+  RescueScope,
   ScanProgress,
   SharedLibrary,
   SharingSettings,
@@ -148,6 +151,12 @@ export const deviceSetSyncSettings = (deviceId: string, settings: SyncSettings) 
 export const deviceSyncPreview = (deviceId: string) => invoke<SyncPreview>("device_sync_preview", { deviceId });
 export const deviceSync = (deviceId: string) => invoke<void>("device_sync", { deviceId });
 export const deviceCancelSync = () => invoke<void>("device_cancel_sync");
+/** What Copy to Library would do with these choices; nothing is copied. */
+export const deviceRescuePreview = (deviceId: string, scope: RescueScope, options: RescueOptions) =>
+  invoke<RescuePreview>("device_rescue_preview", { deviceId, scope, options });
+/** Copies in the background, in the place of a sync: its progress and end come as the sync's events. */
+export const deviceRescue = (deviceId: string, scope: RescueScope, options: RescueOptions) =>
+  invoke<void>("device_rescue", { deviceId, scope, options });
 
 export const cdList = () => invoke<AudioCd[]>("cd_list");
 export const cdTracks = (discId: string) => invoke<Track[]>("cd_tracks", { discId });

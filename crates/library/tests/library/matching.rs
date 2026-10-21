@@ -5,7 +5,7 @@ use unsub_library::{
     ExternalTrack, Library, MatchOutcome, MatchQuality, MediaKind, Track, TrackMatch,
 };
 
-use crate::common::{library_of, scanned_library, track, track_titled};
+use crate::common::{fixtures_dir, library_of, scanned_library, track, track_titled};
 
 fn external(title: &str, artist: &str, album: &str, duration_ms: Option<u64>) -> ExternalTrack {
     ExternalTrack {
@@ -676,4 +676,29 @@ fn matching_scales_to_fifty_thousand_against_a_hundred_thousand() {
     println!("matched 50k against 100k in {elapsed:?}");
     assert_eq!(results.iter().flatten().count(), 25_000);
     assert!(elapsed.as_secs_f64() < 1.0, "took {elapsed:?}");
+}
+
+#[test]
+fn a_song_described_by_its_own_file_finds_the_librarys_copy_of_it() {
+    let (library, _dir) = scanned_library();
+    let halo = track_titled(&library, "Halo");
+
+    let described =
+        ExternalTrack::from_file("shuffle:1", &fixtures_dir().join("halo.mp3")).unwrap();
+
+    assert_eq!(
+        (
+            described.external_id.as_str(),
+            described.title.as_str(),
+            described.artist.as_str()
+        ),
+        ("shuffle:1", "Halo", "Beyoncé")
+    );
+    assert_eq!(described.album, halo.album);
+    assert_eq!(described.duration_ms, Some(halo.duration_ms));
+    assert_eq!(
+        outcome(&library.match_external(&[described]).unwrap()[0]),
+        Some((halo.id, MatchQuality::Exact))
+    );
+    assert!(ExternalTrack::from_file("x", &fixtures_dir().join("missing.mp3")).is_err());
 }

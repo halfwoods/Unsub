@@ -21,6 +21,13 @@ pub enum Error {
     SyncRefused(String),
     #[error("the iPod can't hold the selected music: it needs {} and has {} free", megabytes(.needed), megabytes(.available))]
     InsufficientSpace { needed: u64, available: u64 },
+    /// Copying songs off the iPod: the disk they would go to is too small. Nothing was copied.
+    #[error("there isn't room in {} for these songs: they need {} and {} is free", .folder.display(), megabytes(.needed), megabytes(.available))]
+    NoRoom {
+        folder: PathBuf,
+        needed: u64,
+        available: u64,
+    },
     /// The space ran out partway through, because of what else is on the iPod or because a
     /// converted song came out bigger than its source.
     #[error("the iPod ran out of space while copying: the next song needs {} and {} is free", megabytes(.needed), megabytes(.available))]
@@ -84,5 +91,19 @@ mod tests {
             "the iPod can't hold the selected music: it needs 12.00 GB and has 1.50 GB free"
         );
         assert_eq!(megabytes(&(5 << 19)), "2.5 MB");
+    }
+
+    #[test]
+    fn a_copy_off_the_ipod_that_does_not_fit_names_the_folder() {
+        let short = Error::NoRoom {
+            folder: PathBuf::from("/Music/Unsub"),
+            needed: 12 << 30,
+            available: 3 << 29,
+        };
+
+        assert_eq!(
+            short.to_string(),
+            "there isn't room in /Music/Unsub for these songs: they need 12.00 GB and 1.50 GB is free"
+        );
     }
 }

@@ -140,6 +140,15 @@ const MIGRATIONS: &[&str] = &[
     -- next one made, and what remembers playlists by id (imports) could not tell them apart.
     INSERT OR REPLACE INTO settings (key, value)
         SELECT 'playlist_id_floor', CAST(COALESCE(MAX(id), 0) AS TEXT) FROM playlists;",
+    // Songs copied in from a disk that is about to be unplugged (an iPod), by whatever the caller
+    // knows each by, so copying the disk again brings nothing twice even when the song's tags
+    // can't say it is the same one. An entry goes with its song: SQLite hands a deleted track's id
+    // to the next one made, which must not inherit it.
+    "CREATE TABLE rescued (
+        source_key TEXT PRIMARY KEY,
+        track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+    CREATE INDEX rescued_track ON rescued(track_id);",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

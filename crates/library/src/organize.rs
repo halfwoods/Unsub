@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
@@ -315,8 +316,34 @@ pub(crate) fn copy_file(from: &Path, to: &Path) -> io::Result<()> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::copy(from, to)?;
-    File::options().write(true).open(to)?.sync_all()
+    write_beside(to, |temp| fs::copy(from, temp).map(drop))
+}
+
+/// Makes `to` by filling a copy beside it, which is flushed and renamed into place only once `fill` has
+/// finished, so a failure or a crash leaves `to` as it was (or absent) and nothing half-made at its
+/// name. The copy is hidden while it exists, which keeps a concurrent scan from adding it, and is
+/// named so that two writers never share one.
+pub fn write_beside<E: From<io::Error>>(
+    to: &Path,
+    fill: impl FnOnce(&Path) -> std::result::Result<(), E>,
+) -> std::result::Result<(), E> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = to
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let temp = to.with_file_name(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = fill(&temp)
+        .and_then(|()| Ok(File::options().write(true).open(&temp)?.sync_all()?))
+        .and_then(|()| Ok(fs::rename(&temp, to)?));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
 }
 
 /// Removes the folders a move emptied, up to but never including the media folder.
@@ -472,6 +499,49 @@ mod tests {
         assert!(clean.len() <= MAX_NAME_BYTES);
         assert!(clean.chars().all(|c| c == '\u{e9}'));
         assert!(clean.len() >= MAX_NAME_BYTES - 1);
+    }
+
+    #[test]
+    fn a_copy_is_whole_under_its_name_with_nothing_beside_it() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let from = dir.path().join("in.mp3");
+        fs::write(&from, b"song").unwrap();
+        let to = dir.path().join("media/Artist/Album/01 Song.mp3");
+
+        copy_file(&from, &to).unwrap();
+
+        assert_eq!(fs::read(&to).unwrap(), b"song");
+        let beside: Vec<_> = fs::read_dir(to.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(beside.len(), 1);
+    }
+
+    #[test]
+    fn a_copy_that_cannot_be_finished_leaves_no_half_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let from = dir.path().join("in.mp3");
+        fs::write(&from, b"song").unwrap();
+        // A folder where the song should go, so the finished copy cannot take its name.
+        let to = dir.path().join("media/01 Song.mp3");
+        fs::create_dir_all(to.join("inside")).unwrap();
+
+        assert!(copy_file(&from, &to).is_err());
+
+        let beside: Vec<_> = fs::read_dir(to.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(beside, ["01 Song.mp3"]);
+        assert!(to.join("inside").is_dir());
+        let missing = copy_file(
+            &dir.path().join("gone.mp3"),
+            &dir.path().join("media/02 Gone.mp3"),
+        );
+        assert!(missing.is_err());
+        assert_eq!(fs::read_dir(to.parent().unwrap()).unwrap().count(), 1);
     }
 
     #[test]

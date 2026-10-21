@@ -1,8 +1,7 @@
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -16,6 +15,7 @@ use crate::error::{Error, Result};
 use crate::library::Library;
 use crate::lyrics;
 use crate::model::{MediaKind, Track, TrackOverrides};
+use crate::organize::write_beside;
 use crate::scan::{FileFacts, now_unix, read_track};
 use crate::store::{WriteMode, write_tracks};
 use crate::tags;
@@ -536,26 +536,10 @@ pub(crate) fn replace_atomically(
     path: &Path,
     fill: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let temp = path.with_file_name(format!(
-        ".{name}.{}.{}.tmp",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = fs::copy(path, &temp)
-        .map(|_| ())
-        .map_err(Error::from)
-        .and_then(|()| fill(&temp))
-        .and_then(|()| Ok(File::options().write(true).open(&temp)?.sync_all()?))
-        .and_then(|()| Ok(fs::rename(&temp, path)?));
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    result
+    write_beside(path, |temp| {
+        fs::copy(path, temp)?;
+        fill(temp)
+    })
 }
 
 #[cfg(test)]

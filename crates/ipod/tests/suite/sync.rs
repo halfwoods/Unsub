@@ -215,6 +215,7 @@ mod faults;
 mod incremental;
 mod on_the_go;
 mod refusals;
+mod rescue;
 mod restore;
 mod shuffle;
 mod structure;
