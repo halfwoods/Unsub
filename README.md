@@ -16,7 +16,7 @@
 <h3 align="center">Cancel your subscription. Keep your music.</h3>
 
 <p align="center">
-  <a href="https://github.com/halfwoods/Unsub/releases/latest"><b>⬇ Download for Mac or Windows</b></a>
+  <a href="https://halfwoods.com/unsub/"><b>⬇ Download for Mac or Windows</b></a>
   &nbsp;·&nbsp; <a href="#leaving-spotify">Leaving Spotify?</a>
   &nbsp;·&nbsp; <a href="#faq">FAQ</a>
 </p>
@@ -67,10 +67,10 @@ It's inspired by classic iTunes, the good one from before it became a storefront
 
 ## Download
 
-Get the latest build from **[Releases](https://github.com/halfwoods/Unsub/releases/latest)**.
+These links always download the newest version. The [download page](https://halfwoods.com/unsub/) picks the right one for you; older versions and release notes are on [Releases](https://github.com/halfwoods/Unsub/releases).
 
-- **Mac** (macOS 11 or later): download the `.dmg` for your Mac (`arm64` for Apple silicon, `x86_64` for Intel), open it, and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
-- **Windows**: download and run the `-setup.exe`. Until we buy a code-signing certificate (they cost money; see "no monthly fee"), Windows will say "Windows protected your PC". Choose **More info › Run anyway**.
+- **Mac** (macOS 11 or later): **[Apple chip](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_arm64.dmg)** or **[Intel](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.dmg)**. Open the `.dmg` and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
+- **Windows** (10 or 11, 64-bit): **[installer](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64-setup.exe)**, or the [MSI](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64_en-US.msi) if you prefer. Until we buy a code-signing certificate (they cost money; see "no monthly fee"), Windows will say "Windows protected your PC". Choose **More info › Run anyway**.
 
 Unsub updates itself from new releases. Politely, and only when you let it.
 

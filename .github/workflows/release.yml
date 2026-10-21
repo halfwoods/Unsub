@@ -393,6 +393,18 @@ jobs:
             "windows-x86_64=${nsis[0]}" > artifacts/latest.json
           jq . artifacts/latest.json
 
+      # Fixed names let a download page link to releases/latest/download/<name>, which always serves
+      # the newest build without an API lookup. This runs after the manifest so its globs only ever
+      # see the versioned files, which stay for the updater and for history.
+      - name: Add fixed-name copies of the installers
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for arch in arm64 x86_64; do
+            cp "artifacts/Unsub_${version}_${arch}.dmg" "artifacts/Unsub_${arch}.dmg"
+          done
+          cp "artifacts/Unsub_${version}_x64-setup.exe" artifacts/Unsub_x64-setup.exe
+          cp "artifacts/Unsub_${version}_x64_en-US.msi" artifacts/Unsub_x64_en-US.msi
+
       - name: Create the draft
         env:
           GH_TOKEN: ${{ github.token }}
