@@ -80,6 +80,8 @@ struct Ticket(u64);
 struct Session {
     starts: u64,
     station: Option<i64>,
+    /// The station itself when it isn't in the library, which has nothing to open it again from.
+    unsaved: Option<SavedStation>,
     name: String,
     /// Whether the connection is still being made, which can take many seconds. The stream is only
     /// attached once it is open.
@@ -103,6 +105,7 @@ impl Session {
         self.cancel();
         self.starts += 1;
         self.station = None;
+        self.unsaved = None;
         self.opening = false;
     }
 
@@ -198,7 +201,9 @@ impl Session {
 /// A station starting takes the place of the songs queued before it, and of a station before it.
 fn take_over(queue: &mut Option<Playing>, session: &mut Session, station: &SavedStation) -> Ticket {
     *queue = None;
-    session.begin(station.id, &station.name)
+    let ticket = session.begin(station.id, &station.name);
+    session.unsaved = station.is_unsaved().then(|| station.clone());
+    ticket
 }
 
 /// The station directory, and the one live stream that may be playing.
@@ -320,7 +325,8 @@ fn connect(app: &AppHandle, ticket: Ticket, station: &SavedStation) {
     }
     set_link(app, None);
     played(app, station);
-    if let Some(named) = named_by_stream(station, &info) {
+    // A station that isn't in the library has no row to rename.
+    if let Some(named) = named_by_stream(station, &info).filter(|_| !station.is_unsaved()) {
         rename(app, ticket, station.id, &named);
     }
     if let Some(events) = events {
@@ -328,14 +334,16 @@ fn connect(app: &AppHandle, ticket: Ticket, station: &SavedStation) {
     }
 }
 
-/// Counts the start as a play, and as a listen for the directory.
+/// Counts the start as a play, if the station is in the library, and as a listen for the directory.
 fn played(app: &AppHandle, station: &SavedStation) {
-    let recorded = app.state::<LibraryState>().queries().record_play(station.id, now_unix());
-    match recorded {
-        Ok(()) => {
-            let _ = app.emit(library::CHANGED_EVENT, ());
+    if !station.is_unsaved() {
+        let recorded = app.state::<LibraryState>().queries().record_play(station.id, now_unix());
+        match recorded {
+            Ok(()) => {
+                let _ = app.emit(library::CHANGED_EVENT, ());
+            }
+            Err(error) => eprintln!("[radio] {error:?}"),
         }
-        Err(error) => eprintln!("[radio] {error:?}"),
     }
     if let Some(uuid) = station.radio_browser_uuid.clone() {
         let app = app.clone();
@@ -408,15 +416,21 @@ pub(crate) fn paused(app: &AppHandle) {
 /// belongs to the song queue.
 pub(crate) fn toggle_stopped(app: &AppHandle) -> bool {
     let radio = app.state::<RadioState>();
-    let (abandoned, station) = {
+    let (abandoned, station, unsaved) = {
         let mut session = radio.session();
-        (session.abandon(), session.station)
+        (session.abandon(), session.station, session.unsaved.clone())
     };
     if abandoned {
         set_link(app, None);
         return true;
     }
     let Some(station) = station else { return false };
+    if let Some(unsaved) = unsaved {
+        // It may have been added to My Stations since it began; then it plays from there.
+        let station = resolve(app, &NewStation::from(&unsaved)).unwrap_or(unsaved);
+        start(app, station);
+        return true;
+    }
     if play(app, station).is_ok() {
         return true;
     }
@@ -468,6 +482,15 @@ pub(crate) fn play(app: &AppHandle, id: i64) -> CommandResult<()> {
         .ok_or_else(|| CommandError::from("that station is no longer in the library".to_owned()))?;
     start(app, station);
     Ok(())
+}
+
+/// The library's station that `station` is, else `station` as an unsaved one.
+fn resolve(app: &AppHandle, station: &NewStation) -> CommandResult<SavedStation> {
+    let kept = app.state::<LibraryState>().queries().kept_station(station)?;
+    Ok(match kept {
+        Some(kept) => kept,
+        None => SavedStation::unsaved(station)?,
+    })
 }
 
 fn add(app: &AppHandle, station: &NewStation) -> CommandResult<i64> {
@@ -533,11 +556,13 @@ pub fn radio_play(app: AppHandle, station_id: i64) -> CommandResult<()> {
     play(&app, station_id)
 }
 
-/// A station from the directory is kept in My Stations as soon as it is played.
+/// A station from the directory is played without being kept; `radio_add` keeps it. One that is
+/// already kept plays from the library, so its plays are counted.
 #[tauri::command]
 pub fn radio_play_directory(app: AppHandle, station: DirectoryStation) -> CommandResult<()> {
-    let id = add(&app, &new_station(&station))?;
-    play(&app, id)
+    let station = resolve(&app, &new_station(&station))?;
+    start(&app, station);
+    Ok(())
 }
 
 /// File › Open Stream…: any stream address, or a `.pls` or `.m3u` naming one.
@@ -708,6 +733,32 @@ mod tests {
         assert!(!session.current(first) && session.current(second));
         assert_eq!(session.station, Some(8));
         assert!(!session.attach(first, CancelHandle::new()), "the earlier connection must not play");
+    }
+
+    #[test]
+    fn a_directory_station_plays_as_it_would_be_kept_but_with_no_library_row() {
+        let unsaved = SavedStation::unsaved(&new_station(&directory_station())).unwrap();
+
+        assert!(unsaved.is_unsaved() && !saved(8, "Kept").is_unsaved());
+        assert_eq!((unsaved.name.as_str(), unsaved.genre.as_str()), ("SomaFM Groove Salad", "Ambient"));
+        assert_eq!(unsaved.radio_browser_uuid.as_deref(), Some("960e57c5-0601-11e8-ae97-52543be04c81"));
+    }
+
+    #[test]
+    fn a_station_that_is_not_kept_is_remembered_so_play_can_tune_it_in_again() {
+        let mut queue = queued();
+        let mut session = Session::default();
+        let unsaved = SavedStation::unsaved(&new_station(&directory_station())).unwrap();
+
+        take_over(&mut queue, &mut session, &unsaved);
+        assert_eq!(session.unsaved.as_ref(), Some(&unsaved));
+
+        take_over(&mut queue, &mut session, &saved(8, "Kept"));
+        assert_eq!(session.unsaved, None, "a kept station is opened again from the library");
+
+        take_over(&mut queue, &mut session, &unsaved);
+        session.end();
+        assert_eq!(session.unsaved, None, "a song starting forgets it");
     }
 
     #[test]

@@ -123,6 +123,69 @@ fn a_station_is_a_radio_track_with_its_details() {
 }
 
 #[test]
+fn a_station_played_without_being_kept_is_cleaned_like_a_kept_one() {
+    let mut library = Library::open_in_memory().unwrap();
+    let new = NewStation {
+        name: "  Soma\u{7} \t FM\n".into(),
+        url: "  HTTP://Ice.Example/live  ".into(),
+        homepage: Some("javascript:alert(1)".into()),
+        ..groove()
+    };
+
+    let unsaved = Station::unsaved(&new).unwrap();
+
+    assert!(unsaved.is_unsaved());
+    let kept = library.add_station(&new).unwrap();
+    assert_eq!(
+        library.station(kept).unwrap(),
+        Some(Station {
+            id: kept,
+            ..unsaved
+        })
+    );
+    assert!(Station::unsaved(&named("Nowhere", "ftp://host/stream")).is_err());
+}
+
+#[test]
+fn a_kept_station_is_found_by_directory_id_then_by_address() {
+    let mut library = library_of(&[song(1, "A Song")]);
+    assert_eq!(library.kept_station(&groove()).unwrap(), None);
+    let by_id = library.add_station(&groove()).unwrap();
+    let by_address = library
+        .add_station(&named("Opened", "http://ice.example/live"))
+        .unwrap();
+
+    let found = |station: &NewStation| {
+        library
+            .kept_station(station)
+            .unwrap()
+            .map(|station| station.id)
+    };
+
+    assert_eq!(found(&groove()), Some(by_id));
+    assert_eq!(
+        found(&NewStation {
+            url: "http://elsewhere.example/".into(),
+            ..groove()
+        }),
+        Some(by_id),
+        "the directory id outranks a new address"
+    );
+    assert_eq!(
+        found(&named("Listed", "http://ice.example/live")),
+        Some(by_address),
+        "a station kept without a directory id is found by its address"
+    );
+    assert_eq!(found(&named("Other", "http://other.example/")), None);
+    assert!(library.kept_station(&named("Bad", "ftp://host/a")).is_err());
+    let kept = library.station(by_id).unwrap().unwrap();
+    assert_eq!(
+        library.kept_station(&NewStation::from(&kept)).unwrap(),
+        Some(kept)
+    );
+}
+
+#[test]
 fn stations_are_listed_by_name_and_only_stations_are_stations() {
     let mut library = library_of(&[song(1, "A Song")]);
     let zeta = library.add_station(&named("Zeta FM", "http://z/")).unwrap();
@@ -290,6 +353,13 @@ fn an_address_held_by_a_song_is_never_taken_over() {
     let result = library.add_station(&named("Live", "http://ice.example/live"));
 
     assert!(matches!(result, Err(Error::PathInUse(_))));
+    assert_eq!(
+        library
+            .kept_station(&named("Live", "http://ice.example/live"))
+            .unwrap(),
+        None,
+        "a song is no station"
+    );
     let row = library.track(1).unwrap().unwrap();
     assert_eq!(
         (row.kind, row.title.as_str()),

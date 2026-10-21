@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use rusqlite::{OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -55,6 +55,48 @@ pub struct Station {
     pub radio_browser_uuid: Option<String>,
     pub play_count: u32,
     pub last_played: Option<i64>,
+}
+
+/// The id of a station that is not in the library: no track has it.
+const UNSAVED_ID: i64 = -1;
+
+impl Station {
+    /// `station` as it would be kept, for playing it without keeping it.
+    pub fn unsaved(station: &NewStation) -> Result<Self> {
+        let station = Clean::new(station)?;
+        Ok(Self {
+            id: UNSAVED_ID,
+            name: station.name,
+            url: station.url,
+            genre: station.genre,
+            bitrate_kbps: station.bitrate_kbps,
+            codec: station.codec,
+            homepage: station.homepage,
+            favicon_url: station.favicon_url,
+            radio_browser_uuid: station.uuid,
+            play_count: 0,
+            last_played: None,
+        })
+    }
+
+    pub fn is_unsaved(&self) -> bool {
+        self.id == UNSAVED_ID
+    }
+}
+
+impl From<&Station> for NewStation {
+    fn from(station: &Station) -> Self {
+        Self {
+            name: station.name.clone(),
+            url: station.url.clone(),
+            genre: station.genre.clone(),
+            bitrate_kbps: station.bitrate_kbps,
+            codec: station.codec.clone(),
+            homepage: station.homepage.clone(),
+            favicon_url: station.favicon_url.clone(),
+            radio_browser_uuid: station.radio_browser_uuid.clone(),
+        }
+    }
 }
 
 /// A `NewStation` that has been checked and cleaned.
@@ -162,6 +204,14 @@ impl Library {
         let id = insert_station(&tx, &station)?;
         tx.commit()?;
         Ok(id)
+    }
+
+    /// The station already here that `add_station` would give `station`'s id to.
+    pub fn kept_station(&self, station: &NewStation) -> Result<Option<Station>> {
+        match kept_id(&self.conn, &Clean::new(station)?)? {
+            Some(id) => self.station(id),
+            None => Ok(None),
+        }
     }
 
     /// Replaces a station's details, keeping its place in playlists and its
@@ -296,31 +346,44 @@ impl Library {
     }
 }
 
-fn insert_station(tx: &Transaction<'_>, station: &Clean) -> Result<i64> {
+/// The id of the station that `station` is: the one with its directory id, else the one at its
+/// address.
+fn kept_id(conn: &Connection, station: &Clean) -> Result<Option<i64>> {
     if let Some(uuid) = &station.uuid {
-        let known: Option<i64> = tx
+        let known: Option<i64> = conn
             .query_row(
                 "SELECT track_id FROM stations WHERE radio_browser_uuid = ?1",
                 [uuid],
                 |row| row.get(0),
             )
             .optional()?;
-        if let Some(id) = known {
-            return Ok(id);
+        if known.is_some() {
+            return Ok(known);
         }
     }
-    let known: Option<(i64, MediaKind)> = tx
+    Ok(conn
         .query_row(
-            "SELECT id, kind FROM tracks WHERE path = ?1",
+            &format!("SELECT id FROM tracks WHERE path = ?1 AND kind = {RADIO}"),
             [&station.url],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+fn insert_station(tx: &Transaction<'_>, station: &Clean) -> Result<i64> {
+    if let Some(id) = kept_id(tx, station)? {
+        return Ok(id);
+    }
+    let taken: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM tracks WHERE path = ?1",
+            [&station.url],
+            |row| row.get(0),
         )
         .optional()?;
-    match known {
-        Some((id, MediaKind::Radio)) => return Ok(id),
-        // Never overwrite a song that was imported with a web address as its path.
-        Some(_) => return Err(Error::PathInUse(station.url.clone())),
-        None => {}
+    // Never overwrite a song that was imported with a web address as its path.
+    if taken.is_some() {
+        return Err(Error::PathInUse(station.url.clone()));
     }
 
     write_tracks(tx, WriteMode::RefreshTags, [&station_row(station)])?;

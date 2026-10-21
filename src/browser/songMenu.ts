@@ -31,6 +31,11 @@ async function popUp(menu: Menu) {
   await menu.popup();
 }
 
+/** The right-click menu for a station of the Radio view; `keep` adds it to My Stations or removes it. */
+export async function showStationMenu(play: () => void, keep: { label: string; run: () => void }) {
+  await popUp(await Menu.new({ items: [{ text: "Play", action: play }, SEPARATOR, { text: keep.label, action: keep.run }] }));
+}
+
 /** The right-click menu for songs on an iPod, which can't be edited but can be copied into the library. */
 export async function showDeviceSongMenu(deviceId: string) {
   const ids = [...useApp.getState().selection];

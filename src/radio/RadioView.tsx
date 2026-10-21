@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import {
   onLibraryChanged,
   radioAdd,
@@ -14,6 +14,7 @@ import {
 } from "../api/commands";
 import type { DirectoryStation, RadioGenre, RadioStation } from "../api/types";
 import { STATUS_COLUMN_WIDTH } from "../browser/columns";
+import { showStationMenu } from "../browser/songMenu";
 import { NowPlayingIcon } from "../browser/SongList";
 import { useApp } from "../state/store";
 import { pluralize } from "../util/format";
@@ -140,6 +141,8 @@ export function RadioView() {
 
   const fail = (error: unknown) => showNotice(String(error));
 
+  const removeAction = (id: number) => ({ label: "Remove from My Stations", symbol: "−", run: () => void radioRemove(id).catch(fail) });
+
   const savedRow = (station: RadioStation): Row => ({
     id: station.id,
     uuid: station.radioBrowserUuid,
@@ -147,26 +150,35 @@ export function RadioView() {
     bitRate: bitRate(station.bitrateKbps),
     comment: [station.genre, station.codec].filter(Boolean).join(" · "),
     play: () => void radioPlay(station.id).catch(fail),
-    action: { label: "Remove from My Stations", symbol: "−", run: () => void radioRemove(station.id).catch(fail) },
+    action: removeAction(station.id),
   });
 
-  const directoryRow = (station: DirectoryStation): Row => ({
-    id: null,
-    uuid: station.uuid,
-    name: station.name,
-    bitRate: bitRate(station.bitrateKbps),
-    comment: [station.tags.slice(0, COMMENT_TAGS).join(", "), station.country].filter(Boolean).join(" · "),
-    play: () => void radioPlayDirectory(station).catch(fail),
-    action: {
-      label: "Add to My Stations",
-      symbol: "+",
-      run: () => void radioAdd(station).then(() => showNotice(`Added “${station.name}” to My Stations`), fail),
-    },
-  });
+  // Playing a directory station doesn't keep it, so one already in My Stations plays from there to keep counting its plays.
+  const directoryRow = (station: DirectoryStation): Row => {
+    // The directory id wins over the address, the order the library itself matches in.
+    const kept =
+      mine.find((saved) => saved.radioBrowserUuid === station.uuid) ?? mine.find((saved) => saved.url === station.url);
+    return {
+      id: kept?.id ?? null,
+      uuid: station.uuid,
+      name: station.name,
+      bitRate: bitRate(station.bitrateKbps),
+      comment: [station.tags.slice(0, COMMENT_TAGS).join(", "), station.country].filter(Boolean).join(" · "),
+      play: () => void (kept ? radioPlay(kept.id) : radioPlayDirectory(station)).catch(fail),
+      action: kept
+        ? removeAction(kept.id)
+        : {
+            label: "Add to My Stations",
+            symbol: "+",
+            run: () => void radioAdd(station).then(() => showNotice(`Added “${station.name}” to My Stations`), fail),
+          },
+    };
+  };
 
   const entries: Entry[] = [];
+  // By directory id first, which a row keeps when adding or removing it changes its library id, so its selection stays.
   const stations = (group: string, rows: Row[], indent: boolean) =>
-    rows.forEach((row) => entries.push({ type: "station", key: `${group}:${row.id ?? row.uuid}`, row, indent }));
+    rows.forEach((row) => entries.push({ type: "station", key: `${group}:${row.uuid ?? row.id}`, row, indent }));
   if (search !== null) {
     if (results === null) entries.push({ type: "message", key: "searching", text: "Searching…" });
     else if (results.length === 0) entries.push({ type: "message", key: "none", text: "No streams found." });
@@ -224,6 +236,11 @@ export function RadioView() {
       e.preventDefault();
       current.row.action.run();
     }
+  };
+
+  const openMenu = (e: MouseEvent, row: Row) => {
+    e.preventDefault();
+    void showStationMenu(row.play, row.action);
   };
 
   const isLive = (row: Row) => (liveId !== null && row.id === liveId) || (liveUuid !== null && row.uuid === liveUuid);
@@ -285,7 +302,7 @@ export function RadioView() {
               case "station": {
                 const { row } = entry;
                 return (
-                  <div key={entry.key} role="row" style={style} className={classes.join(" ")} aria-selected={selected === entry.key} onMouseDown={() => setSelected(entry.key)} onDoubleClick={row.play}>
+                  <div key={entry.key} role="row" style={style} className={classes.join(" ")} aria-selected={selected === entry.key} onMouseDown={() => setSelected(entry.key)} onContextMenu={(e) => openMenu(e, row)} onDoubleClick={row.play}>
                     <div className="song-cell song-cell--status">{isLive(row) && <NowPlayingIcon playing />}</div>
                     <div className={entry.indent ? "song-cell radio-indent" : "song-cell"}>{row.name}</div>
                     <div className="song-cell" style={{ textAlign: "right" }}>
