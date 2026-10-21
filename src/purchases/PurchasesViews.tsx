@@ -26,6 +26,35 @@ function usePurchases() {
 
 const formatDate = (unix: number) => new Date(unix * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
+/** The button answers at once: the first look in Downloads can wait on a macOS prompt, and the view replaces this when watching has begun. */
+function WatchPlacard() {
+  const [starting, setStarting] = useState(false);
+  return (
+    <div className="placard">
+      <div className="placard-card">
+        <h1>Purchases Inbox</h1>
+        <p>
+          Buy albums from Bandcamp, Qobuz, 7digital or HDtracks and Unsub notices the downloads, then adds them to your
+          library with one click. Your downloads stay where they are.
+        </p>
+        <div className="ownership-intro-actions">
+          <button
+            className="push-button"
+            disabled={starting}
+            onClick={() => {
+              setStarting(true);
+              purchasesSetWatching(true).catch(() => setStarting(false));
+            }}
+          >
+            {starting ? "Watching…" : "Watch Downloads Folder"}
+          </button>
+        </div>
+        <p className="purchases-note">macOS will ask before Unsub can look in your Downloads folder.</p>
+      </div>
+    </div>
+  );
+}
+
 /** New downloads from stores that sell files you keep, waiting to be added to the library. */
 export function InboxView() {
   const status = usePurchases();
@@ -33,25 +62,7 @@ export function InboxView() {
   const [error, setError] = useState<string | null>(null);
   if (!status) return <div className="purchases" />;
 
-  if (!status.watching) {
-    return (
-      <div className="placard">
-        <div className="placard-card">
-          <h1>Purchases Inbox</h1>
-          <p>
-            Buy albums from Bandcamp, Qobuz, 7digital or HDtracks and Unsub notices the downloads, then adds them to your
-            library with one click. Your downloads stay where they are.
-          </p>
-          <div className="ownership-intro-actions">
-            <button className="push-button" onClick={() => void purchasesSetWatching(true)}>
-              Watch Downloads Folder
-            </button>
-          </div>
-          <p className="purchases-note">macOS will ask before Unsub can look in your Downloads folder.</p>
-        </div>
-      </div>
-    );
-  }
+  if (!status.watching) return <WatchPlacard />;
 
   const accept = async (id: number) => {
     setBusy((b) => new Set(b).add(id));

@@ -161,12 +161,25 @@
   stroke-width: 1.2;
 }
 
+.lcd-mix-dot {
+  fill: var(--lcd-ink-soft);
+  stroke: none;
+}
+
 .lcd-mix:hover {
   background: rgba(0, 0, 0, 0.07);
 }
 
 .lcd-mix:active svg {
   stroke: var(--lcd-ink);
+}
+
+.lcd-mix:disabled {
+  opacity: 0.5;
+}
+
+.lcd-mix:active .lcd-mix-dot {
+  fill: var(--lcd-ink);
 }
 
 /* iTunes' stop button at the end of a sync or import bar, and a pause button in the same style for work that can be held. */

@@ -90,10 +90,10 @@ impl Drop for TestServer {
     }
 }
 
-fn inbox() -> (tempfile::TempDir, Inbox) {
+fn inbox() -> (tempfile::TempDir, Mutex<Inbox>) {
     let dir = tempfile::tempdir().unwrap();
     let inbox = Inbox::open(&dir.path().join("ledger.db"), &dir.path().join("library")).unwrap();
-    (dir, inbox)
+    (dir, Mutex::new(inbox))
 }
 
 fn link(store: &str, url: &str) -> StoreLink {
@@ -280,6 +280,27 @@ fn an_album_musicbrainz_does_not_know_is_cached_too() {
     );
 
     assert_eq!(server.requests().len(), 1);
+}
+
+#[test]
+fn the_cache_is_not_locked_while_musicbrainz_is_asked() {
+    let (_dir, inbox) = inbox();
+    let inbox = Arc::new(inbox);
+    let asked = Arc::clone(&inbox);
+    let free_during_requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&free_during_requests);
+    let server = TestServer::start(move |url| {
+        seen.lock().unwrap().push(asked.try_lock().is_ok());
+        if url.starts_with("/ws/2/release-group?") {
+            (200, SEARCH.to_owned())
+        } else {
+            (200, RELEASES.to_owned())
+        }
+    });
+
+    purchase_links_at(&server.client(), "Radiohead", "OK Computer", &inbox, 1_000).unwrap();
+
+    assert_eq!(*free_during_requests.lock().unwrap(), [true, true]);
 }
 
 #[test]

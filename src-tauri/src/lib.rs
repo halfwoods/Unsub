@@ -85,7 +85,7 @@ pub fn run() {
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
             let purchases_dir = app.path().audio_dir()?.join("Unsub").join("Purchases");
             app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
-            app.state::<PurchasesState>().apply(app.handle());
+            PurchasesState::apply(app.handle());
             let radio_cache = app.path().app_cache_dir()?;
             std::fs::create_dir_all(&radio_cache)?;
             app.manage(radio::RadioState::new(radio_cache.join("RadioGenres.json")));

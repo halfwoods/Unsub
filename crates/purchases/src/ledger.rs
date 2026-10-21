@@ -333,7 +333,7 @@ impl Inbox {
         for (id, path) in pending {
             if !Path::new(&path).exists() {
                 self.conn.execute(
-                    "UPDATE sources SET status = ?1 WHERE id = ?2",
+                    "UPDATE sources SET status = ?1 WHERE id = ?2 AND status = 'pending'",
                     params![Status::Gone.as_db(), id],
                 )?;
             }

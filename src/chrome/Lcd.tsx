@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { cdStopImport, detailsSetPaused, jobCancel, libraryMixFor, playerSeek } from "../api/commands";
-import type { Chapter, RadioStation } from "../api/types";
+import { cdStopImport, detailsSetPaused, jobCancel, playerSeek } from "../api/commands";
+import type { Chapter, RadioStation, Track } from "../api/types";
+import { startMixFrom } from "../mixes/startMix";
 import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { VinylMark } from "./VinylMark";
@@ -119,6 +120,27 @@ function ChapterMenu({ chapters, positionMs }: { chapters: Chapter[]; positionMs
   );
 }
 
+/** iTunes 10 put its Genius button here; ours starts an on-device mix from this song. Building it takes a moment, so the LCD says what is happening rather than leaving the click without a sign. */
+function MixButton({ song }: { song: Track }) {
+  const [building, setBuilding] = useState(false);
+  const start = () => {
+    setBuilding(true);
+    void startMixFrom(song).finally(() => setBuilding(false));
+  };
+  return (
+    <button className="lcd-mix" aria-label="Start a mix from this song" title="Start a mix from this song" disabled={building} onClick={start}>
+      {/* One song, drawn larger, branching out to others like it. Not a circle pair, which is the sidebar's Mixes list, nor arcs around a dot, which the sidebar uses for radio. */}
+      <svg width={14} height={11} viewBox="0 0 14 11" aria-hidden="true">
+        <circle className="lcd-mix-dot" cx="2.2" cy="5.5" r="2" />
+        <path d="M4.2 5.5C6.6 5.5 7 1.7 9.8 1.7M4.4 5.5h5.4M4.2 5.5C6.6 5.5 7 9.3 9.8 9.3" />
+        <circle className="lcd-mix-dot" cx="11.7" cy="1.7" r="1.3" />
+        <circle className="lcd-mix-dot" cx="11.7" cy="5.5" r="1.3" />
+        <circle className="lcd-mix-dot" cx="11.7" cy="9.3" r="1.3" />
+      </svg>
+    </button>
+  );
+}
+
 /**
  * The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar.
  * `onCancel` adds iTunes' ⓧ at the end of the bar, and `onPause` a button before it that pauses the work, or resumes it if `paused`.
@@ -223,7 +245,6 @@ export function Lcd() {
   const notice = useApp((s) => s.notice);
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const chapters = useApp((s) => s.chapters?.list);
-  const playTrackIds = useApp((s) => s.playTrackIds);
   const castTarget = useApp((s) => s.castTarget);
   const [showTotal, setShowTotal] = useState(false);
   // The speaker joins artist and album in the rotation, so it is always one glance away.
@@ -242,20 +263,7 @@ export function Lcd() {
       <div className="lcd lcd--playing">
         <div className="lcd-title">{nowPlaying.title}</div>
         {fromLibrary && chapters && chapters.length > 0 && <ChapterMenu chapters={chapters} positionMs={positionMs} />}
-        {fromLibrary && (
-          // iTunes 10 put its Genius button here; ours starts an on-device mix from this song.
-          <button
-            className="lcd-mix"
-            aria-label="Start a Mix from this song"
-            title="Start a Mix from this song"
-            onClick={() => void libraryMixFor([nowPlaying.id]).then((ids) => playTrackIds([nowPlaying.id, ...ids]))}
-          >
-            <svg width={14} height={11} viewBox="0 0 14 11" aria-hidden="true">
-              <circle cx="4.8" cy="5.5" r="3.8" />
-              <circle cx="9.2" cy="5.5" r="3.8" />
-            </svg>
-          </button>
-        )}
+        {fromLibrary && nowPlaying.kind === "music" && <MixButton song={nowPlaying} />}
         <div className="lcd-subtitle" key={notice ?? secondLine}>
           {notice ?? secondLine}
         </div>

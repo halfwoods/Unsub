@@ -58,8 +58,8 @@ impl LibraryState {
         &self.db_path
     }
 
-    /// A connection of its own for work that goes on for hours, so that it never holds up the song list's. It has the
-    /// artwork cache, for the covers such work keeps there.
+    /// A connection of its own for work that goes on for hours, or reads the whole catalog, so that it never holds up
+    /// the song list's. It has the artwork cache, for the covers such work keeps there.
     pub fn job_connection(&self) -> unsub_library::Result<Library> {
         let mut library = Library::open(&self.db_path)?;
         library.set_artwork_cache(self.artwork_cache.clone());
@@ -179,16 +179,28 @@ pub fn library_set_rating(state: State<'_, LibraryState>, track_id: i64, rating:
     Ok(state.queries().set_rating(track_id, rating)?)
 }
 
+/// Runs a read that walks the whole catalog, as a mix does against the listening history, which on a big library
+/// takes long enough to be felt. It goes off the main thread and onto a connection of its own, because the song
+/// list's is shared by every other command and holding it would stall them all.
+async fn read_catalog<T: Send + 'static>(
+    app: AppHandle,
+    read: impl FnOnce(&Library) -> unsub_library::Result<T> + Send + 'static,
+) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(move || Ok(read(&app.state::<LibraryState>().job_connection()?)?))
+        .await
+        .map_err(|error| CommandError::from(error.to_string()))?
+}
+
 /// The Mixes view: on-device "Genius Mixes" built from tags and listening history.
 #[tauri::command]
-pub async fn library_mixes(state: State<'_, LibraryState>) -> CommandResult<Vec<Mix>> {
-    Ok(state.queries().mixes(12, 50)?)
+pub async fn library_mixes(app: AppHandle) -> CommandResult<Vec<Mix>> {
+    read_catalog(app, |library| library.mixes(12, 50)).await
 }
 
 /// "More like this" from the given songs, for the LCD's Mix button.
 #[tauri::command]
-pub fn library_mix_for(state: State<'_, LibraryState>, track_ids: Vec<i64>) -> CommandResult<Vec<i64>> {
-    Ok(state.queries().mix_for(&track_ids, 50)?)
+pub async fn library_mix_for(app: AppHandle, track_ids: Vec<i64>) -> CommandResult<Vec<i64>> {
+    read_catalog(app, move |library| library.mix_for(&track_ids, 50)).await
 }
 
 #[tauri::command]

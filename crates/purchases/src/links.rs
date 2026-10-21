@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -26,8 +26,9 @@ const MIN_SCORE: u32 = 90;
 const PURCHASE_RELATION: &str = "purchase for download";
 
 /// Where to buy an album for download, according to MusicBrainz. At most two requests are made,
-/// and the answer, including an empty one, is cached in `cache` for 30 days.
-pub fn purchase_links(artist: &str, album: &str, cache: &Inbox) -> Result<Vec<StoreLink>> {
+/// and the answer, including an empty one, is cached in `cache` for 30 days. `cache` is locked only
+/// to read and to write, never while a request is under way.
+pub fn purchase_links(artist: &str, album: &str, cache: &Mutex<Inbox>) -> Result<Vec<StoreLink>> {
     static CLIENT: OnceLock<MusicBrainz> = OnceLock::new();
     let client = CLIENT.get_or_init(|| MusicBrainz::new(BASE_URL, MIN_INTERVAL));
     purchase_links_at(client, artist, album, cache, unix_seconds())
@@ -37,19 +38,24 @@ pub(crate) fn purchase_links_at(
     client: &MusicBrainz,
     artist: &str,
     album: &str,
-    cache: &Inbox,
+    cache: &Mutex<Inbox>,
     now: i64,
 ) -> Result<Vec<StoreLink>> {
     let key = cache_key(artist, album);
-    if let Some(links) = cache.cached_links(&key, now - CACHE_AGE_SECONDS)? {
+    let cached = lock(cache).cached_links(&key, now - CACHE_AGE_SECONDS)?;
+    if let Some(links) = cached {
         return Ok(links);
     }
     let links = match client.find_release_group(artist, album)? {
         Some(release_group) => client.purchase_links_of(&release_group)?,
         None => Vec::new(),
     };
-    cache.cache_links(&key, &links, now)?;
+    lock(cache).cache_links(&key, &links, now)?;
     Ok(links)
+}
+
+fn lock(cache: &Mutex<Inbox>) -> MutexGuard<'_, Inbox> {
+    cache.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A MusicBrainz web service, spaced out to its rate limit. The base URL is a parameter so tests
