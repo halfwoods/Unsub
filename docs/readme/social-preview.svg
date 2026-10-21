@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Unsub: the music player for people who still own their music">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eaf4ff"/>
+      <stop offset="0.55" stop-color="#c9e2fb"/>
+      <stop offset="1" stop-color="#9fc8ef"/>
+    </linearGradient>
+    <pattern id="pinstripe" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="3" fill="#ffffff" opacity="0.35"/>
+    </pattern>
+    <linearGradient id="word" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5aa6ff"/>
+      <stop offset="0.5" stop-color="#1f6fd6"/>
+      <stop offset="0.51" stop-color="#1557b3"/>
+      <stop offset="1" stop-color="#2a7ae6"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0.25" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.32"/>
+    </linearGradient>
+    <clipPath id="tophalf"><rect x="0" y="0" width="1280" height="148"/></clipPath>
+    <mask id="reflect" maskUnits="userSpaceOnUse" x="0" y="100" width="1280" height="160"><rect x="0" y="100" width="1280" height="150" fill="url(#fade)"/></mask>
+    <radialGradient id="label" cx="0.45" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#9cc8ff"/>
+      <stop offset="1" stop-color="#1f5fc4"/>
+    </radialGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe14d"/>
+      <stop offset="1" stop-color="#ff9a1f"/>
+    </linearGradient>
+    <g id="record">
+      <circle r="92" fill="#151515"/>
+      <g fill="none" stroke="#3a3a3a" stroke-width="1.2">
+        <circle r="84"/><circle r="74"/><circle r="64"/><circle r="54"/><circle r="44"/>
+      </g>
+      <path d="M0 0 L60 -70 A92 92 0 0 1 84 -38 Z" fill="#ffffff" opacity="0.10"/>
+      <path d="M0 0 L-60 70 A92 92 0 0 1 -84 38 Z" fill="#ffffff" opacity="0.10"/>
+      <circle r="34" fill="url(#label)" stroke="#16489a" stroke-width="2"/>
+      <ellipse cx="0" cy="-14" rx="24" ry="12" fill="#ffffff" opacity="0.35"/>
+      <circle r="5" fill="#f2f3e4"/>
+    </g>
+    <g id="words">
+      <text x="400" y="200" font-family="Trebuchet MS, Verdana, Arial, sans-serif" font-size="150" font-weight="bold" letter-spacing="-4" fill="url(#word)" stroke="#0f3f86" stroke-width="2">Unsub</text>
+    </g>
+  </defs>
+  <rect width="1280" height="640" fill="url(#sky)"/>
+  <rect width="1280" height="640" fill="url(#pinstripe)"/>
+  <g transform="translate(0 70)"><use href="#record" x="230" y="150"/>
+  <use href="#words"/>
+  <text x="400" y="200" font-family="Trebuchet MS, Verdana, Arial, sans-serif" font-size="150" font-weight="bold" letter-spacing="-4" fill="url(#gloss)" clip-path="url(#tophalf)">Unsub</text>
+  <g mask="url(#reflect)" transform="translate(0 500) scale(1 -1)">
+    <use href="#record" x="230" y="150"/>
+    <use href="#words"/>
+  </g>
+  <text x="408" y="250" font-family="Trebuchet MS, Verdana, Arial, sans-serif" font-size="30" fill="#14365f">The music player for people who still <tspan font-style="italic" font-weight="bold">own</tspan> their music.</text>
+  <g transform="translate(1110 92) rotate(12)">
+    <polygon points="0,-78 18,-48 52,-62 44,-28 78,-18 50,4 70,34 34,36 30,72 0,52 -30,72 -34,36 -70,34 -50,4 -78,-18 -44,-28 -52,-62 -18,-48" fill="url(#star)" stroke="#d96b00" stroke-width="2"/>
+    <text y="-8" text-anchor="middle" font-family="Verdana, Arial, sans-serif" font-size="17" font-weight="bold" fill="#7a2a00">$0.00</text>
+    <text y="14" text-anchor="middle" font-family="Verdana, Arial, sans-serif" font-size="12" font-weight="bold" fill="#7a2a00">PER MONTH</text>
+    <text y="30" text-anchor="middle" font-family="Verdana, Arial, sans-serif" font-size="10" fill="#7a2a00">FOREVER!!</text>
+  </g>
+</g><text x="640" y="560" text-anchor="middle" font-family="Trebuchet MS, Verdana, Arial, sans-serif" font-size="30" fill="#14365f">Plays your files. Syncs your iPod. Brings your Spotify playlists home.</text>
+<text x="640" y="604" text-anchor="middle" font-family="Verdana, Arial, sans-serif" font-size="20" fill="#3b5f8a">Free and open source · macOS and Windows · github.com/halfwoods/Unsub</text>
+</svg>

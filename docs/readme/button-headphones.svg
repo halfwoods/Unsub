@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="88" height="31" viewBox="0 0 88 31" role="img" aria-label="Best Heard On Headphones">
+<rect x="0.5" y="0.5" width="87" height="30" fill="#f3e5f5" stroke="#000"/>
+<rect x="1" y="1" width="25" height="29" fill="#4a148c"/>
+<rect x="1" y="1" width="86" height="14" fill="#fff" opacity="0.18"/>
+<text x="13.5" y="20" text-anchor="middle" font-family="Verdana, Tahoma, Arial, sans-serif" font-size="11" font-weight="bold" fill="#fff">🎧</text>
+<text x="57" y="13" text-anchor="middle" font-family="Verdana, Tahoma, Arial, sans-serif" font-size="6.2" font-weight="bold" fill="#4a148c">BEST HEARD</text><text x="57" y="22" text-anchor="middle" font-family="Verdana, Tahoma, Arial, sans-serif" font-size="6.2" font-weight="bold" fill="#4a148c">ON HEADPHONES</text>
+</svg>
