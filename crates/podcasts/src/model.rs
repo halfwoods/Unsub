@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub struct Feed {
     pub id: i64,
     pub url: String,
+    /// Other addresses it was subscribed with, which redirect to `url`.
+    pub aliases: Vec<String>,
     pub title: String,
     pub author: String,
     pub description: String,

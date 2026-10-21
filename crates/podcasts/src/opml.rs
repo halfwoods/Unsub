@@ -103,6 +103,7 @@ mod tests {
         let feed = |url: &str| Feed {
             id: 1,
             url: url.to_owned(),
+            aliases: Vec::new(),
             title: "A <b> & \"c\"".to_owned(),
             author: String::new(),
             description: String::new(),

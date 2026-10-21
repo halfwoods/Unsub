@@ -9,7 +9,8 @@ use crate::http::Validators;
 use crate::model::{Episode, Feed, FeedSettings, KeepRule, RefreshSummary};
 
 /// Appended to, never edited: `PRAGMA user_version` records how many have run.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE feeds (
         id INTEGER PRIMARY KEY,
         url TEXT NOT NULL UNIQUE,
@@ -50,12 +51,22 @@ const MIGRATIONS: &[&str] = &["
         UNIQUE (feed_id, guid)
     );
     CREATE INDEX episodes_by_feed ON episodes (feed_id);
-"];
+",
+    "
+    -- Directories list a feed by the address it had before redirects, while `feeds.url` is where
+    -- it ended up.
+    CREATE TABLE feed_aliases (
+        url TEXT PRIMARY KEY,
+        feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE
+    );
+",
+];
 
 const FEED_COLUMNS: &str = "f.id, f.url, f.title, f.author, f.description, f.artwork_url, f.link,
     f.last_refreshed,
     (SELECT COUNT(*) FROM episodes e WHERE e.feed_id = f.id AND e.played = 0),
-    f.auto_download_latest, f.keep_rule, f.keep_count";
+    f.auto_download_latest, f.keep_rule, f.keep_count,
+    (SELECT group_concat(a.url, char(10)) FROM feed_aliases a WHERE a.feed_id = f.id)";
 
 const EPISODE_COLUMNS: &str = "id, feed_id, guid, title, description, published, duration_ms,
     enclosure_url, enclosure_type, enclosure_length, season, episode, explicit, artwork_url,
@@ -143,6 +154,14 @@ impl Store {
         let summary = upsert_episodes(&tx, feed_id, &parsed.episodes, now)?;
         tx.commit()?;
         Ok((feed_id, summary))
+    }
+
+    pub fn add_alias(&self, feed_id: i64, url: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO feed_aliases (url, feed_id) VALUES (?1, ?2)",
+            params![url, feed_id],
+        )?;
+        Ok(())
     }
 
     pub fn touch_refreshed(&self, feed_id: i64) -> Result<()> {
@@ -494,6 +513,11 @@ fn feed_from_row(row: &Row) -> rusqlite::Result<Feed> {
     Ok(Feed {
         id: row.get(0)?,
         url: row.get(1)?,
+        // Addresses cannot contain a line break, so one separates them.
+        aliases: row
+            .get::<_, Option<String>>(12)?
+            .map(|joined| joined.lines().map(str::to_owned).collect())
+            .unwrap_or_default(),
         title: row.get(2)?,
         author: row.get(3)?,
         description: row.get(4)?,

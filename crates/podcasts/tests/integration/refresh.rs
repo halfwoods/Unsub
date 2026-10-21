@@ -1,4 +1,4 @@
-use unsub_podcasts::{Error, Podcasts};
+use unsub_podcasts::{Error, Feed, FetchedUpdate, Podcasts};
 
 use crate::common::{Env, fixture};
 
@@ -92,6 +92,86 @@ fn refresh_adds_only_the_new_episodes_and_renames_in_place() {
     assert!(env.podcasts.refresh(feed.id).unwrap().not_modified);
     let last = env.server.requests_for("/feed.xml").pop().unwrap();
     assert_eq!(last.if_none_match.as_deref(), Some("\"v2\""));
+}
+
+#[test]
+fn a_refresh_can_be_fetched_before_it_is_stored() {
+    let mut env = Env::new();
+    env.server
+        .serve_feed_with_etag("/feed.xml", "feed.xml", "\"v1\"");
+    let feed = env
+        .podcasts
+        .subscribe(&env.server.url("/feed.xml"))
+        .unwrap();
+    env.server
+        .serve_feed_with_etag("/feed.xml", "feed_updated.xml", "\"v2\"");
+
+    let request = env.podcasts.refresh_request(feed.id).unwrap();
+    // Nothing needs the store while the server is being asked.
+    let update = request.fetch().unwrap();
+    let summary = env.podcasts.save_update(update).unwrap();
+    assert_eq!((summary.new_episodes, summary.updated_episodes), (1, 1));
+
+    let request = env.podcasts.refresh_request(feed.id).unwrap();
+    let summary = env.podcasts.save_update(request.fetch().unwrap()).unwrap();
+    assert!(summary.not_modified);
+}
+
+/// A refresh fetched for the feed at `/a.xml`, which is then unsubscribed; `changed` says whether
+/// the server had something new for it or answered "not modified".
+fn refresh_of_unsubscribed_feed(env: &mut Env, changed: bool) -> (Feed, FetchedUpdate) {
+    env.server
+        .serve_feed_with_etag("/a.xml", "feed.xml", "\"v1\"");
+    let feed = env.podcasts.subscribe(&env.server.url("/a.xml")).unwrap();
+    if changed {
+        env.server
+            .serve_feed_with_etag("/a.xml", "feed_updated.xml", "\"v2\"");
+    }
+    let update = env
+        .podcasts
+        .refresh_request(feed.id)
+        .unwrap()
+        .fetch()
+        .unwrap();
+    env.podcasts.unsubscribe(feed.id, false).unwrap();
+    (feed, update)
+}
+
+#[test]
+fn a_refresh_that_finishes_after_its_feed_was_unsubscribed_is_dropped() {
+    for changed in [true, false] {
+        let mut env = Env::new();
+        let (feed, update) = refresh_of_unsubscribed_feed(&mut env, changed);
+
+        let result = env.podcasts.save_update(update);
+
+        assert!(
+            matches!(result, Err(Error::FeedNotFound(id)) if id == feed.id),
+            "changed: {changed}"
+        );
+        assert!(env.podcasts.feeds().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_refresh_does_not_touch_another_show_that_took_over_its_feed_id() {
+    for changed in [true, false] {
+        let mut env = Env::new();
+        let (feed, update) = refresh_of_unsubscribed_feed(&mut env, changed);
+        env.server.serve_fixture("/b.xml", "atom.xml");
+        let other = env.podcasts.subscribe(&env.server.url("/b.xml")).unwrap();
+        assert_eq!(other.id, feed.id, "the id is reused");
+        let episodes = env.podcasts.episodes(other.id).unwrap();
+
+        let result = env.podcasts.save_update(update);
+
+        assert!(
+            matches!(result, Err(Error::FeedNotFound(_))),
+            "changed: {changed}"
+        );
+        assert_eq!(env.podcasts.feeds().unwrap(), std::slice::from_ref(&other));
+        assert_eq!(env.podcasts.episodes(other.id).unwrap(), episodes);
+    }
 }
 
 #[test]

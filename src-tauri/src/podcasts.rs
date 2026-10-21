@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use unsub_library::{MediaKind, TrackOverrides};
-use unsub_podcasts::{Episode, Feed, FeedSettings, Podcasts};
+use unsub_podcasts::{
+    CATEGORIES, Category, Directory, Episode, Feed, FeedSettings, Listing, Listings, Podcasts, default_directory, podcasts_app,
+};
 
 use crate::error::{CommandError, CommandResult};
 use crate::jobs::{self, Job, Kind};
@@ -14,8 +17,23 @@ use crate::library::{self, LibraryState};
 pub const CHANGED_EVENT: &str = "podcasts://changed";
 pub const PROGRESS_EVENT: &str = "podcasts://progress";
 
+/// A chart that the fallback directory answered is asked of the first one again after this long.
+const FALLBACK_CHART_TTL: Duration = Duration::from_secs(5 * 60);
+
 fn to_error(error: unsub_podcasts::Error) -> CommandError {
     CommandError::from(error.to_string())
+}
+
+/// Runs work that waits on the network or the disk on the threads made for that, so that a few of
+/// them in flight cannot take every worker the async commands share.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> unsub_podcasts::Result<T> + Send + 'static) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|error| CommandError::from(error.to_string()))?.map_err(to_error)
+}
+
+struct CachedChart {
+    listings: Listings,
+    /// When a fallback answer expires; an answer from the directory asked first lasts the session.
+    until: Option<Instant>,
 }
 
 /// Podcast subscriptions, plus which library track each downloaded episode became.
@@ -28,6 +46,10 @@ pub struct PodcastsState {
     tracks: Mutex<HashMap<i64, i64>>,
     /// Downloads run one at a time on their own store handle; the UI stays responsive meanwhile.
     download_lock: Arc<Mutex<()>>,
+    /// Searched without the store locked, since a slow directory shouldn't hold up the shows already followed.
+    directory: Arc<dyn Directory>,
+    /// Charts change slowly, so each is fetched once per run; a search is always fresh.
+    top_shows: Mutex<HashMap<Option<u32>, CachedChart>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -46,6 +68,8 @@ impl PodcastsState {
             tracks_path,
             tracks: Mutex::new(tracks),
             download_lock: Arc::new(Mutex::new(())),
+            directory: Arc::from(default_directory()),
+            top_shows: Mutex::new(HashMap::new()),
         })
     }
 
@@ -117,13 +141,14 @@ pub struct EpisodeView {
     track_id: Option<i64>,
 }
 
+// Async, so a store that is busy makes these wait on a worker thread and not freeze the window.
 #[tauri::command]
-pub fn podcasts_feeds(state: State<'_, PodcastsState>) -> CommandResult<Vec<Feed>> {
+pub async fn podcasts_feeds(state: State<'_, PodcastsState>) -> CommandResult<Vec<Feed>> {
     lock(&state.store).feeds().map_err(to_error)
 }
 
 #[tauri::command]
-pub fn podcasts_episodes(state: State<'_, PodcastsState>, feed_id: i64) -> CommandResult<Vec<EpisodeView>> {
+pub async fn podcasts_episodes(state: State<'_, PodcastsState>, feed_id: i64) -> CommandResult<Vec<EpisodeView>> {
     let episodes = lock(&state.store).episodes(feed_id).map_err(to_error)?;
     let tracks = lock(&state.tracks);
     Ok(episodes.into_iter().map(|episode| EpisodeView { track_id: tracks.get(&episode.id).copied(), episode }).collect())
@@ -131,14 +156,56 @@ pub fn podcasts_episodes(state: State<'_, PodcastsState>, feed_id: i64) -> Comma
 
 #[tauri::command]
 pub async fn podcasts_subscribe(app: AppHandle, state: State<'_, PodcastsState>, url: String) -> CommandResult<Feed> {
-    let feed = lock(&state.store).subscribe(url.trim()).map_err(to_error)?;
+    // The fetch can take a minute; only the quick save holds the store.
+    let url = url.trim().to_owned();
+    let fetched = blocking(move || Podcasts::fetch(&url)).await?;
+    let feed = lock(&state.store).save_fetched(fetched).map_err(to_error)?;
     let _ = app.emit(CHANGED_EVENT, ());
     queue_auto_downloads(&app);
     Ok(feed)
 }
 
 #[tauri::command]
-pub fn podcasts_unsubscribe(app: AppHandle, state: State<'_, PodcastsState>, feed_id: i64, delete_files: bool) -> CommandResult<()> {
+pub fn podcasts_directory_categories() -> &'static [Category] {
+    CATEGORIES
+}
+
+#[tauri::command]
+pub async fn podcasts_directory_search(state: State<'_, PodcastsState>, term: String) -> CommandResult<Listings> {
+    let directory = Arc::clone(&state.directory);
+    blocking(move || directory.search(&term)).await
+}
+
+#[tauri::command]
+pub async fn podcasts_directory_top(state: State<'_, PodcastsState>, category: Option<u32>) -> CommandResult<Listings> {
+    let cached = lock(&state.top_shows)
+        .get(&category)
+        .filter(|chart| chart.until.is_none_or(|until| Instant::now() < until))
+        .map(|chart| chart.listings.clone());
+    if let Some(listings) = cached {
+        return Ok(listings);
+    }
+    let directory = Arc::clone(&state.directory);
+    let listings = blocking(move || directory.top(category)).await?;
+    let until = (listings.source != state.directory.source()).then(|| Instant::now() + FALLBACK_CHART_TTL);
+    lock(&state.top_shows).insert(category, CachedChart { listings: listings.clone(), until });
+    Ok(listings)
+}
+
+/// The shows followed in the Mac's Podcasts app. Reading its library is what makes macOS ask the user for permission, so
+/// this runs only when they choose to import.
+#[tauri::command]
+pub async fn podcasts_app_shows(app: AppHandle) -> CommandResult<Vec<Listing>> {
+    if !cfg!(target_os = "macos") {
+        return Err(CommandError::from("The Podcasts app is only on a Mac.".to_owned()));
+    }
+    let home = app.path().home_dir().map_err(|error| CommandError::from(error.to_string()))?;
+    blocking(move || podcasts_app::followed_shows(&podcasts_app::library_path(&home))).await
+}
+
+// The commands below take the store, which a download or a refresh can hold for a moment, so they wait on a worker and not on the main thread.
+#[tauri::command]
+pub async fn podcasts_unsubscribe(app: AppHandle, state: State<'_, PodcastsState>, feed_id: i64, delete_files: bool) -> CommandResult<()> {
     lock(&state.store).unsubscribe(feed_id, delete_files).map_err(to_error)?;
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())
@@ -147,15 +214,16 @@ pub fn podcasts_unsubscribe(app: AppHandle, state: State<'_, PodcastsState>, fee
 /// Refreshes one feed or all of them, then fetches whatever the auto-download rules now want.
 #[tauri::command]
 pub async fn podcasts_refresh(app: AppHandle, state: State<'_, PodcastsState>, feed_id: Option<i64>) -> CommandResult<()> {
-    {
-        let mut store = lock(&state.store);
-        match feed_id {
-            Some(id) => {
-                store.refresh(id).map_err(to_error)?;
-            }
-            None => {
-                store.refresh_all().map_err(to_error)?;
-            }
+    let feed_ids = match feed_id {
+        Some(id) => vec![id],
+        None => lock(&state.store).feeds().map_err(to_error)?.into_iter().map(|feed| feed.id).collect(),
+    };
+    for id in feed_ids {
+        let refreshed = refresh_feed(&state, id).await;
+        // Refreshing one feed reports why it failed; refreshing all goes on past a feed that fails,
+        // such as one that was unsubscribed while the others were being fetched.
+        if feed_id.is_some() {
+            refreshed?;
         }
     }
     let _ = app.emit(CHANGED_EVENT, ());
@@ -163,13 +231,20 @@ pub async fn podcasts_refresh(app: AppHandle, state: State<'_, PodcastsState>, f
     Ok(())
 }
 
+/// The store is held to read what to ask and to save the answer, not while waiting for the server.
+async fn refresh_feed(state: &PodcastsState, feed_id: i64) -> CommandResult<()> {
+    let request = lock(&state.store).refresh_request(feed_id).map_err(to_error)?;
+    let update = blocking(move || request.fetch()).await?;
+    lock(&state.store).save_update(update).map(drop).map_err(to_error)
+}
+
 #[tauri::command]
-pub fn podcasts_set_settings(state: State<'_, PodcastsState>, feed_id: i64, settings: FeedSettings) -> CommandResult<()> {
+pub async fn podcasts_set_settings(state: State<'_, PodcastsState>, feed_id: i64, settings: FeedSettings) -> CommandResult<()> {
     lock(&state.store).set_settings(feed_id, settings).map_err(to_error)
 }
 
 #[tauri::command]
-pub fn podcasts_set_played(app: AppHandle, state: State<'_, PodcastsState>, episode_id: i64, played: bool) -> CommandResult<()> {
+pub async fn podcasts_set_played(app: AppHandle, state: State<'_, PodcastsState>, episode_id: i64, played: bool) -> CommandResult<()> {
     lock(&state.store).set_played(episode_id, played).map_err(to_error)?;
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())

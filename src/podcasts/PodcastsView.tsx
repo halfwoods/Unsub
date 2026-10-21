@@ -14,7 +14,12 @@ import {
 import type { FeedSettings, KeepRule, PodcastEpisode, PodcastFeed } from "../api/types";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
+import { IS_MAC } from "../util/platform";
+import { FindPodcastsSheet, ImportFromPodcastsAppSheet } from "./FindPodcasts";
 import "./PodcastsView.css";
+
+/** A batch of subscriptions announces a change per show; one reload after the last is enough. */
+const RELOAD_DELAY_MS = 250;
 
 /** Feeds put HTML in descriptions; the list shows plain text only, so a feed can't inject markup. */
 function plainText(html: string) {
@@ -123,9 +128,10 @@ export function PodcastsView() {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const [selectedFeed, setSelectedFeed] = useState<number | null>(null);
   const [progress, setProgress] = useState<Record<number, number>>({});
-  const [sheet, setSheet] = useState<"subscribe" | "settings" | null>(null);
+  const [sheet, setSheet] = useState<"find" | "import" | "subscribe" | "settings" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const playTrackIds = useApp((s) => s.playTrackIds);
+  const showNotice = useApp((s) => s.showNotice);
 
   useEffect(() => {
     const load = () =>
@@ -135,11 +141,18 @@ export function PodcastsView() {
         setEpisodes(Object.fromEntries(loaded));
       });
     load();
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
     const subscriptions = [
-      onPodcastsChanged(load),
+      onPodcastsChanged(() => {
+        clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(load, RELOAD_DELAY_MS);
+      }),
       onPodcastProgress(({ episodeId, done, total }) => setProgress((p) => ({ ...p, [episodeId]: total ? done / total : 0 }))),
     ];
-    return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
+    return () => {
+      clearTimeout(reloadTimer);
+      subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
+    };
   }, []);
 
   if (!feeds) return <div className="podcasts" />;
@@ -166,10 +179,15 @@ export function PodcastsView() {
         {feeds.length === 0 && (
           <div className="podcasts-empty">
             <h1>Podcasts</h1>
-            <p>Subscribe to any podcast with its feed address. New episodes download automatically if you want, and you keep the files.</p>
-            <button className="push-button" onClick={() => setSheet("subscribe")}>
-              Subscribe to Podcast…
-            </button>
+            <p>Find a podcast by name, or subscribe to any podcast with its feed address. New episodes download automatically if you want, and you keep the files.</p>
+            <div className="podcasts-empty-buttons">
+              <button className="push-button push-button--default" onClick={() => setSheet("find")}>
+                Find Podcasts…
+              </button>
+              <button className="push-button" onClick={() => setSheet("subscribe")}>
+                Subscribe to Podcast…
+              </button>
+            </div>
           </div>
         )}
         {feeds.map((f) => {
@@ -234,15 +252,27 @@ export function PodcastsView() {
         })}
       </div>
       <div className="party-bar podcasts-bar">
-        <button className="push-button" onClick={() => setSheet("subscribe")}>
-          Subscribe to Podcast…
-        </button>
+        <div className="podcasts-bar-start">
+          <button className="push-button" onClick={() => setSheet("find")}>
+            Find Podcasts…
+          </button>
+          {IS_MAC && (
+            <button className="push-button" onClick={() => setSheet("import")}>
+              Import from Podcasts app…
+            </button>
+          )}
+          <button className="push-button" onClick={() => setSheet("subscribe")}>
+            Subscribe to Podcast…
+          </button>
+        </div>
         <button
           className="push-button"
           disabled={refreshing}
           onClick={() => {
             setRefreshing(true);
-            void podcastsRefresh(null).finally(() => setRefreshing(false));
+            void podcastsRefresh(null)
+              .catch((e: unknown) => showNotice(String(e)))
+              .finally(() => setRefreshing(false));
           }}
         >
           {refreshing ? "Refreshing…" : "Refresh"}
@@ -254,6 +284,8 @@ export function PodcastsView() {
           Unsubscribe
         </button>
       </div>
+      {sheet === "find" && <FindPodcastsSheet feeds={feeds} onClose={() => setSheet(null)} />}
+      {sheet === "import" && <ImportFromPodcastsAppSheet feeds={feeds} onClose={() => setSheet(null)} />}
       {sheet === "subscribe" && <SubscribeSheet onClose={() => setSheet(null)} />}
       {sheet === "settings" && feed && <SettingsSheet feed={feed} onClose={() => setSheet(null)} />}
     </div>

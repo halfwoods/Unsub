@@ -13,6 +13,29 @@ pub(crate) const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(30);
 const FEED_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 const FEED_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Directory replies are a page of results, a few hundred kilobytes at most.
+const DIRECTORY_SIZE_LIMIT: u64 = 8 * 1024 * 1024;
+
+/// How long a directory request may take to connect, and in all.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Budget {
+    pub connect: Duration,
+    pub total: Duration,
+}
+
+impl Budget {
+    pub const PATIENT: Budget = Budget {
+        connect: Duration::from_secs(15),
+        total: Duration::from_secs(20),
+    };
+    /// For a directory that has another to fall back on, where a hang should count as a failure
+    /// soon enough that the person waiting does not notice.
+    pub const QUICK: Budget = Budget {
+        connect: Duration::from_secs(4),
+        total: Duration::from_secs(8),
+    };
+}
+
 /// Cache validators the server handed out with a feed, replayed to get `304 Not Modified`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Validators {
@@ -121,6 +144,42 @@ pub(crate) fn fetch_feed(
         body,
         validators,
     }))
+}
+
+/// A directory lookup: the body of a successful reply to `url` with `query` added to it and
+/// `headers` sent along (for the ones that want a key).
+pub(crate) fn fetch_directory(
+    agent: &ureq::Agent,
+    url: &str,
+    query: &[(&str, &str)],
+    headers: &[(&str, &str)],
+    budget: Budget,
+) -> Result<Vec<u8>> {
+    let mut request = agent
+        .get(url)
+        .query_pairs(query.iter().copied())
+        .header("Accept", "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let mut response = request
+        .config()
+        .timeout_connect(Some(budget.connect))
+        .timeout_global(Some(budget.total))
+        .build()
+        .call()?;
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(Error::Status {
+            status,
+            url: url.to_owned(),
+        });
+    }
+    Ok(response
+        .body_mut()
+        .with_config()
+        .limit(DIRECTORY_SIZE_LIMIT)
+        .read_to_vec()?)
 }
 
 pub(crate) fn header<B>(response: &ureq::http::Response<B>, name: &str) -> Option<String> {

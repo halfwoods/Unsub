@@ -2,7 +2,9 @@ name: Release
 
 # Pushing a tag such as v0.1.0 builds signed installers and opens a draft GitHub release.
 # Run by hand (Actions > Release > Run workflow) with "sign" off to rehearse the pipeline with
-# ad hoc signing and no secrets; that never publishes anything.
+# ad hoc signing and no signing secrets; that never publishes anything. The Podcast Index key and
+# secret (below) are compiled into rehearsal builds too, whose binaries expose them just as the
+# shipped app does.
 #
 # Repository secrets (Settings > Secrets and variables > Actions):
 #   macOS    APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
@@ -16,6 +18,8 @@ name: Release
 #   Updates  TAURI_SIGNING_PRIVATE_KEY   optional: the updater key from `tauri signer generate`
 #            TAURI_SIGNING_PRIVATE_KEY_PASSWORD   (without it the release has no latest.json;
 #                                         see scripts/UPDATES.md)
+#   Podcasts PODCASTINDEX_API_KEY        optional: Podcast Index API key and secret, compiled into the app;
+#            PODCASTINDEX_API_SECRET     without both, podcast search uses Apple's public directory
 # These are the variable names of Tauri's code-signing guides
 # (https://v2.tauri.app/distribute/sign/macos/ and .../windows/).
 
@@ -139,9 +143,23 @@ jobs:
             { echo "::error::identity '$APPLE_SIGNING_IDENTITY' is not in the imported certificate"; exit 1; }
           echo "CODESIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
+      - name: Check the Podcast Index keys
+        env:
+          PODCASTINDEX_API_KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
+          PODCASTINDEX_API_SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
+        run: |
+          if [ -n "$PODCASTINDEX_API_KEY" ] && [ -n "$PODCASTINDEX_API_SECRET" ]; then
+            echo "Podcast Index: on"
+          else
+            echo "::warning::PODCASTINDEX_API_KEY or PODCASTINDEX_API_SECRET is not set: podcast search falls back to Apple's directory"
+          fi
+
       # No APPLE_* variables here on purpose: Tauri would sign and notarize this bundle, but
       # FFmpeg is only embedded afterwards, which invalidates both. See the steps below.
       - name: Build the app bundle
+        env:
+          PODCASTINDEX_API_KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
+          PODCASTINDEX_API_SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
         run: pnpm exec tauri build --ci --target ${{ matrix.target }} --bundles app --config .github/tauri/macos-release.conf.json
       - name: Locate the bundle
         run: |
@@ -285,8 +303,23 @@ jobs:
           } } } | ConvertTo-Json -Depth 5 | Set-Content -Path $overlay
           Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_SIGN_CONFIG=$overlay"
 
+      - name: Check the Podcast Index keys
+        shell: pwsh
+        env:
+          PODCASTINDEX_API_KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
+          PODCASTINDEX_API_SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
+        run: |
+          if ($env:PODCASTINDEX_API_KEY -and $env:PODCASTINDEX_API_SECRET) {
+            Write-Host 'Podcast Index: on'
+          } else {
+            Write-Host "::warning::PODCASTINDEX_API_KEY or PODCASTINDEX_API_SECRET is not set: podcast search falls back to Apple's directory"
+          }
+
       - name: Build the installers
         shell: pwsh
+        env:
+          PODCASTINDEX_API_KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
+          PODCASTINDEX_API_SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
         run: |
           $arguments = @('--ci', '--bundles', 'nsis,msi', '--config', '.github/tauri/windows-release.conf.json')
           if ($env:WINDOWS_SIGN_CONFIG) { $arguments += @('--config', $env:WINDOWS_SIGN_CONFIG) }

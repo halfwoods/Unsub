@@ -134,6 +134,36 @@ fn redirects_are_followed_and_the_final_url_is_stored() {
 }
 
 #[test]
+fn the_address_a_redirected_feed_was_asked_for_is_remembered_once() {
+    let mut env = Env::new();
+    env.server.serve_fixture("/feed.xml", "feed.xml");
+    env.server.redirect("/old/feed.xml", "/feed.xml");
+    let asked = env.server.url("/old/feed.xml");
+
+    let feed = env.podcasts.subscribe(&asked).unwrap();
+    let again = env.podcasts.subscribe(&asked).unwrap();
+
+    assert_eq!(feed.aliases, std::slice::from_ref(&asked));
+    assert_eq!(again.id, feed.id);
+    assert_eq!(again.aliases, [asked]);
+    // Feeds that did not redirect have nothing to remember.
+    let (_, plain) = Env::subscribed();
+    assert!(plain.aliases.is_empty());
+}
+
+#[test]
+fn a_fetched_feed_can_be_stored_later_by_another_handle() {
+    let mut env = Env::new();
+    env.server.serve_fixture("/feed.xml", "feed.xml");
+
+    let fetched = Podcasts::fetch(&env.server.url("/feed.xml")).unwrap();
+    let feed = env.podcasts.save_fetched(fetched).unwrap();
+
+    assert_eq!(feed.title, "Test Cast");
+    assert_eq!(env.podcasts.feeds().unwrap(), [feed]);
+}
+
+#[test]
 fn itpc_and_podcast_schemes_are_normalized() {
     let mut env = Env::new();
     env.server.serve_fixture("/feed.xml", "feed.xml");

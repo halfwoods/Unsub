@@ -16,6 +16,20 @@ pub enum Error {
     Opml(String),
     #[error("invalid feed URL: {0}")]
     InvalidUrl(String),
+    #[error("unexpected reply from the podcast directory: {0}")]
+    Directory(String),
+    #[error(
+        "Unsub couldn't find the Podcasts app's library. Open the Podcasts app once, then try again."
+    )]
+    PodcastsAppMissing,
+    #[error(
+        "Unsub isn't allowed to read the Podcasts app's library. Turn Unsub on in System Settings › Privacy & Security › Full Disk Access, then try again."
+    )]
+    PodcastsAppDenied,
+    #[error(
+        "the Podcasts app's library is laid out in a way this version of Unsub doesn't recognize"
+    )]
+    PodcastsAppLayout,
     #[error("feed {0} not found")]
     FeedNotFound(i64),
     #[error("episode {0} not found")]

@@ -1,12 +1,14 @@
 //! iTunes-style podcast subscriptions: feeds, episodes, downloads and listening state, kept in
 //! their own SQLite database apart from the music library.
 
+mod directory;
 mod download;
 mod error;
 mod feed;
 mod http;
 mod model;
 mod opml;
+pub mod podcasts_app;
 mod stall;
 mod store;
 
@@ -17,8 +19,73 @@ use std::time::Duration;
 
 use store::Store;
 
+pub use directory::{
+    CATEGORIES, Category, Directory, Listing, Listings, Source, default_directory,
+};
 pub use error::{Error, Result};
 pub use model::{Episode, Feed, FeedSettings, KeepRule, RefreshSummary};
+
+/// A feed that has been fetched and parsed but not stored. Fetching needs no store, so the app
+/// can do it without holding up whatever else is using the store.
+pub struct FetchedFeed {
+    /// The address the feed was asked for, before any redirect.
+    requested_url: String,
+    final_url: String,
+    parsed: feed::ParsedFeed,
+    validators: http::Validators,
+}
+
+fn fetch_new(agent: &ureq::Agent, feed_url: &str) -> Result<FetchedFeed> {
+    let url = http::normalize_feed_url(feed_url)?;
+    let response =
+        http::fetch_feed(agent, &url, &http::Validators::default())?.ok_or_else(|| {
+            Error::Status {
+                status: 304,
+                url: url.clone(),
+            }
+        })?;
+    Ok(FetchedFeed {
+        requested_url: url,
+        final_url: response.final_url,
+        parsed: feed::parse(&response.body)?,
+        validators: response.validators,
+    })
+}
+
+/// What a stored feed needs to be asked for its changes. It is read from the store, so the
+/// request itself can be made without one.
+pub struct RefreshRequest {
+    feed_id: i64,
+    url: String,
+    validators: http::Validators,
+}
+
+impl RefreshRequest {
+    /// The network half of [`Podcasts::refresh`]. Pass the result to [`Podcasts::save_update`].
+    pub fn fetch(self) -> Result<FetchedUpdate> {
+        self.fetch_with(&http::agent(http::DEFAULT_STALL_TIMEOUT))
+    }
+
+    fn fetch_with(self, agent: &ureq::Agent) -> Result<FetchedUpdate> {
+        let changed = match http::fetch_feed(agent, &self.url, &self.validators)? {
+            Some(response) => Some((feed::parse(&response.body)?, response.validators)),
+            None => None,
+        };
+        Ok(FetchedUpdate {
+            feed_id: self.feed_id,
+            url: self.url,
+            changed,
+        })
+    }
+}
+
+/// A feed's answer to a refresh, not yet stored.
+pub struct FetchedUpdate {
+    feed_id: i64,
+    url: String,
+    /// `None` when the server said nothing had changed.
+    changed: Option<(feed::ParsedFeed, http::Validators)>,
+}
 
 pub struct Podcasts {
     store: Store,
@@ -43,19 +110,31 @@ impl Podcasts {
         self.agent = http::agent(timeout);
     }
 
+    /// The network half of [`Podcasts::subscribe`], for callers that must not hold a store while
+    /// waiting on a slow server. Pass the result to [`Podcasts::save_fetched`].
+    pub fn fetch(feed_url: &str) -> Result<FetchedFeed> {
+        fetch_new(&http::agent(http::DEFAULT_STALL_TIMEOUT), feed_url)
+    }
+
     /// Fetches and stores the feed under its post-redirect URL. Subscribing to a feed that is
     /// already stored refreshes it instead of adding a duplicate.
     pub fn subscribe(&mut self, feed_url: &str) -> Result<Feed> {
-        let url = http::normalize_feed_url(feed_url)?;
-        let response = http::fetch_feed(&self.agent, &url, &http::Validators::default())?
-            .ok_or_else(|| Error::Status {
-                status: 304,
-                url: url.clone(),
-            })?;
-        let parsed = feed::parse(&response.body)?;
-        let (feed_id, _) =
-            self.store
-                .save_feed(None, &response.final_url, &parsed, &response.validators)?;
+        let fetched = fetch_new(&self.agent, feed_url)?;
+        self.save_fetched(fetched)
+    }
+
+    /// Stores the feed under its post-redirect URL and remembers the address it was asked for,
+    /// which directories list instead of it, so the show can be recognised as followed.
+    pub fn save_fetched(&mut self, fetched: FetchedFeed) -> Result<Feed> {
+        let (feed_id, _) = self.store.save_feed(
+            None,
+            &fetched.final_url,
+            &fetched.parsed,
+            &fetched.validators,
+        )?;
+        if fetched.requested_url != fetched.final_url {
+            self.store.add_alias(feed_id, &fetched.requested_url)?;
+        }
         self.store.feed(feed_id)
     }
 
@@ -77,18 +156,36 @@ impl Podcasts {
     }
 
     pub fn refresh(&mut self, feed_id: i64) -> Result<RefreshSummary> {
+        let update = self.refresh_request(feed_id)?.fetch_with(&self.agent)?;
+        self.save_update(update)
+    }
+
+    pub fn refresh_request(&self, feed_id: i64) -> Result<RefreshRequest> {
         let (url, validators) = self.store.fetch_target(feed_id)?;
-        let Some(response) = http::fetch_feed(&self.agent, &url, &validators)? else {
-            self.store.touch_refreshed(feed_id)?;
+        Ok(RefreshRequest {
+            feed_id,
+            url,
+            validators,
+        })
+    }
+
+    /// Fails with `FeedNotFound` if the feed was unsubscribed since the request was made, even
+    /// if another show has been given its id since.
+    pub fn save_update(&mut self, update: FetchedUpdate) -> Result<RefreshSummary> {
+        let (url, _) = self.store.fetch_target(update.feed_id)?;
+        if url != update.url {
+            return Err(Error::FeedNotFound(update.feed_id));
+        }
+        let Some((parsed, validators)) = update.changed else {
+            self.store.touch_refreshed(update.feed_id)?;
             return Ok(RefreshSummary {
                 not_modified: true,
                 ..RefreshSummary::default()
             });
         };
-        let parsed = feed::parse(&response.body)?;
         let (_, summary) =
             self.store
-                .save_feed(Some(feed_id), &url, &parsed, &response.validators)?;
+                .save_feed(Some(update.feed_id), &update.url, &parsed, &validators)?;
         Ok(summary)
     }
 

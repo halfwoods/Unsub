@@ -33,8 +33,11 @@ import type {
   OwnershipReport,
   FeedSettings,
   PartySettings,
+  PodcastCategory,
   PodcastEpisode,
   PodcastFeed,
+  PodcastListing,
+  PodcastListings,
   Purchase,
   RadioGenre,
   RadioLink,
@@ -269,6 +272,10 @@ export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => list
 export const podcastsFeeds = () => invoke<PodcastFeed[]>("podcasts_feeds");
 export const podcastsEpisodes = (feedId: number) => invoke<PodcastEpisode[]>("podcasts_episodes", { feedId });
 export const podcastsSubscribe = (url: string) => invoke<PodcastFeed>("podcasts_subscribe", { url });
+export const podcastsDirectoryCategories = () => invoke<PodcastCategory[]>("podcasts_directory_categories");
+export const podcastsDirectorySearch = (term: string) => invoke<PodcastListings>("podcasts_directory_search", { term });
+export const podcastsDirectoryTop = (category: number | null) => invoke<PodcastListings>("podcasts_directory_top", { category });
+export const podcastsAppShows = () => invoke<PodcastListing[]>("podcasts_app_shows");
 export const podcastsUnsubscribe = (feedId: number, deleteFiles: boolean) =>
   invoke<void>("podcasts_unsubscribe", { feedId, deleteFiles });
 export const podcastsRefresh = (feedId: number | null) => invoke<void>("podcasts_refresh", { feedId });

@@ -95,7 +95,7 @@ No. Your friends can see what you're listening to if you turn your screen toward
 It uses math, on your computer.
 
 **What does it send to the internet?**
-Only what you ask for: radio streams, podcast feeds, album info from MusicBrainz, and a check on GitHub for updates. No account, no analytics, no telemetry, and no server on our end.
+Only what you ask for: radio streams, podcast feeds and searches of a public podcast directory, album info from MusicBrainz, and a check on GitHub for updates. No account, no analytics, no telemetry, and no server on our end.
 
 **Which iPods?**
 Classic, video, mini, nano 1st–5th generation and shuffle 1st–4th generation. Not the nano 6th/7th generation (their database checksum was never cracked) and not iPod touch or iPhone (they use Apple's private sync protocol). On Windows, an iPod formatted on a Mac can't be read at all; that's a Windows limitation.

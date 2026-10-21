@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 # feed-rs was rejected: it drops the raw itunes:duration text (and mis-parses MM:SS), hides
 # per-item itunes:explicit and replaces a missing guid with a generated id.
@@ -14,9 +15,11 @@ atom_syndication = { version = "0.12", default-features = false }
 diligent-date-parser = "0.1"
 quick-xml = "0.41"
 rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+# Podcast Index signs each request with a SHA-1 of the key, secret and time.
+sha1 = "0.11"
 ureq = "3"
+# The Podcasts app's library is read from a private copy, never from the file the app has open.
+tempfile = "3"
 
 [dev-dependencies]
-serde_json.workspace = true
-tempfile = "3"
 tiny_http = "0.12"

@@ -680,6 +680,8 @@ export interface FeedSettings {
 export interface PodcastFeed {
   id: number;
   url: string;
+  /** Other addresses it was subscribed with, which redirect to `url`. */
+  aliases: string[];
   title: string;
   author: string;
   description: string;
@@ -688,6 +690,28 @@ export interface PodcastFeed {
   lastRefreshed: number | null;
   unplayedCount: number;
   settings: FeedSettings;
+}
+
+/** A show found in a directory, or followed in the Mac's Podcasts app, that can be subscribed to. */
+export interface PodcastListing {
+  feedUrl: string;
+  title: string;
+  author: string;
+  artworkUrl: string | null;
+  /** Empty when the source doesn't say. */
+  genre: string;
+  episodeCount: number | null;
+}
+
+export interface PodcastCategory {
+  id: number;
+  name: string;
+}
+
+/** Search or chart results, and the directory they came from, which is the fallback when the first choice failed. */
+export interface PodcastListings {
+  source: "apple" | "podcastIndex";
+  shows: PodcastListing[];
 }
 
 export interface PodcastEpisode {
