@@ -1,0 +1,35 @@
+name: Podcast Index key
+
+# Run by hand (Actions > Podcast Index key > Run workflow) to confirm the PODCASTINDEX_API_KEY and
+# PODCASTINDEX_API_SECRET secrets work, without ever printing them. Release builds bake the pair
+# into the app; a wrong pair only shows up as an empty podcast directory, so check it here first.
+
+on: workflow_dispatch
+
+permissions: {}
+
+jobs:
+  check:
+    name: Ask Podcast Index for one search
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Search with the stored key
+        env:
+          KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
+          SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
+        run: |
+          [ -n "$KEY" ] || { echo "::error::PODCASTINDEX_API_KEY is empty"; exit 1; }
+          [ -n "$SECRET" ] || { echo "::error::PODCASTINDEX_API_SECRET is empty"; exit 1; }
+          # Podcast Index signs each request with sha1(key + secret + unix time), valid for minutes.
+          now=$(date +%s)
+          auth=$(printf '%s%s%s' "$KEY" "$SECRET" "$now" | sha1sum | cut -d' ' -f1)
+          code=$(curl --silent --max-time 30 --output reply.json --write-out '%{http_code}' \
+            -H "User-Agent: Unsub/key-check" -H "X-Auth-Key: $KEY" -H "X-Auth-Date: $now" \
+            -H "Authorization: $auth" \
+            "https://api.podcastindex.org/api/1.0/search/byterm?q=history&max=5")
+          echo "Podcast Index answered HTTP $code with $(jq -r '.count // 0' reply.json 2>/dev/null || echo 0) results"
+          if [ "$code" != 200 ]; then
+            echo "::error::The key and secret were refused: $(jq -r '.description // empty' reply.json 2>/dev/null)"
+            exit 1
+          fi
