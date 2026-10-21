@@ -1,5 +1,6 @@
-//! Updates through tauri-plugin-updater: a check at launch (at most once a day), "Check for
-//! Updates…" in the app menu, and the download and install behind the UI's update sheet.
+//! Updates through tauri-plugin-updater: a check at launch and while the app stays open (at most
+//! once a day), "Check for Updates…" in the app menu, and the download and install behind the UI's
+//! update sheet.
 //!
 //! Nothing here contacts anyone unless tauri.conf.json carries a real public key and endpoint
 //! (`configured`), so a build made without the maintainer's signing key never offers updates and
@@ -7,7 +8,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -20,6 +21,13 @@ use crate::error::{CommandError, CommandResult};
 pub const RESULT_EVENT: &str = "updates://result";
 
 const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
+
+/// How often the watcher asks whether a check is due; the daily interval is enforced by the gate,
+/// this only bounds how late into a day a long-running app notices it has passed.
+const WATCH_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Keeps a hung request from still running when the watcher's next pass asks again.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Every minisign public key file starts "untrusted comment: …", and Tauri stores that file
 /// base64-encoded, so this is how a real key begins. The placeholder in tauri.conf.json does not.
@@ -53,10 +61,34 @@ impl Default for Settings {
     }
 }
 
+/// True once a day has passed since `since`.
+fn interval_passed(since: u64, now: u64) -> bool {
+    // A timestamp in the future means the clock was set back; waiting that out would silence checks.
+    since > now || now - since >= CHECK_INTERVAL_SECS
+}
+
 impl Settings {
     fn is_due(&self, now: u64) -> bool {
-        // A last check in the future means the clock was set back; waiting that out would silence checks.
-        self.auto_check && self.last_check.is_none_or(|last| last > now || now - last >= CHECK_INTERVAL_SECS)
+        self.auto_check && self.last_check.is_none_or(|last| interval_passed(last, now))
+    }
+}
+
+/// What this session has done with an offer. Never saved, so a relaunch starts clean.
+#[derive(Default)]
+struct Offer {
+    /// The sheet is up and the user hasn't answered it.
+    open: bool,
+    /// The user chose Download and Install and it hasn't failed yet.
+    installing: bool,
+    /// Unix seconds of the last "Remind Me Later" or closing of the sheet.
+    dismissed_at: Option<u64>,
+}
+
+impl Offer {
+    /// An unanswered offer is never stacked under another, and a dismissed one is left alone for a
+    /// full interval even if the check that found it ran longer ago than that.
+    fn allows_check(&self, now: u64) -> bool {
+        !self.open && self.dismissed_at.is_none_or(|at| interval_passed(at, now))
     }
 }
 
@@ -73,12 +105,37 @@ pub struct UpdatesState {
     settings: Mutex<Settings>,
     /// The update the sheet is showing, kept until the user decides.
     pending: Mutex<Option<Update>>,
+    offer: Mutex<Offer>,
 }
 
 impl UpdatesState {
     pub fn load(path: PathBuf) -> Self {
         let settings = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-        Self { path, settings: Mutex::new(settings), pending: Mutex::new(None) }
+        Self { path, settings: Mutex::new(settings), pending: Mutex::new(None), offer: Mutex::new(Offer::default()) }
+    }
+
+    /// Whether a check the user didn't ask for may run now.
+    fn is_due(&self, now: u64) -> bool {
+        lock(&self.settings).is_due(now) && lock(&self.offer).allows_check(now)
+    }
+
+    fn installing(&self) -> bool {
+        lock(&self.offer).installing
+    }
+
+    /// The update the sheet should be showing. A window that opened after the check finished, or
+    /// reloaded, never saw the event announcing it, so it asks for this instead.
+    fn open_offer(&self) -> Option<UpdateInfo> {
+        if !lock(&self.offer).open {
+            return None;
+        }
+        lock(&self.pending).as_ref().map(UpdateInfo::from)
+    }
+
+    fn offer_dismissed(&self, now: u64) {
+        let mut offer = lock(&self.offer);
+        offer.open = false;
+        offer.dismissed_at = Some(now);
     }
 
     fn save(&self) -> CommandResult<()> {
@@ -96,6 +153,16 @@ pub struct UpdateInfo {
     notes: Option<String>,
 }
 
+impl From<&Update> for UpdateInfo {
+    fn from(update: &Update) -> Self {
+        Self {
+            version: update.version.clone(),
+            current_version: update.current_version.clone(),
+            notes: update.body.clone().filter(|notes| !notes.trim().is_empty()),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CheckResult {
@@ -111,6 +178,8 @@ pub struct UpdatesStatus {
     configured: bool,
     auto_check: bool,
     current_version: String,
+    /// The offer still waiting for an answer, if any.
+    update: Option<UpdateInfo>,
 }
 
 #[derive(Clone, Serialize)]
@@ -128,17 +197,27 @@ pub enum InstallEvent {
 }
 
 async fn check<R: Runtime>(app: &AppHandle<R>) -> Result<Option<UpdateInfo>, String> {
-    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let mut update =
+        app.updater_builder().timeout(CHECK_TIMEOUT).build().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    if let Some(update) = &mut update {
+        // The plugin documents the builder's timeout as covering downloads too, which would cut a slow
+        // one off. 2.14 builds `Update` without it, but other 2.x versions may not.
+        update.timeout = None;
+    }
     let state = app.state::<UpdatesState>();
     lock(&state.settings).last_check = Some(now());
     // A failed write only means the next launch checks again.
     let _ = state.save();
-    let info = update.as_ref().map(|update| UpdateInfo {
-        version: update.version.clone(),
-        current_version: update.current_version.clone(),
-        notes: update.body.clone().filter(|notes| !notes.trim().is_empty()),
-    });
+    let info = update.as_ref().map(UpdateInfo::from);
+    // Held across the writes so an install starting now sees either all of them or none.
+    let mut offer = lock(&state.offer);
+    if offer.installing {
+        // The user clicked Download and Install while the request was out; refilling `pending`
+        // would bring the buttons back after a reload and allow a second install.
+        return Err("An update is already being installed".to_owned());
+    }
     *lock(&state.pending) = update;
+    offer.open |= info.is_some();
     Ok(info)
 }
 
@@ -146,6 +225,10 @@ async fn check<R: Runtime>(app: &AppHandle<R>) -> Result<Option<UpdateInfo>, Str
 pub fn run_check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        // Its sheet is mid-download; a fresh offer would refill `pending` and bring the buttons back.
+        if app.state::<UpdatesState>().installing() {
+            return;
+        }
         let result = match check(&app).await {
             Ok(update) => CheckResult { manual, update, error: None },
             Err(error) => CheckResult { manual, update: None, error: Some(error) },
@@ -154,11 +237,22 @@ pub fn run_check<R: Runtime>(app: &AppHandle<R>, manual: bool) {
     });
 }
 
-/// The launch-time check: only with a real key, only if the user allows it, at most once a day.
-pub fn check_on_launch<R: Runtime>(app: &AppHandle<R>) {
-    if configured(app) && lock(&app.state::<UpdatesState>().settings).is_due(now()) {
-        run_check(app, false);
+/// Checks at launch and then for the life of the app, so one left open for days still hears about
+/// updates. Every pass goes through the same gate: only with a real key, only if the user allows it
+/// (read each time, so switching it off needs no restart), at most once a day, and never over an
+/// offer that is still showing or was just dismissed.
+pub fn watch<R: Runtime>(app: AppHandle<R>) {
+    if !configured(&app) {
+        return;
     }
+    std::thread::spawn(move || {
+        loop {
+            if app.state::<UpdatesState>().is_due(now()) {
+                run_check(&app, false);
+            }
+            std::thread::sleep(WATCH_INTERVAL);
+        }
+    });
 }
 
 #[tauri::command]
@@ -167,6 +261,7 @@ pub fn updates_status(app: AppHandle, state: State<'_, UpdatesState>) -> Updates
         configured: configured(&app),
         auto_check: lock(&state.settings).auto_check,
         current_version: app.package_info().version.to_string(),
+        update: state.open_offer(),
     }
 }
 
@@ -176,10 +271,21 @@ pub fn updates_set_auto_check(state: State<'_, UpdatesState>, enabled: bool) -> 
     state.save()
 }
 
+/// The user waved the offer away; background checks leave it alone for another interval.
+#[tauri::command]
+pub fn updates_dismiss(state: State<'_, UpdatesState>) {
+    state.offer_dismissed(now());
+}
+
 /// Downloads and installs the update the sheet offered, then restarts into it.
 #[tauri::command]
 pub async fn updates_install(app: AppHandle, state: State<'_, UpdatesState>, on_event: Channel<InstallEvent>) -> CommandResult<()> {
-    let update = lock(&state.pending).take().ok_or_else(|| CommandError::from("There is no update to install".to_owned()))?;
+    let update = {
+        let mut offer = lock(&state.offer);
+        let update = lock(&state.pending).take().ok_or_else(|| CommandError::from("There is no update to install".to_owned()))?;
+        offer.installing = true;
+        update
+    };
     let mut started = false;
     let result = update
         .download_and_install(
@@ -198,6 +304,7 @@ pub async fn updates_install(app: AppHandle, state: State<'_, UpdatesState>, on_
     if let Err(error) = result {
         // Keep the offer so "Download and Install" can be tried again.
         *lock(&state.pending) = Some(update);
+        lock(&state.offer).installing = false;
         return Err(CommandError::from(error.to_string()));
     }
     app.restart()
@@ -236,7 +343,45 @@ mod tests {
         assert!(!settings(true, Some(1_000)).is_due(1_000 + day - 1));
         assert!(settings(true, Some(1_000)).is_due(1_000 + day));
         assert!(!settings(false, None).is_due(1_000 + day));
+        assert!(!settings(true, Some(1_000)).is_due(1_000 + WATCH_INTERVAL.as_secs()), "an hourly pass must not check hourly");
         assert!(settings(true, Some(5_000)).is_due(1_000), "a clock set back must not silence checks");
+    }
+
+    fn state_with(auto_check: bool, last_check: Option<u64>) -> UpdatesState {
+        let state = UpdatesState::load(PathBuf::from("/nonexistent/Updates.json"));
+        *lock(&state.settings) = Settings { auto_check, last_check };
+        state
+    }
+
+    #[test]
+    fn an_open_offer_is_never_stacked() {
+        let day = CHECK_INTERVAL_SECS;
+        let state = state_with(true, Some(1_000));
+        lock(&state.offer).open = true;
+        assert!(!state.is_due(1_000 + 3 * day));
+    }
+
+    #[test]
+    fn a_dismissed_offer_waits_a_full_interval_from_the_dismissal() {
+        let day = CHECK_INTERVAL_SECS;
+        // Found at 1_000, left open for almost a day; the check itself is already due again.
+        let state = state_with(true, Some(1_000));
+        lock(&state.offer).open = true;
+        let dismissed_at = 1_000 + day - 60;
+        state.offer_dismissed(dismissed_at);
+        assert!(!state.is_due(1_000 + day));
+        assert!(!state.is_due(dismissed_at + day - 1));
+        assert!(state.is_due(dismissed_at + day));
+        assert!(lock(&state.offer).allows_check(dismissed_at - 1), "a clock set back must not silence checks");
+    }
+
+    #[test]
+    fn an_offer_is_reported_only_while_the_sheet_waits_on_one() {
+        let state = state_with(true, None);
+        assert!(state.open_offer().is_none());
+        // Open with nothing pending is what an install in progress looks like.
+        lock(&state.offer).open = true;
+        assert!(state.open_offer().is_none());
     }
 
     #[test]

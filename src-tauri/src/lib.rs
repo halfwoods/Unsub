@@ -100,7 +100,7 @@ pub fn run() {
             library::check_missing(app.handle());
             remote::browse(app.handle());
             cd::watch(app.handle().clone());
-            updates::check_on_launch(app.handle());
+            updates::watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -214,6 +214,7 @@ pub fn run() {
             rescue::device_rescue,
             updates::updates_status,
             updates::updates_set_auto_check,
+            updates::updates_dismiss,
             updates::updates_install,
             sharing::sharing_status,
             sharing::sharing_update,

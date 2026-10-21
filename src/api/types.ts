@@ -745,6 +745,8 @@ export interface UpdatesStatus {
   configured: boolean;
   autoCheck: boolean;
   currentVersion: string;
+  /** An offer still waiting for an answer, for a window that missed the event announcing it. */
+  update: UpdateInfo | null;
 }
 
 /** A folder the welcome offers as a button. */

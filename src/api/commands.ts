@@ -292,6 +292,7 @@ export const onPurchasesChanged = (handler: () => void): Promise<UnlistenFn> => 
 
 export const updatesStatus = () => invoke<UpdatesStatus>("updates_status");
 export const updatesSetAutoCheck = (enabled: boolean) => invoke<void>("updates_set_auto_check", { enabled });
+export const updatesDismiss = () => invoke<void>("updates_dismiss");
 export const updatesInstall = (onEvent: (event: InstallEvent) => void) => {
   const channel = new Channel<InstallEvent>();
   channel.onmessage = onEvent;

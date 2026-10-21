@@ -2,8 +2,8 @@
 
 Installed copies update themselves from GitHub releases:
 
-- On launch (at most once a day, if *Preferences › General › Check for updates automatically* is on)
-  and from *Unsub › Check for Updates…*, the app fetches
+- At launch and while it stays open (about once a day, if *Preferences › General › Check for updates
+  automatically* is on), and from *Unsub › Check for Updates…*, the app fetches
   `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`.
 - GitHub's "latest" skips drafts and pre-releases, so an update goes live only when you publish the
   draft that `release.yml` creates.

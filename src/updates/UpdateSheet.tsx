@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { onUpdateResult, updatesInstall, updatesSetAutoCheck, updatesStatus } from "../api/commands";
+import { useEffect, useRef, useState } from "react";
+import { onUpdateResult, updatesDismiss, updatesInstall, updatesSetAutoCheck, updatesStatus } from "../api/commands";
 import type { UpdateInfo, UpdatesStatus } from "../api/types";
 import { useApp } from "../state/store";
 import "./UpdateSheet.css";
@@ -13,34 +13,50 @@ const megabytes = (bytes: number) => (bytes / 1_000_000).toFixed(1);
 
 /**
  * iTunes' "A new version is available" sheet. The backend decides when to look (at launch, once a
- * day, or from the app menu) and reports every outcome through one event; this only reacts to it.
+ * day while the app is open, or from the app menu) and reports every outcome through one event; this
+ * only reacts to it, and tells the backend when an offer is waved away so it isn't repeated at once.
  */
 export function UpdateSheet() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A ref because the listener below outlives every render; `progress` would be stale inside it.
+  const downloading = useRef(false);
 
   useEffect(() => {
+    const offer = (found: UpdateInfo) => {
+      // Resetting here mid-download would bring the buttons back and allow a second install.
+      if (downloading.current) return;
+      setUpdate(found);
+      setError(null);
+      setProgress(null);
+    };
     const subscription = onUpdateResult(({ manual, update: found, error: failure }) => {
       const { showNotice } = useApp.getState();
       if (found) {
-        setUpdate(found);
-        setError(null);
-        setProgress(null);
+        offer(found);
       } else if (manual) {
         showNotice(failure ? `Couldn't check for updates: ${failure}` : "Unsub is up to date");
       }
     });
+    // Events sent before the listener existed (launch races the mount, and a reload starts over) are
+    // gone, so ask for the offer the backend is still holding.
+    void subscription.then(() => updatesStatus()).then(({ update: waiting }) => waiting && offer(waiting));
     return () => void subscription.then((unlisten) => unlisten());
   }, []);
 
   if (!update) return null;
   const installing = progress !== null;
-  const remindLater = () => !installing && setUpdate(null);
+  const remindLater = () => {
+    if (installing) return;
+    setUpdate(null);
+    void updatesDismiss();
+  };
   const install = async () => {
     let done = 0;
     setError(null);
     setProgress({ done, total: null });
+    downloading.current = true;
     try {
       // On success the app restarts itself, so there is nothing to do afterwards.
       await updatesInstall((event) => {
@@ -51,6 +67,7 @@ export function UpdateSheet() {
         }
       });
     } catch (e) {
+      downloading.current = false;
       setError(String(e));
       setProgress(null);
     }
