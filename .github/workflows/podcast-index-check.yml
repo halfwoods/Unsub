@@ -40,3 +40,9 @@ jobs:
             echo "  reply fields: $(jq -c 'keys' reply.json)"
             echo "  first result: $(jq -c '(.feeds // [])[0] // {} | with_entries(.value |= type)' reply.json)"
           done
+          # The Top Shows picker sends these names as `cat`; an unknown name comes back empty.
+          for cat in Arts Business Comedy Education Fiction Government History Health Kids Leisure Music \
+            News Religion Science Society Sports Technology "True Crime" TV; do
+            ask "podcasts/trending?max=10&cat=$(jq -rn --arg c "$cat" '$c|@uri')" > /dev/null
+            echo "category $cat: $(jq -r '.count // 0' reply.json) trending shows"
+          done
