@@ -64,10 +64,12 @@ if [ "$status" != "Accepted" ]; then
 fi
 
 # Stapling fetches the ticket from Apple's CDN, which can drop the connection right after an
-# accepted submission; the notarization itself stands, so a few retries are all it needs. Staple
-# checks the ticket it attaches, so a separate `stapler validate` would only be another fetch to lose.
-for attempt in 1 2 3 4 5; do
+# accepted submission; the notarization itself stands, so retrying is all it needs. The drops have
+# lasted several minutes on the Intel runners, so the waits grow to about 14 minutes in all rather
+# than failing a build whose only missing piece is the ticket. Staple checks the ticket it attaches,
+# so a separate `stapler validate` would only be another fetch to lose.
+for attempt in 1 2 3 4 5 6 7 8; do
   xcrun stapler staple "$target" && break
-  [ "$attempt" -lt 5 ] || die "stapling failed after $attempt attempts"
-  sleep $((attempt * 15))
+  [ "$attempt" -lt 8 ] || die "stapling failed after $attempt attempts"
+  sleep $((attempt * 30))
 done
