@@ -37,7 +37,7 @@ It's inspired by classic iTunes, the good one from before it became a storefront
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/readme/03-cover-flow.png" alt="Cover Flow, centred on “You'll Own Nothing” by Rent Forever"><br><sub><b>Cover Flow.</b> It's back. It never should have left.</sub></td>
+    <td width="50%"><img src="docs/readme/03-album-artwork.png" alt="The Album Artwork view, centred on “You'll Own Nothing” by Rent Forever"><br><sub><b>Album Artwork.</b> It's back. It never should have left.</sub></td>
     <td width="50%"><img src="docs/readme/02-album-grid.png" alt="The album grid with twenty album covers"><br><sub><b>Album grid.</b> Your albums, all of them, not a "Shelf for you".</sub></td>
   </tr>
   <tr>

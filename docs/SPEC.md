@@ -28,7 +28,7 @@ src/                 React UI (the iTunes 10 window, drawn by us)
   theme/tokens.css   every measured size and color, one place
   chrome/            toolbar, LCD, transport, volume, view buttons, search, traffic lights, bottom bar
   sidebar/           source list (Library, Purchases, Devices, Shared, Mixes, Playlists)
-  browser/           song list, album list, grid, Cover Flow
+  browser/           song list, album list, grid, Album Artwork
   api/               typed wrappers around Tauri commands/events
 src-tauri/           Tauri shell: window, commands, events, app state
 crates/library/      SQLite library: scan, tags, artwork, queries, smart playlists, import
@@ -46,7 +46,7 @@ Points, 1x. Measured from iTunes 10.7 resources and Apple's 2010 marketing scree
 - **Transport** glossy silver circles: back/forward 31pt cells, play/pause 37pt cell. Centers x 54/92/129, y 32.
 - **Volume** speaker-low icon, 100pt track, 19pt knob, speaker-high icon. Same row as transport.
 - **LCD** 43pt tall, cream gradient `#F0F2E6 → #EAEDDB` top half, `#E5E9D1 → #F8FAE4` bottom half, border `#B2B2B2`/`#BEBEBE`/`#C4C4C4`, 1px white 25% highlight below. Idle: vinyl mark in `#494B3F → #545649`. Playing: title, alternating artist/album line, progress bar with elapsed/remaining.
-- **View buttons** 4 segments (list, album list, grid, Cover Flow), 27×23 each.
+- **View buttons** 4 segments (list, album list, grid, Album Artwork), 27×23 each.
 - **Search** capsule field ~22pt tall.
 - **Sidebar** `#DADEE7`, rows 24pt, section headers small caps bold gray. Selection gradient `#6AA6E0 → #2C71BE`, top `#5A92D3`, bottom `#085DAF`; unfocused `#C4CDDF → #9EACC6`.
 - **Bottom bar** 24pt, `#686868` top border, `#E3E3E3 → #B4B4B4`. Left: add playlist, shuffle, repeat, show artwork. Center: "N songs, X hours, Y GB". Right: speakers.
@@ -60,7 +60,7 @@ Each milestone ends with something you can run.
 3. **Playback** — play/pause/seek/next/previous, volume, LCD progress, play counts. FLAC, ALAC, AAC, MP3, Vorbis, WAV, AIFF.
 4. **Playlists** — playlists, folders, drag-and-drop, ratings, smart playlists (iTunes rule editor), Party Shuffle with Up Next.
 5. **Import** — Music/iTunes library import (XML and macOS iTunesLibrary.framework): play counts, ratings, playlists, date added.
-6. **Album views** — album list, grid, Cover Flow, artwork fetching (MusicBrainz / Cover Art Archive).
+6. **Album views** — album list, grid, Album Artwork, artwork fetching (MusicBrainz / Cover Art Archive).
 7. **Lossless / audiophile** — Opus, WavPack; bit-perfect output (Core Audio hog mode + sample-rate switching; WASAPI exclusive).
 8. **Podcasts & Audiobooks** — RSS subscriptions, auto-download, played state, chapters, resume position.
 9. **CD ripping** — ALAC/FLAC/AAC, MusicBrainz disc lookup, AccurateRip verification.
