@@ -32,11 +32,14 @@ jobs:
           # Each endpoint the app uses, with the shape of its first result: field names only.
           for path in "search/byterm?q=history&max=5" "podcasts/trending?max=5&cat=Technology" "categories/list"; do
             code=$(ask "$path")
+            # The service has brief outages; one retry tells a blip from a real failure.
+            case "$code" in 5??) sleep 10; code=$(ask "$path") ;; esac
             echo "Podcast Index answered HTTP $code for ${path%%\?*} with $(jq -r '.count // 0' reply.json 2>/dev/null || echo 0) results"
-            if [ "$code" != 200 ]; then
-              echo "::error::The key and secret were refused: $(jq -r '.description // empty' reply.json 2>/dev/null)"
-              exit 1
-            fi
+            case "$code" in
+              200) ;;
+              401|403) echo "::error::The key and secret were refused: $(jq -r '.description // empty' reply.json 2>/dev/null)"; exit 1 ;;
+              *) echo "::error::Podcast Index is having trouble (HTTP $code); the key may be fine, so try again later"; exit 1 ;;
+            esac
             echo "  reply fields: $(jq -c 'keys' reply.json)"
             echo "  first result: $(jq -c '(.feeds // [])[0] // {} | with_entries(.value |= type)' reply.json)"
           done
