@@ -120,7 +120,8 @@ export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean) {
 export async function showAlbumMenu(tracks: Track[]) {
   if (tracks.length === 0) return;
   const { playTrackIds, openLibrarySheet, showNotice } = useApp.getState();
-  const ids = tracks.map((t) => t.id);
+  // A playlist can hold a song twice; the album's songs are each counted, queued and deleted once.
+  const ids = [...new Set(tracks.map((t) => t.id))];
   const play = (shuffled: boolean) => void playTrackIds(ids, shuffled).catch((e: unknown) => showNotice(String(e)));
   await showMenu([
     { text: "Play", action: () => play(false) },
