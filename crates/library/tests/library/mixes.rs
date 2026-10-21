@@ -467,6 +467,50 @@ fn mix_artwork_comes_from_up_to_four_distinct_albums() {
 }
 
 #[test]
+fn mix_artwork_prefers_albums_with_a_file_on_this_mac() {
+    let mut tracks = catalogue();
+    let baseline = library_of(&tracks).mixes(10, 20).unwrap();
+    let jazz = baseline.iter().find(|m| m.key == "genre:jazz").unwrap();
+    let (gone, lone) = (jazz.artwork_track_ids[0], jazz.artwork_track_ids[1]);
+    let gone_album = tracks
+        .iter()
+        .find(|track| track.id == gone)
+        .unwrap()
+        .album
+        .clone();
+    // One album has no file here at all; the other has a single song still to
+    // download, which borrows a downloaded sibling's cover.
+    for track in tracks.iter_mut() {
+        track.in_cloud = track.album == gone_album || track.id == lone;
+    }
+
+    let mixes = library_of(&tracks).mixes(10, 20).unwrap();
+    let jazz = mixes.iter().find(|m| m.key == "genre:jazz").unwrap();
+
+    assert_eq!(
+        jazz.track_ids,
+        baseline
+            .iter()
+            .find(|m| m.key == "genre:jazz")
+            .unwrap()
+            .track_ids
+    );
+    assert_eq!(jazz.artwork_track_ids.len(), 4);
+    assert!(
+        !jazz.artwork_track_ids.contains(&gone),
+        "{:?}",
+        jazz.artwork_track_ids
+    );
+    assert_eq!(jazz.artwork_track_ids[0], lone, "keeps its place");
+
+    for track in tracks.iter_mut() {
+        track.in_cloud = true;
+    }
+    let all_in_cloud = library_of(&tracks).mixes(10, 20).unwrap();
+    assert!(all_in_cloud.iter().all(|m| !m.artwork_track_ids.is_empty()));
+}
+
+#[test]
 fn clusters_too_small_for_the_size_are_skipped_and_count_caps_the_result() {
     let library = library_of(&catalogue());
 

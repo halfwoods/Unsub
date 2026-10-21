@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { artworkUrl, libraryMixes, onLibraryChanged } from "../api/commands";
+import { libraryMixes, onLibraryChanged } from "../api/commands";
 import type { Mix } from "../api/types";
+import { Artwork } from "../browser/Artwork";
 import { useApp } from "../state/store";
 import "./MixesView.css";
 
@@ -35,7 +36,7 @@ export function MixesView() {
             <span className="mix-mosaic" style={{ width: TILE, height: TILE }}>
               {Array.from({ length: 4 }, (_, i) => {
                 const id = mix.artworkTrackIds[i % Math.max(1, mix.artworkTrackIds.length)];
-                return id !== undefined ? <img key={i} src={artworkUrl(id, { type: "library" }, TILE / 2)} alt="" draggable={false} /> : <span key={i} />;
+                return id !== undefined ? <Artwork key={`${i}:${id}`} trackId={id} size={TILE / 2} /> : <span key={i} />;
               })}
               <span className="mix-play" aria-hidden="true">
                 <svg width={18} height={20} viewBox="0 0 18 20">

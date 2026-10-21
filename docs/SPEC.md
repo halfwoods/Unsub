@@ -42,7 +42,7 @@ The UI never touches files or audio directly; it calls commands and listens to e
 Points, 1x. Measured from iTunes 10.7 resources and Apple's 2010 marketing screenshots.
 
 - **Toolbar** 63pt + 1pt edge (checked against Apple's screenshot at matched scale), gray gradient `#E5E5E5 → #B4B4B4` (1px `#F3F3F3` top highlight); inactive `#F4F4F4 → #D9D9D9`. Bottom edge `#696C71`.
-- **Traffic lights** stacked vertically, 14pt circles, centers x 13, y 14/32/50.
+- **Traffic lights** stacked vertically, 14pt circles, centers x 14, y 14/32/50.
 - **Transport** glossy silver circles: back/forward 31pt cells, play/pause 37pt cell. Centers x 54/92/129, y 32.
 - **Volume** speaker-low icon, 100pt track, 19pt knob, speaker-high icon. Same row as transport.
 - **LCD** 43pt tall, cream gradient `#F0F2E6 → #EAEDDB` top half, `#E5E9D1 → #F8FAE4` bottom half, border `#B2B2B2`/`#BEBEBE`/`#C4C4C4`, 1px white 25% highlight below. Idle: vinyl mark in `#494B3F → #545649`. Playing: title, alternating artist/album line, progress bar with elapsed/remaining.

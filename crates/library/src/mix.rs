@@ -126,13 +126,17 @@ struct Catalog {
     groups: Interner,
     /// How many songs credit two artists together, keyed by the lower id first.
     co_artists: HashMap<(u32, u32), u32>,
+    /// Albums with a song whose file is on this Mac. Only they can have a
+    /// cover to show: a cloud placeholder or a file that has gone has none of
+    /// its own, but borrows a downloaded sibling's, as `artwork_thumbnail` does.
+    local_albums: HashSet<u32>,
 }
 
 impl Catalog {
     fn load(conn: &Connection) -> Result<Self> {
         let mut stmt = conn.prepare(
             "SELECT id, artist, album_artist, artist_group, album_group, key_genre,
-                    year, rating, play_count, enabled, genre
+                    year, rating, play_count, enabled, genre, in_cloud, missing
              FROM tracks WHERE kind = ?1 ORDER BY id",
         )?;
         let mut rows = stmt.query([MediaKind::Music])?;
@@ -143,6 +147,7 @@ impl Catalog {
             genre_names: Vec::new(),
             groups: Interner::default(),
             co_artists: HashMap::new(),
+            local_albums: HashSet::new(),
         };
         let mut credits = Credits::default();
         let mut albums = Interner::default();
@@ -182,6 +187,9 @@ impl Catalog {
                 plays: row.get(8)?,
                 enabled: row.get(9)?,
             };
+            if !row.get::<_, bool>(11)? && !row.get::<_, bool>(12)? {
+                catalog.local_albums.insert(track.album);
+            }
             catalog.by_id.insert(id, catalog.tracks.len());
             catalog.tracks.push(track);
         }
@@ -647,12 +655,18 @@ enum ClusterKind {
     Artist(u32),
 }
 
-/// A song from each of the first few distinct albums, in mix order.
+/// A song from each of the first few distinct albums, in mix order. Albums
+/// that can have a cover come first, so the collage is not left with blanks
+/// while other albums in the mix have covers.
 fn artwork_for(catalog: &Catalog, chosen: &[(f64, usize)]) -> Vec<i64> {
-    let mut albums = HashSet::new();
-    chosen
+    let mut songs: Vec<&MixTrack> = chosen
         .iter()
         .map(|(_, index)| &catalog.tracks[*index])
+        .collect();
+    songs.sort_by_key(|track| !catalog.local_albums.contains(&track.album));
+    let mut albums = HashSet::new();
+    songs
+        .into_iter()
         .filter(|track| albums.insert(track.album))
         .map(|track| track.id)
         .take(MIX_ARTWORK)
