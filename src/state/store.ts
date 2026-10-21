@@ -13,6 +13,7 @@ import type {
   DeviceSyncStatus,
   Player,
   SharedLibrary,
+  Speaker,
   DeviceView,
   GenreSummary,
   ImportPreview,
@@ -202,6 +203,8 @@ interface AppState {
   selectionAnchor: number | null;
   playback: PlaybackStatus;
   nowPlaying: Track | null;
+  /** The speaker the music is playing on; null for this computer. */
+  castTarget: Speaker | null;
   /** The playing library song's chapters, tagged with the song so a slow read can't land on the next one. */
   chapters: { trackId: number; list: Chapter[] } | null;
   shuffle: boolean;
@@ -313,6 +316,7 @@ export const useApp = create<AppState>((set, get) => ({
   selectionAnchor: null,
   playback: IDLE_PLAYBACK,
   nowPlaying: null,
+  castTarget: null,
   chapters: null,
   shuffle: false,
   repeat: "off",

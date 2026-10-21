@@ -10,7 +10,7 @@ use std::{
 use axum::{Router, routing::any};
 use tokio::{net::TcpListener, runtime, sync::oneshot};
 
-use crate::{Error, MusicSource, Result, api, session::Session};
+use crate::{Error, LinkSource, MusicSource, Result, api, link, session::Session};
 
 /// How long `stop` lets in-flight transfers finish before abandoning them.
 const GRACE: Duration = Duration::from_secs(5);
@@ -65,16 +65,35 @@ impl Server {
                 "username and password must not be empty",
             ));
         }
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let bind = config.bind;
         let state = Arc::new(AppState {
             config,
             source,
             session: Session::default(),
         });
+        let app = Router::new()
+            .route("/rest/{name}", any(api::handle))
+            .with_state(state);
+        Self::spawn(bind, app)
+    }
+
+    /// A server of nothing but stream links: `GET /link/<secret>` sends the audio `links` opens
+    /// the secret to, with `Range` support for files. The Subsonic API is not served, and there
+    /// are no accounts; whoever knows a secret can fetch what it opens, and nothing else. Meant for
+    /// speakers that are told to fetch a song, on the one interface that reaches them.
+    pub fn start_links(bind: SocketAddr, links: Arc<dyn LinkSource>) -> Result<Self> {
+        let app = Router::new()
+            .route("/link/{name}", any(link::handle))
+            .with_state(links);
+        Self::spawn(bind, app)
+    }
+
+    fn spawn(bind: SocketAddr, app: Router) -> Result<Self> {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let thread = thread::Builder::new()
             .name("subsonic-server".to_owned())
-            .spawn(move || run(state, &ready_tx, shutdown_rx))
+            .spawn(move || run(bind, app, &ready_tx, shutdown_rx))
             .map_err(Error::Start)?;
 
         match ready_rx.recv() {
@@ -111,7 +130,8 @@ impl Server {
 }
 
 fn run(
-    state: Arc<AppState>,
+    bind: SocketAddr,
+    app: Router,
     ready: &mpsc::Sender<Result<SocketAddr>>,
     shutdown: oneshot::Receiver<()>,
 ) {
@@ -130,7 +150,7 @@ fn run(
     };
 
     runtime.block_on(async {
-        let listener = match TcpListener::bind(state.config.bind).await {
+        let listener = match TcpListener::bind(bind).await {
             Ok(listener) => listener,
             Err(err) => {
                 let _ = ready.send(Err(Error::Start(err)));
@@ -142,9 +162,6 @@ fn run(
         };
         let _ = ready.send(Ok(addr));
 
-        let app = Router::new()
-            .route("/rest/{name}", any(api::handle))
-            .with_state(state);
         let (stopping_tx, stopping_rx) = oneshot::channel::<()>();
         let serve = tokio::spawn(
             axum::serve(listener, app)

@@ -101,6 +101,13 @@ impl RemoteState {
         Ok((Arc::clone(&library_state.client), song.id.clone(), self.name_of(library), self.cache_dir.clone()))
     }
 
+    /// What the shared library says of one of its songs.
+    pub(crate) fn song_info(&self, library: &str, track_id: i64) -> Option<Song> {
+        let connected = lock(&self.connected);
+        let index = usize::try_from(track_id - 1).ok()?;
+        connected.get(library)?.songs.get(index).cloned()
+    }
+
     /// Tells the library's owner the song was played, as a phone app would.
     pub(crate) fn scrobble(&self, library: &str, track_id: i64) {
         if let Ok((client, song_id, _, _)) = self.song(library, track_id) {

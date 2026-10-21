@@ -31,6 +31,7 @@ unsub-devicesync.workspace = true
 unsub-remote.workspace = true
 unsub-radio.workspace = true
 unsub-visualize.workspace = true
+unsub-cast.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

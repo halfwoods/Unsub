@@ -21,6 +21,7 @@ export function VisualizerPane() {
   const setVisualizer = useApp((s) => s.setVisualizer);
   const showNotice = useApp((s) => s.showNotice);
   const nowPlaying = useApp((s) => s.nowPlaying);
+  const castTarget = useApp((s) => s.castTarget);
   // Ids of CD and shared songs mean other songs in the library, so only library songs have art.
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   // Whether the picture fills the screen, toolbar included: only after F, not just because the
@@ -111,11 +112,13 @@ export function VisualizerPane() {
             artworkUrl: fromLibrary ? artworkUrl(nowPlaying.id, { type: "library" }, COVER_SIZE) : null,
           }
         }
-        style={style}
-        onStyleChange={(next) => setVisualizer({ style: next })}
+        // A speaker's sound never passes through here, so there is nothing for the other styles to move with.
+        style={castTarget ? "album" : style}
+        onStyleChange={(next) => !castTarget && setVisualizer({ style: next })}
         limitFlashing={limitFlashing}
         onToggleFullscreen={() => void showFullscreen(!fullscreen)}
       />
+      {castTarget && <p className="visualizer-note">Playing on {castTarget.name}. The visualizer can’t hear it.</p>}
     </div>
   );
 }

@@ -9,14 +9,15 @@ import "./Lcd.css";
 /** iTunes alternates the second LCD line between artist and album. */
 const SECOND_LINE_MS = 3500;
 
-function useAlternating(enabled: boolean) {
-  const [flip, setFlip] = useState(false);
+/** Which of `lines` the second LCD line is showing; each stays for a while in turn. */
+function useAlternating(enabled: boolean, lines: number) {
+  const [turn, setTurn] = useState(0);
   useEffect(() => {
     if (!enabled) return;
-    const timer = setInterval(() => setFlip((f) => !f), SECOND_LINE_MS);
+    const timer = setInterval(() => setTurn((t) => t + 1), SECOND_LINE_MS);
     return () => clearInterval(timer);
   }, [enabled]);
-  return flip;
+  return turn % lines;
 }
 
 function Progress({ positionMs, durationMs }: { positionMs: number; durationMs: number }) {
@@ -195,13 +196,20 @@ export function Lcd() {
   const fromLibrary = useApp((s) => s.playingSource.type === "library");
   const chapters = useApp((s) => s.chapters?.list);
   const playTrackIds = useApp((s) => s.playTrackIds);
+  const castTarget = useApp((s) => s.castTarget);
   const [showTotal, setShowTotal] = useState(false);
-  const flip = useAlternating(nowPlaying !== null);
+  // The speaker joins artist and album in the rotation, so it is always one glance away.
+  const turn = useAlternating(nowPlaying !== null, castTarget ? 3 : 2);
 
   if (live && liveStation) return <LiveLcd station={liveStation} notice={notice} />;
 
   if (nowPlaying) {
-    const secondLine = flip && nowPlaying.album ? nowPlaying.album : nowPlaying.artist || nowPlaying.album;
+    const secondLine =
+      castTarget && turn === 2
+        ? `Playing on ${castTarget.name}`
+        : turn === 1 && nowPlaying.album
+          ? nowPlaying.album
+          : nowPlaying.artist || nowPlaying.album;
     return (
       <div className="lcd lcd--playing">
         <div className="lcd-title">{nowPlaying.title}</div>

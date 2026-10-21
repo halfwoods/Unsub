@@ -5748,6 +5748,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "unsub-applemusic",
+ "unsub-cast",
  "unsub-cdrip",
  "unsub-devicesync",
  "unsub-ipod",
@@ -5774,6 +5775,21 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+]
+
+[[package]]
+name = "unsub-cast"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "mdns-sd",
+ "roxmltree",
+ "rustls",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "unsub-remote",
+ "ureq",
 ]
 
 [[package]]

@@ -51,6 +51,8 @@ import type {
   ScanProgress,
   SharedLibrary,
   SharingSettings,
+  Speaker,
+  Speakers,
   SyncPreview,
   SyncSettings,
   TrackEdits,
@@ -190,6 +192,13 @@ export const playerSetEqualizer = (equalizer: { preampDb: number; bands: number[
   invoke<void>("player_set_equalizer", { equalizer, preventClipping });
 export const playerEqualizerPresets = () => invoke<{ name: string; bands: number[] }[]>("player_equalizer_presets");
 export const playerSetCrossfade = (seconds: number | null) => invoke<void>("player_set_crossfade", { seconds });
+
+export const castSpeakers = () => invoke<Speakers>("cast_speakers");
+/** Plays on the speaker `id`, or on this computer with null, carrying on from where the song is. */
+export const castSelect = (id: string | null) => invoke<void>("cast_select", { id });
+export const castOpenAirplay = () => invoke<void>("cast_open_airplay");
+export const onCastTarget = (handler: (target: Speaker | null) => void): Promise<UnlistenFn> =>
+  listen<Speaker | null>("cast://target", (e) => handler(e.payload));
 
 export const onPlayerEvent = (handler: (event: PlayerEvent) => void): Promise<UnlistenFn> =>
   listen<PlayerEvent>("player://event", (e) => handler(e.payload));

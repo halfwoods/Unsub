@@ -8,6 +8,7 @@ A music player for people who own their music, inspired by classic iTunes from b
 - Libraries kept in iCloud Drive, with cloud-only songs fetched when you play them
 - Buy-to-own purchase import, CD ripping and podcasts
 - Internet radio and a visualizer that moves with the music
+- Play to Chromecasts, Sonos and other network speakers, and to AirPlay speakers on a Mac
 - Streaming from your own machine
 - Sync to classic iPods and other players
 
@@ -52,9 +53,10 @@ Drag a folder of music onto the window, use **File › Add to Library…**, or b
 | `crates/cdrip/` | CD ripping with MusicBrainz lookup and AccurateRip verification |
 | `crates/podcasts/` | Podcast subscriptions, downloads and listening state |
 | `crates/purchases/` | Watching for Bandcamp, Qobuz, 7digital and HDtracks downloads |
-| `crates/subsonic/` | A Subsonic-compatible server, so phone apps can stream your library |
+| `crates/subsonic/` | A Subsonic-compatible server, so phone apps can stream your library, and the secret links speakers fetch songs from |
 | `crates/remote/` | Client mode: other Unsub libraries and Subsonic servers on the network |
 | `crates/radio/` | Internet radio: the Radio Browser directory, playlist files, live streams |
+| `crates/cast/` | Speakers on the network: Chromecast, Sonos and UPnP renderers found, driven and fed |
 | `crates/visualize/` | The visualizer's analysis: spectrum, waveform, loudness, beats |
 | `design/` | Source art (app icon) |
 
@@ -64,4 +66,4 @@ The repo contains no Apple code, images or fonts. iTunes was used only as a meas
 
 ## Trademarks
 
-Unsub is not affiliated with or endorsed by Apple. iTunes, iPod, Apple Music and iCloud are trademarks of Apple Inc., named here only to say what Unsub works with.
+Unsub is not affiliated with or endorsed by Apple, Google or Sonos. iTunes, iPod, Apple Music, iCloud, AirPlay and HomePod are trademarks of Apple Inc.; Chromecast and Google Cast are trademarks of Google LLC; Sonos is a trademark of Sonos, Inc. They are named here only to say what Unsub works with.

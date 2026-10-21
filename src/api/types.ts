@@ -248,6 +248,24 @@ export type PlayerEvent =
 
 export type RepeatMode = "off" | "all" | "one";
 
+/** How a speaker is driven, which is also how the speaker menu groups them. */
+export type SpeakerKind = "chromecast" | "sonos" | "upnp";
+
+/** A speaker on the network that songs can play on. */
+export interface Speaker {
+  id: string;
+  name: string;
+  kind: SpeakerKind;
+}
+
+export interface Speakers {
+  devices: Speaker[];
+  /** The speaker the music is playing on; null for this computer. */
+  target: Speaker | null;
+  /** The Mac's own output is an AirPlay speaker. */
+  airplay: boolean;
+}
+
 export type IpodFamily = "original" | "mini" | "photo" | "video" | "classic" | "nano" | "shuffle" | "unknown";
 
 export interface IpodModel {

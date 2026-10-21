@@ -17,6 +17,7 @@ use coreaudio::audio_unit::macos_helpers::{
 use objc2_core_audio::{
     AudioDeviceID, AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
     AudioObjectSetPropertyData, kAudioDevicePropertyNominalSampleRate,
+    kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAirPlay,
     kAudioHardwarePropertyRunLoop, kAudioObjectPropertyElementMain,
     kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, kAudioStreamPropertyPhysicalFormat,
 };
@@ -109,6 +110,15 @@ pub fn physical_format(device: AudioDeviceID) -> Option<PhysicalFormat> {
     })
 }
 
+/// Whether the default output device is an AirPlay speaker. macOS lists an AirPlay speaker among
+/// the outputs only while it is the chosen route, so this is also whether the music is going to one.
+pub fn default_output_is_airplay() -> bool {
+    get_default_device_id(false)
+        .filter(|&device| device != 0)
+        .and_then(|device| read::<u32>(device, kAudioDevicePropertyTransportType))
+        .is_some_and(|transport| transport == kAudioDeviceTransportTypeAirPlay)
+}
+
 /// Has CoreAudio deliver its notifications on a thread of its own instead of a run loop.
 ///
 /// Without this, a process that has taken hog mode keeps seeing "no default output device" long
@@ -153,7 +163,7 @@ fn read<T: Copy>(device: AudioDeviceID, selector: u32) -> Option<T> {
     };
     let mut size = mem::size_of::<T>() as u32;
     let mut value = MaybeUninit::<T>::zeroed();
-    // SAFETY: `value` has room for `size` bytes, and `T` is only ever `f64` or
+    // SAFETY: `value` has room for `size` bytes, and `T` is only ever `f64`, `u32` or
     // `AudioStreamBasicDescription`, plain-data types for which all-zero bytes are valid.
     let status = unsafe {
         AudioObjectGetPropertyData(
@@ -184,5 +194,11 @@ mod tests {
         {
             assert!(format.sample_rate >= 8_000 && format.bits > 0);
         }
+    }
+
+    /// Only reads the device's transport; which one it is depends on the Mac it runs on.
+    #[test]
+    fn the_output_route_can_be_read() {
+        let _ = default_output_is_airplay();
     }
 }

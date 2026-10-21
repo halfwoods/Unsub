@@ -10,6 +10,7 @@ use unsub_library::{GainMode, MediaKind};
 use unsub_playback::{Equalizer, Gain, PlaybackState as EngineState, PlaybackStatus, Player, PlayerEvent, TrackOptions};
 use unsub_remote::Client;
 
+use crate::cast::CastState;
 use crate::devices::DevicesState;
 use crate::error::{CommandError, CommandResult};
 use crate::library::LibraryState;
@@ -151,6 +152,80 @@ impl PlaybackState {
         }
     }
 
+    fn cast(&self) -> State<'_, CastState> {
+        self.app.state::<CastState>()
+    }
+
+    /// Plays a song, `start_ms` in and paused if asked, on the speaker if one is chosen, or here.
+    fn play_file(&self, source: &PlaySource, track_id: i64, path: PathBuf, options: TrackOptions, start_ms: u64, paused: bool) {
+        if self.cast().play(&self.app, source, track_id, &path, start_ms, paused) {
+            return;
+        }
+        self.player.play_with(track_id, path, options);
+        if start_ms > 0 {
+            self.player.seek(start_ms);
+        }
+        if paused {
+            self.player.pause();
+        }
+    }
+
+    fn queue_file(&self, source: &PlaySource, track_id: i64, path: PathBuf, options: TrackOptions) {
+        if !self.cast().queue(&self.app, source, track_id, &path) {
+            self.player.queue_next_with(track_id, path, options);
+        }
+    }
+
+    fn clear_next(&self) {
+        if !self.cast().clear_queue() {
+            self.player.clear_next();
+        }
+    }
+
+    pub(crate) fn pause(&self) {
+        if !self.cast().pause() {
+            self.player.pause();
+        }
+    }
+
+    pub(crate) fn resume(&self) {
+        if !self.cast().resume() {
+            self.player.resume();
+        }
+    }
+
+    pub(crate) fn seek(&self, position_ms: u64) {
+        if !self.cast().seek(position_ms) {
+            self.player.seek(position_ms);
+        }
+    }
+
+    pub(crate) fn set_volume(&self, volume: f32) {
+        if !self.cast().set_volume(volume) {
+            self.player.set_volume(volume);
+        }
+    }
+
+    pub(crate) fn stop(&self) {
+        if !self.cast().stop() {
+            self.player.stop();
+        }
+    }
+
+    /// What is playing, wherever it is playing.
+    pub(crate) fn status(&self) -> PlaybackStatus {
+        self.cast().status().unwrap_or_else(|| self.player.status())
+    }
+
+    /// Writes the bookmark of the song being kept as pausing at `status` would, so that another
+    /// output picking the song up finds the place where it was left.
+    pub(crate) fn save_place(&self, library: &LibraryState, status: &PlaybackStatus) {
+        let paused = PlaybackStatus { state: EngineState::Paused, ..status.clone() };
+        if let Err(error) = self.remember_place(library, &PlayerEvent::StateChanged(paused)) {
+            eprintln!("[playback] {error:?}");
+        }
+    }
+
     pub(crate) fn party(&self) -> MutexGuard<'_, PartyShuffle> {
         self.party.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -267,23 +342,29 @@ impl PlaybackState {
     }
 
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
+        self.start_at(tracks, playing, 0, false)
+    }
+
+    /// Starts the current song `start_ms` in, paused if it was, which is how an output takes over from another.
+    pub(crate) fn start_at(&self, tracks: &Tracks, playing: &Playing, start_ms: u64, paused: bool) -> CommandResult<()> {
         self.app.state::<RadioState>().end_live();
         let track_id = playing.queue.current();
         let located = self.locate(tracks, &playing.source, track_id)?;
         let options = self.options(tracks, &playing.source, track_id);
         let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
         if let Located::Ready(path) = located {
-            self.player.play_with(track_id, path, options);
+            self.play_file(&playing.source, track_id, path, options, start_ms, paused);
             return self.queue_following(tracks, playing);
         }
         // Opening a file that isn't here yet would block the engine while it arrives, so fetch it
         // first and start playing once it's local, showing progress in the LCD meanwhile.
-        self.player.stop();
+        self.stop();
         let next = match playing.queue.peek_next() {
             Some(next) => Some((next, self.locate(tracks, &playing.source, next)?, self.options(tracks, &playing.source, next))),
             None => None,
         };
         let app = self.app.clone();
+        let source = playing.source.clone();
         std::thread::spawn(move || {
             let from = located.from();
             let result = located.fetch(&app, track_id, &mut |done, total| {
@@ -296,9 +377,9 @@ impl PlaybackState {
             }
             match result {
                 Ok(path) => {
-                    playback.player.play_with(track_id, path, options);
+                    playback.play_file(&source, track_id, path, options, start_ms, paused);
                     if let Some((next, next_located, next_options)) = next {
-                        playback.queue_located(next, next_located, next_options);
+                        playback.queue_located(&source, next, next_located, next_options);
                     }
                 }
                 Err(error) => {
@@ -312,12 +393,15 @@ impl PlaybackState {
     /// Hands the engine the next track early so it can play gaplessly.
     pub(crate) fn queue_following(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
         match playing.queue.peek_next() {
-            Some(next) => {
-                self.queue_located(next, self.locate(tracks, &playing.source, next)?, self.options(tracks, &playing.source, next))
-            }
+            Some(next) => self.queue_located(
+                &playing.source,
+                next,
+                self.locate(tracks, &playing.source, next)?,
+                self.options(tracks, &playing.source, next),
+            ),
             None => {
                 self.nexts.fetch_add(1, Ordering::SeqCst);
-                self.player.clear_next();
+                self.clear_next();
             }
         }
         Ok(())
@@ -325,21 +409,22 @@ impl PlaybackState {
 
     /// Queues the next song for gapless play, fetching it first when needed so the engine never
     /// decodes ahead into a file that isn't here yet.
-    fn queue_located(&self, track_id: i64, located: Located, options: TrackOptions) {
+    fn queue_located(&self, source: &PlaySource, track_id: i64, located: Located, options: TrackOptions) {
         let next = self.nexts.fetch_add(1, Ordering::SeqCst) + 1;
         if let Located::Ready(path) = located {
-            self.player.queue_next_with(track_id, path, options);
+            self.queue_file(source, track_id, path, options);
             return;
         }
-        self.player.clear_next();
+        self.clear_next();
         let app = self.app.clone();
+        let source = source.clone();
         std::thread::spawn(move || {
             let fetched = located.fetch(&app, track_id, &mut |_, _| {});
             let playback = app.state::<PlaybackState>();
             if let Ok(path) = fetched
                 && playback.nexts.load(Ordering::SeqCst) == next
             {
-                playback.player.queue_next_with(track_id, path, options);
+                playback.queue_file(&source, track_id, path, options);
             }
         });
     }
@@ -348,6 +433,8 @@ impl PlaybackState {
     /// connects, and one still being fetched mustn't start over the station.
     pub(crate) fn stop_for_station(&self) {
         self.starts.fetch_add(1, Ordering::SeqCst);
+        // A station plays on this computer, whatever speaker the songs were going to.
+        self.cast().release(&self.app, "Stations play on this computer.");
         self.player.stop();
     }
 
@@ -355,7 +442,7 @@ impl PlaybackState {
     pub fn stop_if_playing(&self, source: &PlaySource) {
         let mut slot = self.playing();
         if slot.as_ref().is_some_and(|playing| &playing.source == source) {
-            self.player.stop();
+            self.stop();
             *slot = None;
         }
     }
@@ -458,7 +545,7 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
             let bookmark = (playing.source == PlaySource::Library).then(|| playback.begin_place(&library, track_id)).flatten();
             let resume = bookmark.or_else(|| app.try_state::<PodcastsState>().and_then(|p| p.resume_position(track_id)));
             if let Some(position) = resume {
-                playback.player.seek(position);
+                playback.seek(position);
             }
             playback.queue_following(&tracks, playing)
         }
@@ -527,12 +614,12 @@ pub fn player_toggle_pause(
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
 ) -> CommandResult<()> {
-    match playback.player.status().state {
+    match playback.status().state {
         EngineState::Playing => {
-            playback.player.pause();
+            playback.pause();
             radio::paused(&app);
         }
-        EngineState::Paused => playback.player.resume(),
+        EngineState::Paused => playback.resume(),
         EngineState::Stopped => {
             // The engine drops a paused station, so playing it again is a new connection.
             if radio::toggle_stopped(&app) {
@@ -552,7 +639,7 @@ pub fn player_next(
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
 ) -> CommandResult<()> {
-    let position_ms = playback.player.status().position_ms;
+    let position_ms = playback.status().position_ms;
     let mut slot = playback.playing();
     let Some(playing) = slot.as_mut() else { return Ok(()) };
     if playing.source == PlaySource::Library && SKIP_WINDOW_MS.contains(&position_ms) {
@@ -561,7 +648,7 @@ pub fn player_next(
     if playing.queue.skip_next().is_some() {
         playback.start(&Tracks { library: &library, devices: &devices }, playing)
     } else {
-        playback.player.stop();
+        playback.stop();
         *slot = None;
         Ok(())
     }
@@ -575,8 +662,8 @@ pub fn player_previous(
 ) -> CommandResult<()> {
     let mut slot = playback.playing();
     let Some(playing) = slot.as_mut() else { return Ok(()) };
-    if playback.player.status().position_ms > PREVIOUS_RESTARTS_AFTER_MS || playing.queue.skip_previous().is_none() {
-        playback.player.seek(0);
+    if playback.status().position_ms > PREVIOUS_RESTARTS_AFTER_MS || playing.queue.skip_previous().is_none() {
+        playback.seek(0);
         return Ok(());
     }
     playback.start(&Tracks { library: &library, devices: &devices }, playing)
@@ -584,12 +671,12 @@ pub fn player_previous(
 
 #[tauri::command]
 pub fn player_seek(playback: State<'_, PlaybackState>, position_ms: u64) {
-    playback.player.seek(position_ms);
+    playback.seek(position_ms);
 }
 
 #[tauri::command]
 pub fn player_set_volume(playback: State<'_, PlaybackState>, volume: f32) {
-    playback.player.set_volume(volume.clamp(0.0, 1.0));
+    playback.set_volume(volume.clamp(0.0, 1.0));
 }
 
 #[tauri::command]
@@ -659,5 +746,5 @@ pub fn player_set_sound_check(app: AppHandle, playback: State<'_, PlaybackState>
 
 #[tauri::command]
 pub fn player_status(playback: State<'_, PlaybackState>) -> PlaybackStatus {
-    playback.player.status()
+    playback.status()
 }

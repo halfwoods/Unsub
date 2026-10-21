@@ -11,3 +11,17 @@
   position: fixed;
   z-index: 20;
 }
+
+/* Over the picture's foot, where the info corner is not. */
+.visualizer-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-size);
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}

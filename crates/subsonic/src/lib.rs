@@ -16,6 +16,10 @@
 //! ties to a user role; [`Capabilities`] tells `getUser` and `getOpenSubsonicExtensions` which
 //! features to advertise. The play queue and "now playing" live in the server's memory.
 //!
+//! [`Server::start_links`] is a second way to run it, with no Subsonic in it: a server of
+//! `/link/<secret>` URLs that send out whatever the host's [`LinkSource`] opens each secret to.
+//! The app uses it to hand songs to speakers, whether or not library sharing is on.
+//!
 //! The server speaks plain HTTP. Legacy `u`/`p` authentication sends the password in the clear, so
 //! bind it to a trusted network only.
 
@@ -24,6 +28,7 @@
 mod api;
 mod auth;
 mod error;
+mod link;
 mod model;
 mod params;
 mod range;
@@ -34,6 +39,7 @@ mod source;
 mod wire;
 
 pub use error::{Error, Result};
+pub use link::LinkSource;
 pub use model::{Album, Artist, Genre, Playlist, SearchResult, Song};
 pub use server::{Server, ServerConfig};
 pub use source::{

@@ -36,6 +36,7 @@ export function EqualizerPanel() {
   const [prefs, setPrefs] = useState<EqualizerPrefs>(loadEqualizer);
   const [presets, setPresets] = useState<{ name: string; bands: number[] }[]>([]);
   const bitPerfect = useApp((s) => s.playback.bitPerfect);
+  const castTarget = useApp((s) => s.castTarget);
   const close = () => useApp.setState({ equalizerOpen: false });
 
   useEffect(() => {
@@ -97,6 +98,7 @@ export function EqualizerPanel() {
         Prevent clipping
       </label>
       {bitPerfect && <p className="eq-note">The equalizer is off while bit-perfect output is on.</p>}
+      {castTarget && <p className="eq-note">The equalizer can’t change what plays on {castTarget.name}.</p>}
     </div>
   );
 }

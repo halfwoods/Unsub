@@ -102,6 +102,16 @@ async fn original(ctx: &Ctx, id: String, attachment: bool) -> Result<Reply> {
 }
 
 async fn deliver(stream: Stream, request: &HeaderMap, attachment: bool) -> Result<Reply> {
+    serve(stream, request, attachment).await.map(Reply::Raw)
+}
+
+/// The response that sends `stream` to whoever made `request`; shared with the stream links of
+/// [`Server::start_links`](crate::Server::start_links).
+pub(crate) async fn serve(
+    stream: Stream,
+    request: &HeaderMap,
+    attachment: bool,
+) -> Result<axum::response::Response> {
     let response = match stream {
         Stream::File {
             path,
@@ -127,7 +137,7 @@ async fn deliver(stream: Stream, request: &HeaderMap, attachment: bool) -> Resul
             (headers, reader_body(reader)).into_response()
         }
     };
-    Ok(Reply::Raw(response))
+    Ok(response)
 }
 
 /// Serves a file with single-range support, which players need to seek without downloading the lot.

@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect } from "react";
 import {
+  onCastTarget,
   onCdChanged,
   onCdRip,
   onDownload,
@@ -149,6 +150,7 @@ function useBackendEvents() {
     const { refresh, refreshDevices, refreshCds, refreshShared, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
+      onCastTarget((castTarget) => useApp.setState({ castTarget })),
       onMenuAction(runMenuAction),
       onRadioStation((liveStation) => useApp.setState({ liveStation, liveTitle: null })),
       onRadioLink((liveLink) => useApp.setState({ liveLink })),

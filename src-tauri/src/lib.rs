@@ -1,4 +1,5 @@
 mod artwork;
+mod cast;
 mod cd;
 mod collection;
 mod devices;
@@ -22,6 +23,8 @@ mod updates;
 mod visualizer;
 
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Manager;
 use unsub_playback::Player;
@@ -75,10 +78,18 @@ pub fn run() {
             std::fs::create_dir_all(&radio_cache)?;
             app.manage(radio::RadioState::new(radio_cache.join("RadioGenres.json")));
             let events = playback::spawn_event_worker(app.handle().clone())?;
+            // While a speaker plays, the engine is stopped and what it says about stopping is not news.
+            let casting = Arc::new(AtomicBool::new(false));
+            let engine_events = events.clone();
+            let engine_silenced = Arc::clone(&casting);
             let player = Player::new(move |event| {
-                let _ = events.send(event);
+                if !engine_silenced.load(Ordering::Relaxed) {
+                    let _ = engine_events.send(event);
+                }
             })?;
+            app.manage(cast::CastState::new(events, casting, app.path().app_cache_dir()?.join("Cast")));
             app.manage(PlaybackState::new(player, app.handle().clone()));
+            cast::browse(app.handle());
             devices::watch(app.handle().clone());
             library::check_missing(app.handle());
             remote::browse(app.handle());
@@ -208,9 +219,20 @@ pub fn run() {
             visualizer::visualizer_start,
             visualizer::visualizer_stop,
             visualizer::visualizer_mic_devices,
+            cast::cast_speakers,
+            cast::cast_select,
+            cast::cast_open_airplay,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Unsub");
+        .build(tauri::generate_context!())
+        .expect("error while building Unsub")
+        .run(|app, event| {
+            // A speaker left playing would carry on from a server that is gone, then go quiet.
+            if matches!(event, tauri::RunEvent::Exit)
+                && let Some(cast) = app.try_state::<cast::CastState>()
+            {
+                cast.end();
+            }
+        });
 }
 
 /// The bundle identifier from before the rename. The data folder is named after the identifier and

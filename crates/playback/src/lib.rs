@@ -42,3 +42,17 @@ pub use player::{PlaybackState, PlaybackStatus, Player, PlayerEvent};
 pub use tap::{Tap, TapBlock};
 pub use timeline::TrackOptions;
 pub use transcode::{Target, TranscodeOptions, ipod_compatible, transcode_file, transcode_stream};
+
+/// Whether the system's output is an AirPlay speaker, chosen in Control Center or System Settings.
+/// The engine follows the system's default output wherever it moves, so nothing else is needed to
+/// play to one. Always false off macOS, which has no AirPlay output to follow.
+pub fn output_is_airplay() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        device_state::default_output_is_airplay()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}

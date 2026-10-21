@@ -16,6 +16,13 @@
   padding-left: 10px;
 }
 
+.bottom-right {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  padding-right: 10px;
+}
+
 .bottom-button {
   display: grid;
   place-items: center;

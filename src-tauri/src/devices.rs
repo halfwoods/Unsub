@@ -95,6 +95,11 @@ impl DevicesState {
             .ok_or_else(|| CommandError::from(format!("track {track_id} is not on device {device_id}")))
     }
 
+    /// What the iPod knows of one of its songs.
+    pub fn track(&self, device_id: &str, track_id: i64) -> Option<Track> {
+        self.find(device_id).ok()?.tracks().track(track_id).ok().flatten()
+    }
+
     pub fn artwork(&self, device_id: &str, track_id: i64) -> Option<unsub_library::Artwork> {
         self.find(device_id).ok()?.tracks().artwork(track_id).ok().flatten()
     }

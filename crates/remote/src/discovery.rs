@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
+use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -29,6 +30,20 @@ pub struct Peer {
     pub addresses: Vec<IpAddr>,
 }
 
+/// The process's one mDNS daemon, started when first asked for. Each daemon is a thread and a set of
+/// sockets on port 5353, so browsing for libraries, announcing this one and browsing for speakers
+/// all use this one rather than a daemon each.
+pub fn shared_daemon() -> Result<ServiceDaemon> {
+    static DAEMON: Mutex<Option<ServiceDaemon>> = Mutex::new(None);
+    let mut slot = DAEMON.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(daemon) = slot.as_ref() {
+        return Ok(daemon.clone());
+    }
+    let daemon = ServiceDaemon::new()?;
+    *slot = Some(daemon.clone());
+    Ok(daemon)
+}
+
 /// Keeps this library announced on the network; dropping it withdraws the announcement.
 pub struct Advertisement {
     daemon: ServiceDaemon,
@@ -40,7 +55,7 @@ pub struct Advertisement {
 pub fn advertise(name: &str, port: u16) -> Result<Advertisement> {
     let info = service_info(name, port)?;
     let advertisement = Advertisement {
-        daemon: ServiceDaemon::new()?,
+        daemon: shared_daemon()?,
         fullname: info.get_fullname().to_owned(),
     };
     advertisement.daemon.register(info)?;
@@ -54,7 +69,6 @@ impl Drop for Advertisement {
         if let Ok(done) = self.daemon.unregister(&self.fullname) {
             let _ = done.recv_timeout(GOODBYE_WAIT);
         }
-        let _ = self.daemon.shutdown();
     }
 }
 
@@ -67,7 +81,7 @@ pub struct Browser {
 /// The callback runs on a background thread. This machine's own library shows up in the list too
 /// if it is advertising; the app can tell it by name.
 pub fn browse(on_change: impl Fn(Vec<Peer>) + Send + 'static) -> Result<Browser> {
-    let daemon = ServiceDaemon::new()?;
+    let daemon = shared_daemon()?;
     let events = daemon.browse(SERVICE_TYPE)?;
     thread::spawn(move || {
         let mut peers: BTreeMap<String, Peer> = BTreeMap::new();
@@ -96,7 +110,8 @@ pub fn browse(on_change: impl Fn(Vec<Peer>) + Send + 'static) -> Result<Browser>
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        let _ = self.daemon.shutdown();
+        // Closes the channel the thread reads, which ends it. The daemon is shared, and stays.
+        let _ = self.daemon.stop_browse(SERVICE_TYPE);
     }
 }
 
@@ -134,14 +149,15 @@ fn host_label(name: &str) -> String {
 }
 
 /// "Mr\. Smith's Mac._unsub._tcp.local." is the instance "Mr. Smith's Mac".
-fn instance_name(fullname: &str, service_type: &str) -> String {
+pub fn instance_name(fullname: &str, service_type: &str) -> String {
     let escaped = fullname
         .strip_suffix(service_type)
         .map_or(fullname, |name| name.strip_suffix('.').unwrap_or(name));
     escaped.replace("\\.", ".").replace("\\\\", "\\")
 }
 
-fn sorted(addresses: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
+/// IPv4 addresses first, each in order.
+pub fn sorted(addresses: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
     let mut addresses: Vec<IpAddr> = addresses.collect();
     addresses.sort_by_key(|address| (address.is_ipv6(), *address));
     addresses

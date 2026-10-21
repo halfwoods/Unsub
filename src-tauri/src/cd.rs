@@ -125,6 +125,11 @@ impl Cds {
             .ok_or_else(|| CommandError::from(format!("track {track_id} is not on the CD")))
     }
 
+    /// What is known of one of the disc's songs, from its MusicBrainz match if there is one.
+    pub fn track(&self, disc_id: &str, track_id: i64) -> Option<Track> {
+        self.with_cd(disc_id, |cd| tracks(cd)).ok()?.into_iter().find(|track| track.id == track_id)
+    }
+
     fn with_cd<T>(&self, disc_id: &str, f: impl FnOnce(&mut Inserted) -> T) -> CommandResult<T> {
         let mut inserted = self.inserted();
         let cd = inserted

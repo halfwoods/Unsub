@@ -26,6 +26,8 @@ use crate::{
     Error, MusicSource, Result, auth, params::Params, render, render::Format, server::AppState,
 };
 
+pub(crate) use media::serve;
+
 /// What an endpoint produces.
 enum Reply {
     /// A bare `ok` envelope.

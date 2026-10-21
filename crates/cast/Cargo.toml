@@ -1,0 +1,20 @@
+[package]
+name = "unsub-cast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# Plain HTTP only: UPnP speakers are controlled and described over it, on the local network.
+ureq = { version = "3", default-features = false }
+mdns-sd = { version = "0.21", default-features = false }
+# One mDNS daemon for the whole app, and the helpers for reading what it finds.
+unsub-remote.workspace = true
+roxmltree = "0.21"
+# Chromecasts speak TLS with a certificate of their own making; the provider is the one ureq's rustls feature already brings.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The secret in a stream link must not be guessable, which a seeded generator's output can be.
+getrandom = "0.3"
