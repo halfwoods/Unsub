@@ -5,6 +5,11 @@
   flex-direction: column;
 }
 
+/* A column flex item grows to its content by default, so a long library would push the window apart. */
+.coverflow > .song-list {
+  min-height: 0;
+}
+
 /* Black stage with a faint top glow, like iTunes 10. */
 .coverflow-stage {
   position: relative;
