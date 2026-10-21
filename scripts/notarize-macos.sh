@@ -32,13 +32,31 @@ if [ -d "$target" ]; then
 fi
 
 credentials=(--apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID")
-echo "==> submitting $(basename "$submission")"
-result=$(xcrun notarytool submit "$submission" "${credentials[@]}" \
-  --wait --timeout "${NOTARIZE_TIMEOUT:-90m}" --output-format json) || true
-echo "$result"
+json_field() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null || true; }
 
-status=$(printf '%s' "$result" | plutil -extract status raw -o - - 2>/dev/null || echo unknown)
-id=$(printf '%s' "$result" | plutil -extract id raw -o - - 2>/dev/null || true)
+# The upload can time out on a flaky network. A submission that never got an id never reached
+# Apple, so sending it again is safe.
+for attempt in 1 2 3; do
+  echo "==> submitting $(basename "$submission") (attempt $attempt)"
+  result=$(xcrun notarytool submit "$submission" "${credentials[@]}" \
+    --wait --timeout "${NOTARIZE_TIMEOUT:-90m}" --output-format json) || true
+  echo "$result"
+  id=$(json_field "$result" id)
+  [ -n "$id" ] && break
+  [ "$attempt" -lt 3 ] || die "couldn't reach Apple's notary service after $attempt attempts"
+  sleep $((attempt * 30))
+done
+
+# Losing the connection while waiting leaves a submission Apple has but no verdict here; ask for
+# that verdict by id rather than sending the app again.
+status=$(json_field "$result" status)
+for attempt in 1 2 3; do
+  case "$status" in Accepted | Invalid | Rejected) break ;; esac
+  sleep $((attempt * 30))
+  result=$(xcrun notarytool wait "$id" "${credentials[@]}" --timeout "${NOTARIZE_TIMEOUT:-90m}" --output-format json) || true
+  echo "$result"
+  status=$(json_field "$result" status)
+done
 if [ "$status" != "Accepted" ]; then
   # Apple's log names the offending file and why; without it a rejection is a guessing game.
   [ -z "$id" ] || xcrun notarytool log "$id" "${credentials[@]}" || true
