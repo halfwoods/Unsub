@@ -232,6 +232,10 @@ interface AppState {
   connectingToServer: boolean;
   openingStream: boolean;
   importingElsewhere: boolean;
+  /** The welcome sheet: it opens by itself on a first run, and Help › Welcome to Unsub… opens it again. */
+  welcoming: boolean;
+  /** The welcome started an import; its "You're all set" tips wait for the first songs to arrive. */
+  welcomeTipPending: boolean;
   /** The station being listened to, kept once paused so Play can tune it in again; a song replaces it. */
   liveStation: RadioStation | null;
   liveTitle: RadioTitle | null;
@@ -339,6 +343,8 @@ export const useApp = create<AppState>((set, get) => ({
   connectingToServer: false,
   openingStream: false,
   importingElsewhere: false,
+  welcoming: false,
+  welcomeTipPending: false,
   liveStation: null,
   liveTitle: null,
   liveLink: null,

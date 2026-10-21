@@ -209,7 +209,7 @@ impl Library {
             .exists([text])?)
     }
 
-    fn setting(&self, key: &str) -> Result<Option<String>> {
+    pub(crate) fn setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .conn
             .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
@@ -218,7 +218,7 @@ impl Library {
             .optional()?)
     }
 
-    fn put_setting(&mut self, key: &str, value: &str) -> Result<()> {
+    pub(crate) fn put_setting(&mut self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",

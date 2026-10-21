@@ -78,7 +78,7 @@ Unsub updates itself from new releases. Politely, and only when you let it.
 Welcome. Have a seat. Here's the plan:
 
 1. **Ask Spotify for your data.** Account › Privacy settings › *Download your data*. Tick **Account data** (your playlists, a few days) and **Extended streaming history** (every play you ever made, up to 30 days). They'll email you a ZIP. It's like a breakup letter, but in JSON.
-2. **Point Unsub at your music.** Drag your music folder onto the window, or use **File › Import Music Library**.
+2. **Point Unsub at your music.** Drag your music folder onto the window, or use **File › Import Music Library**. On a first launch, the welcome sheet offers these too (and Unsub will wait while you decide).
 3. **Bring your playlists and history.** **File › Import › From Spotify, YouTube Music or ListenBrainz…** Unsub matches every entry to songs you own, rebuilds your playlists in a *From Spotify* folder, adds your plays to your play counts, and puts everything you don't own yet on **To Own**, with links to buy it.
 4. **Cancel.** The button is in there somewhere. Spotify will remind you of everything you're about to lose. You're not losing it. You're taking it with you.
 

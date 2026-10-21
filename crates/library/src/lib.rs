@@ -25,6 +25,7 @@ mod stations;
 mod store;
 mod tags;
 mod thumbnail;
+mod welcome;
 
 pub use chapters::Chapter;
 pub use cleanup::{

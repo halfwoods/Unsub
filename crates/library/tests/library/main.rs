@@ -25,3 +25,4 @@ mod scan;
 mod smart;
 mod stations;
 mod thumbnails;
+mod welcome;

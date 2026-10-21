@@ -66,6 +66,7 @@ import type {
   MicDevice,
   UpdateResult,
   UpdatesStatus,
+  WelcomeFolder,
 } from "./types";
 
 export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tracks", { query });
@@ -287,6 +288,11 @@ export const updatesInstall = (onEvent: (event: InstallEvent) => void) => {
 };
 export const onUpdateResult = (handler: (result: UpdateResult) => void): Promise<UnlistenFn> =>
   listen<UpdateResult>("updates://result", (e) => handler(e.payload));
+export const welcomeDue = () => invoke<boolean>("welcome_due");
+/** Records that the welcome was answered, so it doesn't open by itself again. */
+export const welcomeDone = () => invoke<void>("welcome_done");
+/** The music folders worth offering as a click. Music is checked for holding something; iCloud Drive's only for existing, since looking inside it can raise a macOS privacy prompt. */
+export const welcomeFolders = () => invoke<WelcomeFolder[]>("welcome_folders");
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
 export const visualizerStart = (onFrame: (frame: VisualizerFrame) => void, source: VisualizerSource) => {
@@ -357,6 +363,7 @@ export type MenuAction =
   | "import-elsewhere"
   | "equalizer"
   | "preferences"
+  | "welcome"
   | "show-visualizer"
   | `visualizer-${VisualizerStyle}`;
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>

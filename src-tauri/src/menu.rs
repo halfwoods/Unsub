@@ -44,6 +44,7 @@ const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("connect-to-server", "Connect to Server…", Some("CmdOrCtrl+K")),
 ];
 const CLEAN_UP: (&str, &str, Option<&str>) = ("clean-up", "Clean Up Song Info…", None);
+const WELCOME: (&str, &str, Option<&str>) = ("welcome", "Welcome to Unsub…", None);
 const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("play-pause", "Play/Pause", None),
     ("next", "Next", Some("CmdOrCtrl+Right")),
@@ -146,7 +147,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &advanced, &window])
+    let help = Submenu::with_items(app, "Help", true, &[&MenuItem::with_id(app, WELCOME.0, WELCOME.1, true, WELCOME.2)?])?;
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &advanced, &window, &help])
 }
 
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
@@ -169,6 +171,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == DELETE
         || id == SHOW_VISUALIZER.0
         || id == CLEAN_UP.0
+        || id == WELCOME.0
         || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {
         let _ = app.emit(MENU_ACTION_EVENT, id);

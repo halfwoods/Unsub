@@ -694,6 +694,12 @@ export interface UpdatesStatus {
   currentVersion: string;
 }
 
+/** A folder the welcome offers as a button. */
+export interface WelcomeFolder {
+  path: string;
+  label: string;
+}
+
 export interface UpdateInfo {
   version: string;
   currentVersion: string;

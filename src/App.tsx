@@ -28,6 +28,7 @@ import {
   playerSetCrossfade,
   playerSetSoundCheck,
   playerStatus,
+  welcomeDue,
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
@@ -45,6 +46,7 @@ import { Sidebar } from "./sidebar/Sidebar";
 import { VISUALIZER_STYLES } from "./visualizer/styles";
 import { VisualizerPane } from "./visualizer/VisualizerPane";
 import { UpdateSheet } from "./updates/UpdateSheet";
+import { Welcome, showWelcomeTips } from "./welcome/Welcome";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
@@ -113,6 +115,8 @@ function runMenuAction(action: MenuAction) {
       return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
       return setPreferencesOpen(true);
+    case "welcome":
+      return useApp.setState({ welcoming: true });
     case "show-visualizer":
       return setVisualizer({ open: !useApp.getState().visualizer.open });
     case "new-playlist":
@@ -176,6 +180,7 @@ function useBackendEvents() {
         void refresh();
         // New songs change smart playlists' contents and counts.
         void refreshPlaylists();
+        void showWelcomeTips();
       }),
       getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
       getCurrentWebview().onDragDropEvent(({ payload }) => {
@@ -188,6 +193,7 @@ function useBackendEvents() {
     void refreshShared();
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
+    void welcomeDue().then((due) => due && useApp.setState({ welcoming: true }));
     if (loadBitPerfect()) void playerSetBitPerfect(true);
     if (loadSoundCheck()) void playerSetSoundCheck(true);
     applyEqualizer(loadEqualizer());
@@ -221,6 +227,7 @@ export default function App() {
   const openingStream = useApp((s) => s.openingStream);
   const importSheet = useApp((s) => s.importSheet);
   const importingElsewhere = useApp((s) => s.importingElsewhere);
+  const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
   useBackendEvents();
@@ -244,6 +251,7 @@ export default function App() {
       {openingStream && <OpenStream />}
       {importSheet && <ImportSheet preview={importSheet} />}
       {importingElsewhere && <ImportElsewhere />}
+      {welcoming && <Welcome />}
       <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
     </div>

@@ -54,6 +54,7 @@ export function Content() {
   const searching = useApp((s) => s.query.search !== null);
   const loaded = useApp((s) => s.stats !== null);
   const duplicates = useApp((s) => s.duplicates);
+  const welcoming = useApp((s) => s.welcoming);
 
   if (isDeviceSource(source)) {
     const device = parseDeviceSource(source);
@@ -105,10 +106,13 @@ export function Content() {
   if (isPlaylistSource(source) || hasTracks || searching || !loaded || !placard) return <Songs />;
   return (
     <div className="placard">
-      <div className="placard-card">
-        <h1>{placard.title}</h1>
-        <p>{placard.body}</p>
-      </div>
+      {/* The welcome says how to add music itself, and this would show around the edges of its sheet. */}
+      {!welcoming && (
+        <div className="placard-card">
+          <h1>{placard.title}</h1>
+          <p>{placard.body}</p>
+        </div>
+      )}
     </div>
   );
 }

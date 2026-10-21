@@ -22,6 +22,7 @@ mod sync;
 mod test_support;
 mod updates;
 mod visualizer;
+mod welcome;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -229,6 +230,9 @@ pub fn run() {
             cast::cast_speakers,
             cast::cast_select,
             cast::cast_open_airplay,
+            welcome::welcome_due,
+            welcome::welcome_done,
+            welcome::welcome_folders,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Unsub")
