@@ -10,7 +10,7 @@ use crate::model::MediaKind;
 use crate::normalize::trailing_group;
 use crate::tags::TrackMeta;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const READ_CHUNK: usize = 1 << 20;
 
 /// Whether the file's contents are not on this machine. Asking costs one
@@ -55,7 +55,7 @@ pub fn is_dataless(path: &Path) -> bool {
 
 /// What `ensure_local` needs from the operating system, so a test can stand in
 /// for a cloud that cannot be conjured on demand.
-trait Storage {
+pub(crate) trait Storage {
     fn is_dataless(&self, path: &Path) -> bool;
     /// Asks the system to fetch the file in the background.
     fn start_download(&self, path: &Path) -> io::Result<()>;
@@ -65,7 +65,7 @@ trait Storage {
     fn bytes_on_disk(&self, path: &Path) -> u64;
 }
 
-struct System;
+pub(crate) struct System;
 
 impl Storage for System {
     fn is_dataless(&self, path: &Path) -> bool {
@@ -174,7 +174,7 @@ pub fn evict(path: &Path) -> Result<()> {
     evict_with(path, &System)
 }
 
-fn evict_with(path: &Path, storage: &dyn Storage) -> Result<()> {
+pub(crate) fn evict_with(path: &Path, storage: &dyn Storage) -> Result<()> {
     if storage.is_dataless(path) {
         return Ok(());
     }
@@ -182,7 +182,7 @@ fn evict_with(path: &Path, storage: &dyn Storage) -> Result<()> {
     Ok(())
 }
 
-fn wait_for_local(
+pub(crate) fn wait_for_local(
     path: &Path,
     progress: &mut dyn FnMut(u64, u64),
     cancel: &AtomicBool,

@@ -4,6 +4,7 @@ mod chapters;
 mod cleanup;
 mod cloud;
 mod delete;
+mod details;
 mod duplicates;
 mod edit;
 mod error;
@@ -33,6 +34,7 @@ pub use cleanup::{
     TextSide,
 };
 pub use cloud::{ensure_local, evict, is_dataless};
+pub use details::{Blocked, DetailsHost, DetailsProgress, DetailsSummary, UnreadTotals};
 pub use edit::{EditReport, TrackEdits};
 pub use error::{Error, Result};
 pub use library::Library;

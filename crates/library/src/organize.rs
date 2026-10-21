@@ -229,7 +229,7 @@ impl Library {
     }
 }
 
-fn flag(on: bool) -> &'static str {
+pub(crate) fn flag(on: bool) -> &'static str {
     if on { "1" } else { "0" }
 }
 

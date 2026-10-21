@@ -18,6 +18,8 @@ import type {
   ElsewherePreview,
   ElsewhereService,
   ArtworkChange,
+  DetailsProgress,
+  DetailsStatus,
   DeviceSyncStatus,
   EditReport,
   DeviceView,
@@ -136,6 +138,12 @@ export const onCleanUpProgress = (handler: (progress: CleanUpProgress | null) =>
   listen<CleanUpProgress | null>("library://clean-up", (e) => handler(e.payload));
 export const onCleanUpDone = (handler: (done: CleanUpDone) => void): Promise<UnlistenFn> =>
   listen<CleanUpDone>("library://clean-up-done", (e) => handler(e.payload));
+export const detailsStatus = () => invoke<DetailsStatus>("details_status");
+/** Starts reading the songs that are only in iCloud, in the background; its progress comes as events. */
+export const detailsStart = () => invoke<void>("details_start");
+export const detailsSetPaused = (paused: boolean) => invoke<void>("details_set_paused", { paused });
+export const onDetailsProgress = (handler: (progress: DetailsProgress | null) => void): Promise<UnlistenFn> =>
+  listen<DetailsProgress | null>("library://details", (e) => handler(e.payload));
 export const libraryMediaSettings = () => invoke<MediaSettings>("library_media_settings");
 export const librarySetMediaSettings = (folder: string, organize: boolean, copyOnAdd: boolean) =>
   invoke<void>("library_set_media_settings", { folder, organize, copyOnAdd });
@@ -153,7 +161,7 @@ export const deviceSetSyncSettings = (deviceId: string, settings: SyncSettings) 
 export const deviceSyncPreview = (deviceId: string) => invoke<SyncPreview>("device_sync_preview", { deviceId });
 export const deviceSync = (deviceId: string) => invoke<void>("device_sync", { deviceId });
 /** The background work that can be started, which `jobCancel` stops. */
-export type JobKind = "import" | "cleanUp" | "sync" | "organize" | "scan" | "podcasts";
+export type JobKind = "import" | "cleanUp" | "sync" | "organize" | "scan" | "podcasts" | "details";
 /** Stops the running jobs of a kind at their next look; stopping one that isn't running does nothing. */
 export const jobCancel = (kind: JobKind) => invoke<void>("job_cancel", { kind });
 /** What Copy to Library would do with these choices; nothing is copied. */
@@ -377,6 +385,7 @@ export type MenuAction =
   | "set-up-player"
   | "connect-to-server"
   | "clean-up"
+  | "get-song-details"
   | "open-stream"
   | "import-music-library"
   | "import-library-xml"

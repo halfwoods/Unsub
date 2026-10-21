@@ -44,6 +44,7 @@ const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("connect-to-server", "Connect to Server…", Some("CmdOrCtrl+K")),
 ];
 const CLEAN_UP: (&str, &str, Option<&str>) = ("clean-up", "Clean Up Song Info…", None);
+const SONG_DETAILS: (&str, &str, Option<&str>) = ("get-song-details", "Get Song Details from iCloud…", None);
 const WELCOME: (&str, &str, Option<&str>) = ("welcome", "Welcome to Unsub…", None);
 const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("play-pause", "Play/Pause", None),
@@ -136,6 +137,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         controls.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
     let advanced = Submenu::with_items(app, "Advanced", true, &[&MenuItem::with_id(app, CLEAN_UP.0, CLEAN_UP.1, true, CLEAN_UP.2)?])?;
+    // Only where there are cloud placeholders to fetch and give back.
+    #[cfg(any(target_os = "macos", windows))]
+    advanced.append(&MenuItem::with_id(app, SONG_DETAILS.0, SONG_DETAILS.1, true, SONG_DETAILS.2)?)?;
     let window = Submenu::with_items(
         app,
         "Window",
@@ -171,6 +175,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == DELETE
         || id == SHOW_VISUALIZER.0
         || id == CLEAN_UP.0
+        || id == SONG_DETAILS.0
         || id == WELCOME.0
         || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {

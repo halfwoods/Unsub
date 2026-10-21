@@ -74,6 +74,12 @@ const KEPT_ON_REFRESH: &[&str] = &[
 /// app outlives a re-read while the file is as it was: the audio can only have
 /// changed if its size or modification time did.
 const TRACK_LOUDNESS: &[&str] = &["loudness_lufs", "true_peak_dbtp", "loudness_source"];
+/// A placeholder's tags are read once it is local, and the row says so with its parser version. Writing it
+/// again as a placeholder (an edit made while it is in the cloud, a re-import) says nothing new about
+/// the file, so while it is as it was the version stands; a changed file has to be read again.
+const KEEP_READ: &str = "CASE WHEN excluded.in_cloud
+    AND tracks.file_size = excluded.file_size AND tracks.date_modified = excluded.date_modified
+    THEN tracks.parser_version ELSE excluded.parser_version END";
 const KEEP_MEASUREMENT: &str = "(tracks.loudness_source = 'analyzed'
     AND tracks.file_size = excluded.file_size AND tracks.date_modified = excluded.date_modified)";
 
@@ -111,6 +117,8 @@ pub(crate) fn write_tracks<'a>(
         .map(|column| {
             if refreshing && TRACK_LOUDNESS.contains(column) {
                 format!("{column} = CASE WHEN {KEEP_MEASUREMENT} THEN tracks.{column} ELSE excluded.{column} END")
+            } else if refreshing && *column == "parser_version" {
+                format!("{column} = {KEEP_READ}")
             } else {
                 format!("{column} = excluded.{column}")
             }

@@ -169,8 +169,9 @@
   stroke: var(--lcd-ink);
 }
 
-/* iTunes' stop button at the end of a sync or import bar. */
-.lcd-cancel {
+/* iTunes' stop button at the end of a sync or import bar, and a pause button in the same style for work that can be held. */
+.lcd-cancel,
+.lcd-pause {
   flex: none;
   display: grid;
   padding: 0;
@@ -178,18 +179,30 @@
   background: none;
 }
 
-.lcd-cancel circle {
+.lcd-cancel circle,
+.lcd-pause circle {
   fill: #7d8070;
 }
 
-.lcd-cancel path {
+.lcd-cancel path,
+.lcd-pause path {
   stroke: #eef0e2;
   stroke-width: 1.5;
   stroke-linecap: round;
 }
 
-.lcd-cancel:active circle {
+.lcd-cancel:active circle,
+.lcd-pause:active circle {
   fill: #50523f;
+}
+
+.lcd-pause {
+  margin-right: 4px;
+}
+
+/* The triangle of Resume; the bars of Pause are lines and take no fill. */
+.lcd-pause path {
+  fill: #eef0e2;
 }
 
 .lcd-chapters-button {

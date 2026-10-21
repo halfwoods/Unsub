@@ -178,6 +178,29 @@ export interface CleanUpDone {
   error: string | null;
 }
 
+/** Where Get Song Details from iCloud stands while it runs. the others after `paused` are pauses it chose, because the disk is almost full, iCloud is not answering, the songs' files are not there or iCloud keeps the downloaded ones. */
+export interface DetailsProgress {
+  read: number;
+  skipped: number;
+  /** Songs whose files aren't there. */
+  missing: number;
+  /** The songs there were to read when it began. */
+  total: number;
+  /** The song in hand. */
+  title: string;
+  phase: "running" | "paused" | "lowSpace" | "noResponse" | "filesMissing" | "notGivenBack";
+}
+
+/** What Get Song Details from iCloud has ahead of it, and whether it is going. */
+export interface DetailsStatus {
+  /** Songs that are only in iCloud and not read yet. */
+  songs: number;
+  /** What downloading their files comes to. */
+  bytes: number;
+  running: boolean;
+  paused: boolean;
+}
+
 export interface MediaSettings {
   folder: string | null;
   organize: boolean;

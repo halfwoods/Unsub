@@ -12,7 +12,7 @@ use unsub_ipod::{Ipod, IpodMediaKind, Prepared, SyncPlaylist, SyncProgress, Sync
 use unsub_library::{MediaKind, Track};
 use unsub_playback::{Target, TranscodeOptions};
 
-use super::cloud::{Cloud, Covers, ICloud, giving_back, leftovers_of};
+use super::cloud::{Cloud, Covers, ICloud, leftovers_of, release_leftovers};
 use super::{Chosen, FALLBACK_AAC_KBPS, LOSSY_CODECS, SyncState, fresh_work_dir, is_lossless, select, to_error};
 use crate::devices::{self, DevicesState};
 use crate::error::{CommandError, CommandResult};
@@ -473,7 +473,7 @@ pub(super) fn run_ipod_sync(app: &AppHandle, ctx: &Ctx, device_id: &str) -> Comm
     let plan = unsub_ipod::plan_sync(&ipod, &database, &selection.tracks, &selection.playlists).map_err(to_error)?;
 
     let leftovers = leftovers_of(app)?;
-    leftovers.release(&ICloud, &giving_back(app), crate::playback::now_unix());
+    release_leftovers(app, &leftovers);
     let work_dir = fresh_work_dir(app)?;
     let library = app.state::<LibraryState>();
     let covers = Covers::new(work_dir.join("covers"));

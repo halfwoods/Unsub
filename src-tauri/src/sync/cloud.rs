@@ -9,6 +9,8 @@ use tauri::{AppHandle, Manager};
 
 use super::{SyncState, WORK_DIR, lock, to_error};
 use crate::error::CommandResult;
+use crate::jobs::{Jobs, Kind};
+use crate::playback::PlaybackState;
 
 /// How a sync reaches songs that are only in iCloud; a test stands in for the real thing.
 pub(super) trait Cloud {
@@ -38,13 +40,18 @@ impl Cloud for ICloud {
 
 const LEFTOVERS_FILE: &str = "Device Sync Downloads.json";
 
-/// A download a sync asked iCloud for and then stopped waiting for, because it was stopped or
-/// gave up. The request is still out there, so the song lands on this Mac whenever iCloud gets to
-/// it, and nothing else would give it back.
+/// The "device" under which Get Song Details from iCloud lists its downloads, which are always to
+/// be given back.
+pub const DETAILS_DEVICE: &str = "song details";
+
+/// A download a sync (or Get Song Details from iCloud) asked iCloud for and then stopped waiting
+/// for, because it was stopped or gave up, or the app quit. The request is still out there, so
+/// the song lands on this Mac whenever iCloud gets to it, and nothing else would give it back.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Leftover {
     path: PathBuf,
-    /// The iPod whose sync asked, whose "remove downloaded songs" setting decides.
+    /// The iPod whose sync asked, whose "remove downloaded songs" setting decides, or
+    /// [`DETAILS_DEVICE`].
     device: String,
     /// Unix seconds.
     at: i64,
@@ -56,7 +63,7 @@ const LEFTOVER_LIFE_SECS: i64 = 24 * 60 * 60;
 
 /// The [`Leftover`]s, kept in a small file in the app cache until a later sync or the next launch
 /// finds them finished and gives them back.
-pub(super) struct Leftovers {
+pub(crate) struct Leftovers {
     file: PathBuf,
 }
 
@@ -64,6 +71,10 @@ pub(super) struct Leftovers {
 static LEFTOVERS: Mutex<()> = Mutex::new(());
 
 impl Leftovers {
+    pub(crate) fn new(file: PathBuf) -> Self {
+        Self { file }
+    }
+
     fn load(&self, now: i64) -> Vec<Leftover> {
         let all: Vec<Leftover> = std::fs::read(&self.file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         all.into_iter().filter(|left| now - left.at < LEFTOVER_LIFE_SECS).collect()
@@ -75,11 +86,12 @@ impl Leftovers {
             let _ = std::fs::remove_file(&self.file);
         } else if let Ok(json) = serde_json::to_vec(all) {
             let _ = self.file.parent().map(std::fs::create_dir_all);
-            let _ = std::fs::write(&self.file, json);
+            // Whole or not at all: a crash mid-write must not leave the entries of every iPod and read empty.
+            let _ = unsub_library::write_beside(&self.file, |temp| std::fs::write(temp, &json));
         }
     }
 
-    pub(super) fn add(&self, paths: &[PathBuf], device: &str, now: i64) {
+    pub(crate) fn add(&self, paths: &[PathBuf], device: &str, now: i64) {
         if paths.is_empty() {
             return;
         }
@@ -90,8 +102,14 @@ impl Leftovers {
         self.save(&all);
     }
 
-    /// The song is wanted on this Mac after all, as when it is played.
-    fn forget(&self, path: &Path, now: i64) {
+    /// Whether `device` asked for the file and never gave it back.
+    pub(crate) fn contains(&self, path: &Path, device: &str, now: i64) -> bool {
+        let _held = lock(&LEFTOVERS);
+        self.load(now).iter().any(|left| left.path == path && left.device == device)
+    }
+
+    /// The song is wanted on this Mac after all, as when it is played, or is back in iCloud.
+    pub(crate) fn forget(&self, path: &Path, now: i64) {
         let _held = lock(&LEFTOVERS);
         let mut all = self.load(now);
         let before = all.len();
@@ -102,8 +120,9 @@ impl Leftovers {
     }
 
     /// Gives back the downloads that have finished since, where their iPod's setting says to,
-    /// forgets those whose file is gone, and keeps waiting for the rest.
-    pub(super) fn release(&self, cloud: &dyn Cloud, giving_back: &dyn Fn(&str) -> bool, now: i64) {
+    /// forgets those whose file is gone, and keeps waiting for the rest. A file that `in_use`
+    /// says is wanted right now (it is playing, or being read) stays as it is and stays listed.
+    pub(super) fn release(&self, cloud: &dyn Cloud, giving_back: &dyn Fn(&str) -> bool, in_use: &dyn Fn(&Path, &str) -> bool, now: i64) {
         let _held = lock(&LEFTOVERS);
         let waiting: Vec<Leftover> = self
             .load(now)
@@ -112,7 +131,7 @@ impl Leftovers {
                 if !left.path.exists() {
                     return false;
                 }
-                if cloud.is_placeholder(&left.path) {
+                if cloud.is_placeholder(&left.path) || in_use(&left.path, &left.device) {
                     return true;
                 }
                 if giving_back(&left.device) {
@@ -125,14 +144,15 @@ impl Leftovers {
     }
 }
 
-pub(super) fn leftovers_of(app: &AppHandle) -> CommandResult<Leftovers> {
-    Ok(Leftovers { file: app.path().app_cache_dir().map_err(to_error)?.join(LEFTOVERS_FILE) })
+pub(crate) fn leftovers_of(app: &AppHandle) -> CommandResult<Leftovers> {
+    Ok(Leftovers::new(app.path().app_cache_dir().map_err(to_error)?.join(LEFTOVERS_FILE)))
 }
 
-/// Whether the iPod's sync settings say to give downloaded songs back.
+/// Whether the iPod's sync settings say to give downloaded songs back; those of Get Song Details
+/// from iCloud always are.
 pub(super) fn giving_back(app: &AppHandle) -> impl Fn(&str) -> bool + use<> {
     let app = app.clone();
-    move |device| app.state::<SyncState>().settings_for(device).remove_downloaded
+    move |device| device == DETAILS_DEVICE || app.state::<SyncState>().settings_for(device).remove_downloaded
 }
 
 /// A song that was a leftover is wanted on this Mac now, so it is not to be given back.
@@ -147,11 +167,34 @@ pub fn forget_leftover(app: &AppHandle, path: &Path) {
 pub fn tidy(app: &AppHandle) {
     let Ok(cache) = app.path().app_cache_dir() else { return };
     let _ = std::fs::remove_dir_all(cache.join(WORK_DIR));
-    let giving_back = giving_back(app);
+    let app = app.clone();
     // Each song is a call to the system, so not while the app is starting.
     std::thread::spawn(move || {
-        Leftovers { file: cache.join(LEFTOVERS_FILE) }.release(&ICloud, &giving_back, crate::playback::now_unix());
+        if let Ok(leftovers) = leftovers_of(&app) {
+            release_leftovers(&app, &leftovers);
+        }
     });
+}
+
+/// Gives back the downloads that finished after whatever asked for them stopped waiting, except
+/// the song playing or next, and while Get Song Details runs its own downloads, which it gives
+/// back itself and may be reading this moment.
+pub(super) fn release_leftovers(app: &AppHandle, leftovers: &Leftovers) {
+    give_back(app, leftovers, app.state::<Jobs>().is_running(Kind::Details));
+}
+
+/// The end of Get Song Details: it is done with its own downloads, so they go back with the rest.
+pub fn give_back_leftovers(app: &AppHandle) {
+    if let Ok(leftovers) = leftovers_of(app) {
+        give_back(app, &leftovers, false);
+    }
+}
+
+fn give_back(app: &AppHandle, leftovers: &Leftovers, details_running: bool) {
+    // At launch this runs before playback exists, and then nothing is playing.
+    let playing = app.try_state::<PlaybackState>().map(|playback| playback.in_use_paths()).unwrap_or_default();
+    let in_use = |path: &Path, device: &str| playing.iter().any(|song| song == path) || (details_running && device == DETAILS_DEVICE);
+    leftovers.release(&ICloud, &giving_back(app), &in_use, crate::playback::now_unix());
 }
 
 /// The covers of songs that came down from iCloud, read while the song is here: it is given back
@@ -266,6 +309,10 @@ mod tests {
     use super::fake::FakeCloud;
     use super::*;
 
+    fn nothing_in_use(_: &Path, _: &str) -> bool {
+        false
+    }
+
     #[test]
     fn downloads_left_unfinished_are_given_back_once_they_finish_and_forgotten_once_gone() {
         let dir = tempfile::tempdir().unwrap();
@@ -279,16 +326,16 @@ mod tests {
         assert_eq!(leftovers.load(1_020).len(), 3, "a path is listed once");
         let cloud = FakeCloud { placeholders: RefCell::new(HashSet::from([waiting.clone()])), ..FakeCloud::default() };
 
-        leftovers.release(&cloud, &always, 1_030);
+        leftovers.release(&cloud, &always, &nothing_in_use, 1_030);
 
         assert_eq!(*cloud.released.borrow(), [done]);
         let kept = leftovers.load(1_030);
         assert_eq!(kept.iter().map(|left| &left.path).collect::<Vec<_>>(), [&waiting]);
         // Nothing more has finished, so another go does nothing.
-        leftovers.release(&cloud, &always, 1_040);
+        leftovers.release(&cloud, &always, &nothing_in_use, 1_040);
         assert_eq!(cloud.released.borrow().len(), 1);
         cloud.placeholders.borrow_mut().clear();
-        leftovers.release(&cloud, &always, 1_050);
+        leftovers.release(&cloud, &always, &nothing_in_use, 1_050);
         assert_eq!(cloud.released.borrow().len(), 2);
         assert!(!leftovers.file.exists(), "an empty list is no file");
     }
@@ -306,7 +353,7 @@ mod tests {
         leftovers.add(std::slice::from_ref(&off), "off", 100);
         let cloud = FakeCloud::default();
 
-        leftovers.release(&cloud, &|device: &str| device == "on", LEFTOVER_LIFE_SECS + 50);
+        leftovers.release(&cloud, &|device: &str| device == "on", &nothing_in_use, LEFTOVER_LIFE_SECS + 50);
 
         assert_eq!(
             *cloud.released.borrow(),
@@ -314,6 +361,33 @@ mod tests {
             "not the other iPod's, and not the one nobody has asked about in a day"
         );
         assert!(leftovers.load(LEFTOVER_LIFE_SECS + 50).is_empty());
+    }
+
+    #[test]
+    fn a_listed_file_that_is_playing_or_next_is_left_alone_and_stays_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (playing, reading, free) = (dir.path().join("playing.mp3"), dir.path().join("reading.mp3"), dir.path().join("free.mp3"));
+        for file in [&playing, &reading, &free] {
+            std::fs::write(file, b"x").unwrap();
+        }
+        let leftovers = Leftovers { file: dir.path().join("leftovers.json") };
+        leftovers.add(std::slice::from_ref(&playing), "ipod", 100);
+        leftovers.add(std::slice::from_ref(&reading), DETAILS_DEVICE, 100);
+        leftovers.add(std::slice::from_ref(&free), "ipod", 100);
+        let cloud = FakeCloud::default();
+        // One is being played whatever asked for it, and the other is the details read's own, which is going on.
+        let in_use = |path: &Path, device: &str| path == playing || device == DETAILS_DEVICE;
+
+        leftovers.release(&cloud, &|_: &str| true, &in_use, 200);
+
+        assert_eq!(*cloud.released.borrow(), std::slice::from_ref(&free));
+        let kept = leftovers.load(200);
+        assert_eq!(kept.iter().map(|left| &left.path).collect::<Vec<_>>(), [&playing, &reading]);
+
+        // Playback has moved on and the read is over: now they go.
+        leftovers.release(&cloud, &|_: &str| true, &nothing_in_use, 300);
+        assert_eq!(cloud.released.borrow().len(), 3);
+        assert!(!leftovers.file.exists());
     }
 
     #[test]

@@ -22,6 +22,7 @@ import type {
   MediaKind,
   OrganizeProgress,
   CleanUpProgress,
+  DetailsProgress,
   PlaybackStatus,
   PlaySource,
   PlayerEvent,
@@ -103,13 +104,14 @@ export const isPlaylistSource = (source: SourceId): source is PlaylistSourceId =
 export const playlistSource = (id: number): PlaylistSourceId => `playlist:${id}`;
 export const playlistIdOf = (source: SourceId) => (isPlaylistSource(source) ? Number(source.slice("playlist:".length)) : null);
 
-/** Sheets over the library: Get Info, Clean Up Song Info, a missing file to locate, a delete to confirm, Organize Library. */
+/** Sheets over the library: Get Info, Clean Up Song Info, a missing file to locate, a delete to confirm, Organize Library, Get Song Details from iCloud. */
 export type LibrarySheet =
   | { type: "info"; trackIds: number[] }
   | { type: "cleanUp"; trackIds: number[] }
   | { type: "locate"; track: Track }
   | { type: "delete"; trackIds: number[] }
-  | { type: "organize" };
+  | { type: "organize" }
+  | { type: "songDetails" };
 
 export interface SmartEditor {
   /** null while creating a new smart playlist. */
@@ -225,6 +227,8 @@ interface AppState {
   organize: OrganizeProgress | null;
   /** Clean Up Song Info's progress while it runs. */
   cleanUp: CleanUpProgress | null;
+  /** Get Song Details from iCloud's progress while it runs, in the background. */
+  details: DetailsProgress | null;
   /** The Music library File › Import Music Library has read, shown in the sheet that asks where its files are. */
   importSheet: ImportPreview | null;
   importProgress: ImportProgress | null;
@@ -337,6 +341,7 @@ export const useApp = create<AppState>((set, get) => ({
   duplicates: null,
   organize: null,
   cleanUp: null,
+  details: null,
   importSheet: null,
   importProgress: null,
   settingUpPlayer: false,

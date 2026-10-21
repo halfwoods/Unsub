@@ -919,3 +919,53 @@ fn forty_thousand_placeholders_are_added_in_seconds() {
     assert_eq!(library.stats(&all_kinds()).unwrap().count, 40_000);
     assert!(added.as_secs() < 10 && updated.as_secs() < 10);
 }
+
+#[test]
+fn a_song_that_was_read_stays_read_through_edits_and_re_imports_while_it_is_in_the_cloud() {
+    let dir = TempDir::new().unwrap();
+    let path = put_fixture(dir.path(), "05 - Remix.mp3", "halo.mp3");
+    evict(&path);
+    let mut library = cloud_library();
+    rescan(&mut library, dir.path());
+    let id = library.tracks(&all_kinds()).unwrap()[0].id;
+    let waiting = |library: &Library| library.unread_cloud_totals(Path::new("")).unwrap().songs;
+    assert_eq!(waiting(&library), 1);
+
+    // Downloaded, read, and given back.
+    download(&path);
+    library.refresh_cloud_status(&[id]).unwrap();
+    evict(&path);
+    library.refresh_cloud_status(&[id]).unwrap();
+    assert!(library.track(id).unwrap().unwrap().in_cloud);
+    assert_eq!(waiting(&library), 0);
+
+    // Get Info, with the song in the cloud: only the library changes.
+    let report = library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                genre: Some("Jazz".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(report.db_only.len(), 1);
+    assert_eq!(library.track(id).unwrap().unwrap().genre, "Jazz");
+    assert_eq!(waiting(&library), 0, "an edit does not unread it");
+
+    // Adding the same file again, as importing a Music library does.
+    library
+        .add_files(&[(path.clone(), TrackOverrides::default())])
+        .unwrap();
+    assert_eq!(waiting(&library), 0, "nor does a re-import");
+
+    // A file that changes has to be read again.
+    File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(600))
+        .unwrap();
+    assert_eq!(rescan(&mut library, dir.path()).updated, 1);
+    assert_eq!(waiting(&library), 1);
+}

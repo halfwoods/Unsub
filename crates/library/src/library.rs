@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::vtab::array;
@@ -25,10 +26,41 @@ pub(crate) const SKIP_EVENT: i64 = 1;
 
 type TrashFn = dyn Fn(&Path) -> std::io::Result<()> + Send;
 
+/// An older build refuses a database that has been given schema 13, so the library as it was is kept once,
+/// beside it, for going back. A fresh database has nothing to keep, and a copy that can't be made (the disk
+/// is full) must not keep the library from opening.
+fn keep_before_thirteen(conn: &Connection, db_path: &Path) {
+    let version: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap_or(0);
+    let Some(name) = db_path.file_name() else {
+        return;
+    };
+    let name = name.to_string_lossy();
+    let backup = db_path.with_file_name(format!("{name}.before-13"));
+    if !(1..13).contains(&version) || backup.exists() {
+        return;
+    }
+    // Made under another name and renamed when whole, so that a crash halfway leaves nothing that
+    // passes for a backup, and a half-made one from an earlier crash is cleared away first.
+    let partial = db_path.with_file_name(format!("{name}.before-13.tmp"));
+    let _ = fs::remove_file(&partial);
+    let kept = conn
+        .execute("VACUUM INTO ?1", [partial.to_string_lossy()])
+        .is_ok()
+        && fs::rename(&partial, &backup).is_ok();
+    if !kept {
+        let _ = fs::remove_file(partial);
+    }
+}
+
 pub struct Library {
     pub(crate) conn: Connection,
     /// Where `artwork_thumbnail` keeps resized images; unset means no caching.
     pub(crate) artwork_cache: Option<PathBuf>,
+    /// Where the covers of songs that are only in iCloud are kept for good. They are the only copy
+    /// (the files are not here to read them from), so unlike the cache they are not to be lost.
+    pub(crate) cloud_covers: Option<PathBuf>,
     /// Tells whether a file is only a placeholder for contents in the cloud.
     pub(crate) is_dataless: Box<dyn Fn(&Path) -> bool + Send>,
     /// Moves a file to the Trash.
@@ -43,7 +75,17 @@ impl Library {
         let conn = Connection::open(db_path)?;
         // WAL keeps readers (UI queries) unblocked while a scan commits batches.
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-        Self::init(conn)
+        keep_before_thirteen(&conn, db_path);
+        let mut library = Self::init(conn)?;
+        // Beside the database, so they move with it.
+        library.cloud_covers = Some(db_path.with_file_name("Covers"));
+        Ok(library)
+    }
+
+    /// How long a statement waits for another connection's write to finish before it fails; work
+    /// that goes on for hours would rather wait longer than end.
+    pub fn set_busy_timeout(&self, timeout: Duration) -> Result<()> {
+        Ok(self.conn.busy_timeout(timeout)?)
     }
 
     pub fn open_in_memory() -> Result<Library> {
@@ -65,6 +107,7 @@ impl Library {
         Ok(Library {
             conn,
             artwork_cache: None,
+            cloud_covers: None,
             is_dataless: Box::new(platform_is_dataless),
             trash: Box::new(move_to_trash),
         })

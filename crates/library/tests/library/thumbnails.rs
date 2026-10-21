@@ -345,3 +345,100 @@ fn a_cover_image_that_is_only_in_the_cloud_is_passed_over() {
 
     assert_eq!(art.bytes, fs::read(dir.path().join("album.png")).unwrap());
 }
+
+#[test]
+fn a_cover_kept_for_a_song_is_served_after_it_goes_back_to_the_cloud() {
+    let dir = TempDir::new().unwrap();
+    let (cache, covers) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    write_png(&dir.path().join("cover.png"), 40, 30, [9, 9, 9]);
+    let mut library = on_disk(&[(1, dir.path(), "Album")]);
+    library.set_artwork_cache(cache.path().to_path_buf());
+    library.set_cloud_covers(covers.path().to_path_buf());
+
+    assert!(library.keep_cloud_cover(1).unwrap());
+
+    // The song is back in the cloud, and the picture beside it is gone with the rest.
+    let song = library.track(1).unwrap().unwrap();
+    library
+        .import_tracks(&[Track {
+            in_cloud: true,
+            ..song
+        }])
+        .unwrap();
+    fs::remove_file(dir.path().join("cover.png")).unwrap();
+    make_unreadable(&dir.path().join("track1.mp3"));
+    library.set_dataless_check(|path| path.extension().is_some_and(|e| e == "mp3"));
+
+    let cover = library.artwork(1).unwrap().unwrap();
+    assert_eq!(cover.mime, "image/jpeg");
+    assert_eq!(dimensions(&cover.bytes), (40, 30));
+    let small = library.artwork_thumbnail(1, 20).unwrap().unwrap();
+    assert_eq!(dimensions(&small.bytes), (20, 15));
+    // The kept cover is the biggest there is, so a bigger size is not re-encoded from it.
+    let big = library.artwork_thumbnail(1, 1024).unwrap().unwrap();
+    assert_eq!(big.bytes, cover.bytes);
+
+    // The thumbnail is cache, which can be emptied; the cover is not.
+    assert_eq!(cached(&cache.path().join("Cloud")).len(), 1);
+    fs::remove_dir_all(cache.path()).unwrap();
+    let again = library.artwork_thumbnail(1, 20).unwrap().unwrap();
+    assert_eq!(dimensions(&again.bytes), (20, 15));
+}
+
+#[test]
+fn a_kept_cover_is_not_served_for_a_file_that_has_changed() {
+    let dir = TempDir::new().unwrap();
+    let covers = TempDir::new().unwrap();
+    write_png(&dir.path().join("cover.png"), 40, 30, [9, 9, 9]);
+    let mut library = on_disk(&[(1, dir.path(), "Album")]);
+    assert!(
+        !library.keep_cloud_cover(1).unwrap(),
+        "an in-memory library has nowhere to keep it"
+    );
+    library.set_cloud_covers(covers.path().to_path_buf());
+    assert!(library.keep_cloud_cover(1).unwrap());
+    fs::remove_file(dir.path().join("cover.png")).unwrap();
+    library.set_dataless_check(|path| path.extension().is_some_and(|e| e == "mp3"));
+
+    let song = library.track(1).unwrap().unwrap();
+    library
+        .import_tracks(&[Track {
+            in_cloud: true,
+            date_modified: song.date_modified + 1,
+            ..song
+        }])
+        .unwrap();
+
+    assert!(library.artwork(1).unwrap().is_none());
+    assert!(library.artwork_thumbnail(1, 20).unwrap().is_none());
+}
+
+#[test]
+fn covers_of_songs_that_left_the_library_are_tidied_away_with_their_last_picture() {
+    let (one, two) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let covers = TempDir::new().unwrap();
+    // Two songs of an album, with the same picture beside each.
+    for dir in [&one, &two] {
+        write_png(&dir.path().join("cover.png"), 40, 30, [9, 9, 9]);
+    }
+    let mut library = on_disk(&[(1, one.path(), "Album"), (2, two.path(), "Album")]);
+    library.set_cloud_covers(covers.path().to_path_buf());
+    assert!(library.keep_cloud_cover(1).unwrap() && library.keep_cloud_cover(2).unwrap());
+    assert_eq!(cached(covers.path()).len(), 3, "a picture and a cover each");
+
+    library.tidy_cloud_covers().unwrap();
+    assert_eq!(cached(covers.path()).len(), 3, "nothing has left");
+
+    library.delete_tracks(&[1], false).unwrap();
+    library.tidy_cloud_covers().unwrap();
+    assert_eq!(
+        cached(covers.path()).len(),
+        2,
+        "the picture stays for song 2"
+    );
+
+    library.delete_tracks(&[2], false).unwrap();
+    library.tidy_cloud_covers().unwrap();
+    #[cfg(unix)]
+    assert!(cached(covers.path()).is_empty());
+}

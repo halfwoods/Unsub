@@ -18,7 +18,8 @@ mod players;
 use ipod::{Conversion, for_ipod, fresh_ipod};
 use players::{for_player, player_target};
 
-pub use cloud::{forget_leftover, tidy};
+pub(crate) use cloud::{DETAILS_DEVICE, Leftovers, leftovers_of};
+pub use cloud::{forget_leftover, give_back_leftovers, tidy};
 
 /// Progress while an iPod or player syncs; `null` once it's done.
 pub const SYNC_EVENT: &str = "devices://sync";

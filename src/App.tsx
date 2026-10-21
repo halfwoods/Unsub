@@ -13,6 +13,7 @@ import {
   onOrganizeProgress,
   onCleanUpDone,
   onCleanUpProgress,
+  onDetailsProgress,
   onDevicesChanged,
   onImportProgress,
   onLibraryChanged,
@@ -83,6 +84,8 @@ function runMenuAction(action: MenuAction) {
       if (inLibrary && trackIds.length > 0) openLibrarySheet({ type: "cleanUp", trackIds });
       return;
     }
+    case "get-song-details":
+      return openLibrarySheet({ type: "songDetails" });
     case "show-in-finder": {
       const track = tracks.find((t) => selection.has(t.id));
       if (!inLibrary || !track) return;
@@ -172,6 +175,7 @@ function useBackendEvents() {
       onOrganizeProgress((organize) => useApp.setState({ organize })),
       onCleanUpProgress((cleanUp) => useApp.setState({ cleanUp })),
       onCleanUpDone((done) => useApp.getState().showNotice(cleanUpNotice(done))),
+      onDetailsProgress((details) => useApp.setState({ details })),
       onImportProgress((importProgress) => useApp.setState({ importProgress })),
       onScanProgress(setScan),
       onDownload((p) =>

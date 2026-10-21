@@ -1,9 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
-import { libraryDelete, libraryMediaSettings, libraryOrganize, libraryRelink } from "../api/commands";
-import type { Track } from "../api/types";
+import { detailsSetPaused, detailsStart, detailsStatus, jobCancel, libraryDelete, libraryMediaSettings, libraryOrganize, libraryRelink } from "../api/commands";
+import type { DetailsStatus, Track } from "../api/types";
 import { useApp } from "../state/store";
-import { pluralize } from "../util/format";
+import { formatBytes, pluralize } from "../util/format";
 import { CleanUpSheet } from "./CleanUpSheet";
 import { GetInfo } from "./GetInfo";
 import "./LibrarySheets.css";
@@ -118,6 +118,91 @@ function OrganizeSheet() {
   );
 }
 
+/** Advanced › Get Song Details from iCloud: says what reading the songs that are only in iCloud involves, and once it is going, holds its controls. */
+function SongDetailsSheet() {
+  const close = useApp((s) => s.openLibrarySheet);
+  const showNotice = useApp((s) => s.showNotice);
+  const progress = useApp((s) => s.details);
+  const [status, setStatus] = useState<DetailsStatus | null>(null);
+  // Asked again when it starts or ends, since what is left to read has changed.
+  const idle = progress === null;
+  useEffect(() => {
+    void detailsStatus().then(setStatus);
+  }, [idle]);
+
+  const running = !idle || status?.running === true;
+  const held = progress ? progress.phase !== "running" : status?.paused === true;
+  const start = () => {
+    close(null);
+    void detailsStart().catch((e: unknown) => showNotice(String(e)));
+  };
+  const stop = () => {
+    close(null);
+    void jobCancel("details");
+  };
+
+  if (running) {
+    const done = progress ? progress.read + progress.skipped + progress.missing : 0;
+    return (
+      <Sheet label="Get Song Details from iCloud">
+        <p className="alert-title">Getting song details from iCloud</p>
+        <p>
+          {progress
+            ? `${done.toLocaleString()} of ${progress.total.toLocaleString()} songs done${progress.skipped > 0 ? `, ${progress.skipped.toLocaleString()} couldn't be read` : ""}.`
+            : "Getting started."}
+        </p>
+        {progress?.phase === "lowSpace" && <p>Paused because the disk is almost full. Free up some space, then choose Resume.</p>}
+        {progress?.phase === "noResponse" && <p>Paused because iCloud isn't responding. Check your connection, then choose Resume.</p>}
+        {progress?.phase === "filesMissing" && <p>Paused because the songs' files can't be found. Check that iCloud Drive is on and the folder hasn't moved, then choose Resume.</p>}
+        {progress?.phase === "notGivenBack" && <p>Paused because iCloud isn't taking the downloaded songs back, and they would fill the disk. Choose Resume to try again.</p>}
+        {progress?.phase === "paused" && <p>Paused. It carries on from here when you choose Resume.</p>}
+        <div className="sheet-buttons">
+          <button className="push-button" onClick={() => close(null)}>
+            Close
+          </button>
+          <button className="push-button" onClick={stop}>
+            Stop
+          </button>
+          <button className="push-button push-button--default" onClick={() => void detailsSetPaused(!held)}>
+            {held ? "Resume" : "Pause"}
+          </button>
+        </div>
+      </Sheet>
+    );
+  }
+
+  const songs = status?.songs ?? 0;
+  return (
+    <Sheet label="Get Song Details from iCloud">
+      <p className="alert-title">Get Song Details from iCloud</p>
+      {status && songs === 0 ? (
+        <p>Every song that is only in iCloud already has its details.</p>
+      ) : (
+        <>
+          <p>
+            {status ? pluralize(songs, "song is", "songs are") : "Some songs are"} only in iCloud, so Unsub knows them just by their file names: no genre, year or cover. Unsub can read the real details by
+            downloading each song, one at a time, and giving it back to iCloud once it has them. Nothing is written to your music files.
+          </p>
+          <p>
+            {status ? `That is about ${formatBytes(status.bytes)} to download in all, so it takes a long while` : "It takes a long while"}, but it all happens in the background. It waits while a song you play is
+            downloading, stops if your disk runs low on room, and carries on if you quit and open Unsub again.
+          </p>
+        </>
+      )}
+      <div className="sheet-buttons">
+        <button className="push-button" onClick={() => close(null)}>
+          {songs === 0 && status ? "OK" : "Cancel"}
+        </button>
+        {songs > 0 && (
+          <button className="push-button push-button--default" onClick={start}>
+            Start
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 /** Whichever library sheet is open. */
 export function LibrarySheets() {
   const sheet = useApp((s) => s.librarySheet);
@@ -133,5 +218,7 @@ export function LibrarySheets() {
       return <DeleteSheet trackIds={sheet.trackIds} />;
     case "organize":
       return <OrganizeSheet />;
+    case "songDetails":
+      return <SongDetailsSheet />;
   }
 }

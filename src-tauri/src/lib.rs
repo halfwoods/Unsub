@@ -2,6 +2,7 @@ mod artwork;
 mod cast;
 mod cd;
 mod collection;
+mod details;
 mod devices;
 mod elsewhere;
 mod error;
@@ -68,6 +69,7 @@ pub fn run() {
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
             app.manage(jobs::Jobs::default());
+            app.manage(details::DetailsState::default());
             app.manage(import::ImportState::default());
             app.manage(elsewhere::ElsewhereState::default());
             app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
@@ -98,6 +100,7 @@ pub fn run() {
             cast::browse(app.handle());
             devices::watch(app.handle().clone());
             library::check_missing(app.handle());
+            details::resume_on_launch(app.handle());
             remote::browse(app.handle());
             cd::watch(app.handle().clone());
             updates::watch(app.handle().clone());
@@ -214,6 +217,9 @@ pub fn run() {
             sync::device_sync_preview,
             sync::device_sync,
             jobs::job_cancel,
+            details::details_status,
+            details::details_start,
+            details::details_set_paused,
             rescue::device_rescue_preview,
             rescue::device_rescue,
             updates::updates_status,

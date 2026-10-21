@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { cdStopImport, jobCancel, libraryMixFor, playerSeek } from "../api/commands";
+import { cdStopImport, detailsSetPaused, jobCancel, libraryMixFor, playerSeek } from "../api/commands";
 import type { Chapter, RadioStation } from "../api/types";
 import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
@@ -121,9 +121,23 @@ function ChapterMenu({ chapters, positionMs }: { chapters: Chapter[]; positionMs
 
 /**
  * The LCD's progress layout, for work that isn't playback; `fraction` null shows a busy bar.
- * `onCancel` adds iTunes' ⓧ at the end of the bar.
+ * `onCancel` adds iTunes' ⓧ at the end of the bar, and `onPause` a button before it that pauses the work, or resumes it if `paused`.
  */
-function ProgressLcd({ title, subtitle, fraction, onCancel }: { title: string; subtitle: string; fraction: number | null; onCancel?: () => void }) {
+function ProgressLcd({
+  title,
+  subtitle,
+  fraction,
+  onCancel,
+  paused,
+  onPause,
+}: {
+  title: string;
+  subtitle: string;
+  fraction: number | null;
+  onCancel?: () => void;
+  paused?: boolean;
+  onPause?: () => void;
+}) {
   return (
     <div className="lcd lcd--playing">
       <div className="lcd-title">{title}</div>
@@ -134,6 +148,14 @@ function ProgressLcd({ title, subtitle, fraction, onCancel }: { title: string; s
             {fraction !== null && <div className="lcd-progress-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />}
           </div>
         </div>
+        {onPause && (
+          <button className="lcd-pause" aria-label={`${paused ? "Resume" : "Pause"} ${title}`} title={paused ? "Resume" : "Pause"} onClick={onPause}>
+            <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
+              <circle cx="6" cy="6" r="6" />
+              {paused ? <path d="M4.8 3.6v4.8L8.6 6z" /> : <path d="M4.5 3.8v4.4M7.5 3.8v4.4" />}
+            </svg>
+          </button>
+        )}
         {onCancel && (
           <button className="lcd-cancel" aria-label={`Stop ${title}`} title="Stop" onClick={onCancel}>
             <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true">
@@ -188,6 +210,7 @@ export function Lcd() {
   const deviceSync = useApp((s) => s.deviceSync);
   const organize = useApp((s) => s.organize);
   const cleanUp = useApp((s) => s.cleanUp);
+  const details = useApp((s) => s.details);
   const importProgress = useApp((s) => s.importProgress);
   const syncingName = useApp(
     (s) => [...s.devices, ...s.players].find((d) => d.id === s.deviceSync?.deviceId)?.name ?? "device",
@@ -335,6 +358,30 @@ export function Lcd() {
       <div className="lcd lcd--playing">
         <div className="lcd-title lcd-title--centered">{notice}</div>
       </div>
+    );
+  }
+
+  // Quietest of all: it can run for hours, so anything the user starts shows in its place, and a notice for as long as it lasts.
+  if (details) {
+    const done = details.read + details.skipped + details.missing;
+    const counted = `${done.toLocaleString()} of ${details.total.toLocaleString()}`;
+    const subtitle = {
+      running: `${counted}: ${details.title}`,
+      paused: `Paused at ${counted}`,
+      lowSpace: "Paused: the disk is almost full",
+      noResponse: "Paused: iCloud isn't responding",
+      filesMissing: "Paused: the songs' files can't be found",
+      notGivenBack: "Paused: iCloud isn't taking songs back",
+    }[details.phase];
+    return (
+      <ProgressLcd
+        title="Getting Song Details from iCloud"
+        subtitle={subtitle}
+        fraction={details.total > 0 ? Math.min(1, done / details.total) : null}
+        paused={details.phase !== "running"}
+        onPause={() => void detailsSetPaused(details.phase === "running")}
+        onCancel={() => void jobCancel("details")}
+      />
     );
   }
 

@@ -41,6 +41,9 @@ pub enum Kind {
     Organize,
     Scan,
     Podcasts,
+    /// Reading the real details of songs that are only in iCloud, which goes on in the background for as long as the
+    /// library is big, and is not to be run twice.
+    Details,
 }
 
 impl Kind {
@@ -49,6 +52,7 @@ impl Kind {
         match self {
             Kind::Import => Some("Another import is still running."),
             Kind::CleanUp => Some("Clean Up Song Info is already running"),
+            Kind::Details => Some("Song details are already being read."),
             Kind::Sync => Some("Another sync or copy is still running."),
             Kind::Organize | Kind::Scan | Kind::Podcasts => None,
         }
@@ -232,6 +236,10 @@ impl Jobs {
         for running in lock(&self.running).iter().filter(|running| running.kind == kind) {
             running.cancel.store(true, Ordering::Relaxed);
         }
+    }
+
+    pub fn is_running(&self, kind: Kind) -> bool {
+        lock(&self.running).iter().any(|running| running.kind == kind)
     }
 
     /// Whether a job is using this device, which then can't be taken away.

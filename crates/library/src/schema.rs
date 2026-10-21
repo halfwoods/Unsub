@@ -149,6 +149,13 @@ const MIGRATIONS: &[&str] = &[
         track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE
     ) WITHOUT ROWID;
     CREATE INDEX rescued_track ON rescued(track_id);",
+    // Songs in iCloud whose file came down and could not be read, by the file as it was: they are
+    // not downloaded again until it changes.
+    "CREATE TABLE unreadable_songs (
+        path TEXT PRIMARY KEY,
+        file_size INTEGER NOT NULL,
+        date_modified INTEGER NOT NULL
+    ) WITHOUT ROWID;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

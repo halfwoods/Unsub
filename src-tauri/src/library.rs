@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -11,6 +12,9 @@ use unsub_library::{
 
 use crate::error::{CommandError, CommandResult};
 use crate::jobs::{self, Ctx, Job, Kind};
+
+/// How long a statement of a long job waits for another connection's write.
+const JOB_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const SCAN_PROGRESS_EVENT: &str = "library://scan-progress";
 pub const CHANGED_EVENT: &str = "library://changed";
@@ -25,6 +29,7 @@ pub const CLEAN_UP_DONE_EVENT: &str = "library://clean-up-done";
 /// artwork read never blocks the song list.
 pub struct LibraryState {
     db_path: PathBuf,
+    artwork_cache: PathBuf,
     queries: Mutex<Library>,
     artwork_reader: Mutex<Library>,
     /// Lyrics and chapters read the audio file, which can be slow (a big M4B's movie box), so they
@@ -37,12 +42,13 @@ pub struct LibraryState {
 impl LibraryState {
     pub fn open(db_path: PathBuf, artwork_cache: PathBuf) -> unsub_library::Result<Self> {
         let mut artwork_reader = Library::open(&db_path)?;
-        artwork_reader.set_artwork_cache(artwork_cache);
+        artwork_reader.set_artwork_cache(artwork_cache.clone());
         Ok(Self {
             queries: Mutex::new(Library::open(&db_path)?),
             artwork_reader: Mutex::new(artwork_reader),
             file_reader: Mutex::new(Library::open(&db_path)?),
             db_path,
+            artwork_cache,
             scan_lock: Arc::new(Mutex::new(())),
         })
     }
@@ -50,6 +56,16 @@ impl LibraryState {
     /// Other long-lived readers (the sharing server) open their own connection to the same file.
     pub fn db_path(&self) -> &std::path::Path {
         &self.db_path
+    }
+
+    /// A connection of its own for work that goes on for hours, so that it never holds up the song list's. It has the
+    /// artwork cache, for the covers such work keeps there.
+    pub fn job_connection(&self) -> unsub_library::Result<Library> {
+        let mut library = Library::open(&self.db_path)?;
+        library.set_artwork_cache(self.artwork_cache.clone());
+        // Another writer holding a transaction for a while must not end work that has hours to go.
+        library.set_busy_timeout(JOB_BUSY_TIMEOUT)?;
+        Ok(library)
     }
 
     /// Runs a change that touches files (tag writes, moves, the Trash) on its own connection,

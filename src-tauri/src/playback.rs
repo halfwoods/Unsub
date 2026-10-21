@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -134,6 +134,8 @@ pub struct PlaybackState {
     starts: AtomicU64,
     /// Bumped on every queue_following, so a slow prefetch can't queue a stale next song.
     nexts: AtomicU64,
+    /// How many songs are being downloaded from iCloud so they can play; background work holds off meanwhile.
+    fetching: AtomicUsize,
     sound_check: AtomicBool,
 }
 
@@ -144,6 +146,7 @@ impl PlaybackState {
             app,
             starts: AtomicU64::new(0),
             nexts: AtomicU64::new(0),
+            fetching: AtomicUsize::new(0),
             sound_check: AtomicBool::new(false),
             playing: Mutex::new(None),
             modes: Mutex::new(Modes { shuffle: false, repeat: RepeatMode::Off }),
@@ -228,6 +231,32 @@ impl PlaybackState {
 
     pub(crate) fn party(&self) -> MutexGuard<'_, PartyShuffle> {
         self.party.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn fetching(&self) -> bool {
+        self.fetching.load(Ordering::SeqCst) > 0
+    }
+
+    /// Counts a download for as long as the guard lives, even if it ends in a panic.
+    fn fetching_guard(&self) -> Fetching<'_> {
+        self.fetching.fetch_add(1, Ordering::SeqCst);
+        Fetching(&self.fetching)
+    }
+
+    /// The library songs playing now and next, whose files background work must leave where they are.
+    pub(crate) fn in_use(&self) -> Vec<i64> {
+        match &*self.playing() {
+            Some(Playing { source: PlaySource::Library, queue, .. }) => {
+                [Some(queue.current()), queue.peek_next()].into_iter().flatten().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The files of the songs playing now and next.
+    pub(crate) fn in_use_paths(&self) -> Vec<PathBuf> {
+        let library = self.app.state::<LibraryState>();
+        self.in_use().into_iter().filter_map(|id| library.track_path(id).ok()).collect()
     }
 
     pub(crate) fn playing(&self) -> MutexGuard<'_, Option<Playing>> {
@@ -448,6 +477,14 @@ impl PlaybackState {
     }
 }
 
+struct Fetching<'a>(&'a AtomicUsize);
+
+impl Drop for Fetching<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Where a queued song's audio is: ready to open, or still to be fetched before the engine can
 /// open it without blocking.
 enum Located {
@@ -471,6 +508,8 @@ impl Located {
         match self {
             Self::Ready(path) => Ok(path),
             Self::ICloud(path) => {
+                let playback = app.state::<PlaybackState>();
+                let _fetching = playback.fetching_guard();
                 unsub_library::ensure_local(&path, progress, &AtomicBool::new(false)).map_err(|e| e.to_string())?;
                 // Played, so wanted on this Mac: a sync that gave up on this download is not to give it back.
                 crate::sync::forget_leftover(app, &path);

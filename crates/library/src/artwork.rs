@@ -16,8 +16,9 @@ const FOLDER_ART_EXTENSIONS: [(&str, &str); 2] = [("jpg", "image/jpeg"), ("png",
 
 impl Library {
     /// A missing or unreadable file only means there is no art to show, so
-    /// only database errors surface. A file that is only in the cloud has
-    /// none either: opening it would download the whole song.
+    /// only database errors surface. A file that is only in the cloud cannot
+    /// be opened for it, which would download the whole song; the cover kept
+    /// while the song was here stands in.
     pub fn artwork(&self, track_id: i64) -> Result<Option<Artwork>> {
         let Some(track) = self.track(track_id)? else {
             return Ok(None);
@@ -28,7 +29,7 @@ impl Library {
         }
         let path = Path::new(&track.path);
         if track.in_cloud || (self.is_dataless)(path) {
-            return Ok(None);
+            return Ok(self.cloud_cover(&track));
         }
         Ok(own_art(path, &track.album, &*self.is_dataless))
     }

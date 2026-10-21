@@ -1415,7 +1415,7 @@ fn a_library_from_before_stations_upgrades_and_keeps_everything() {
         .unwrap()
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     assert_eq!(
         listed(&library, &kind_query(Some(MediaKind::Music))),
         ["A Song"]
