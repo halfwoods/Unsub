@@ -92,6 +92,9 @@ export const libraryCreatePlaylist = (name: string, kind: PlaylistKind, parentId
   invoke<Playlist>("library_create_playlist", { name, kind, parentId, trackIds });
 export const libraryRenamePlaylist = (id: number, name: string) => invoke<void>("library_rename_playlist", { id, name });
 export const libraryDeletePlaylist = (id: number) => invoke<void>("library_delete_playlist", { id });
+/** Resolves to the copy's id. */
+export const libraryDuplicatePlaylist = (id: number) => invoke<number>("library_duplicate_playlist", { id });
+export const libraryExportPlaylist = (id: number, path: string) => invoke<void>("library_export_playlist", { id, path });
 export const libraryMovePlaylist = (id: number, parentId: number | null, index: number) =>
   invoke<void>("library_move_playlist", { id, parentId, index });
 export const libraryAddToPlaylist = (id: number, trackIds: number[], at: number | null = null) =>

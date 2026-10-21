@@ -4,7 +4,9 @@ import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
 import { copySongsToLibrary } from "../devices/CopyToLibrary";
+import { IS_MAC } from "../util/platform";
 import { DEVICE_TRACKS_MIME, PlaylistRows, TRACKS_MIME, type DeviceDrag } from "./PlaylistRows";
+import { showCdMenu, showDeviceMenu, showPlayerMenu, showPodcastsMenu, showSharedMenu, useRowMenu } from "./sidebarMenu";
 import "./Sidebar.css";
 
 interface SourceItem {
@@ -75,24 +77,34 @@ function Row({
   depth = 0,
   before,
   after,
+  menu,
   onDropTracks,
   onDropDeviceTracks,
 }: SourceItem & {
   depth?: number;
   before?: ReactNode;
   after?: ReactNode;
+  /** Shows the row's right-click menu; a row without one shows none. */
+  menu?: () => Promise<void>;
   onDropTracks?: (trackIds: number[]) => void;
   onDropDeviceTracks?: (drag: DeviceDrag) => void;
 }) {
   const selected = useApp((s) => s.source === id);
   const setSource = useApp((s) => s.setSource);
   const [dropTarget, setDropTarget] = useState(false);
+  const rowMenu = useRowMenu(menu);
   return (
     <li
       role="option"
       aria-selected={selected}
-      className={[depth > 0 ? "sidebar-item sidebar-item--child" : "sidebar-item", dropTarget ? "sidebar-item--drop" : ""].join(" ")}
-      onMouseDown={() => setSource(id)}
+      className={[
+        depth > 0 ? "sidebar-item sidebar-item--child" : "sidebar-item",
+        dropTarget ? "sidebar-item--drop" : "",
+        rowMenu.open ? "sidebar-item--menu" : "",
+      ].join(" ")}
+      // A context click must not navigate or take focus, which Backspace and Edit › Delete would then act on.
+      onMouseDown={(e) => (e.button === 0 && !(IS_MAC && e.ctrlKey) ? setSource(id) : e.preventDefault())}
+      onContextMenu={rowMenu.onContextMenu}
       onDragOver={(e) => {
         const accepts =
           (onDropTracks && e.dataTransfer.types.includes(TRACKS_MIME)) || (onDropDeviceTracks && e.dataTransfer.types.includes(DEVICE_TRACKS_MIME));
@@ -167,6 +179,7 @@ function DeviceRows({ device }: { device: Device }) {
         id={deviceSource(device.id)}
         label={device.name}
         icon="ipod"
+        menu={() => showDeviceMenu(device)}
         before={
           <button
             className={expanded ? "sidebar-disclosure sidebar-disclosure--open" : "sidebar-disclosure"}
@@ -229,6 +242,7 @@ export function Sidebar() {
                 {...item}
                 // Songs dropped on Music from an iPod are copied into the library.
                 onDropDeviceTracks={item.id === "music" ? ({ deviceId, ids }) => copySongsToLibrary(deviceId, ids) : undefined}
+                menu={item.id === "podcasts" ? showPodcastsMenu : undefined}
               />
             ))}
           </Section>
@@ -245,6 +259,7 @@ export function Sidebar() {
                 id={playerSource(player.id)}
                 label={player.name}
                 icon="player"
+                menu={() => showPlayerMenu(player)}
                 after={
                   syncingId === player.id ? (
                     <SyncingIcon />
@@ -260,6 +275,7 @@ export function Sidebar() {
                 id={cdSource(cd.id)}
                 label={cd.name}
                 icon="cd"
+                menu={() => showCdMenu(cd)}
                 after={<EjectButton name={cd.name} onEject={() => void cdEject(cd.id).catch((e: unknown) => showNotice(String(e)))} />}
               />
             ))}
@@ -274,6 +290,7 @@ export function Sidebar() {
                 id={sharedSource(library.id)}
                 label={library.name}
                 icon="shared"
+                menu={() => showSharedMenu(library)}
                 // Signing out forgets the saved login; a server added by hand leaves the list.
                 after={library.hasLogin ? <EjectButton name={library.name} onEject={() => void remoteForget(library.id)} /> : undefined}
               />

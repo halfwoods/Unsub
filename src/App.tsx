@@ -36,6 +36,7 @@ import {
 import { Content } from "./browser/Content";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
+import { CopyToLibrary } from "./devices/CopyToLibrary";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { ImportElsewhere } from "./import/ImportElsewhere";
@@ -44,6 +45,7 @@ import { LibrarySheets } from "./info/LibrarySheets";
 import { addDropped } from "./radio/importStations";
 import { OpenStream } from "./radio/OpenStream";
 import { ConnectToServer } from "./shared/Shared";
+import { deletePlaylist } from "./sidebar/sidebarMenu";
 import { Sidebar } from "./sidebar/Sidebar";
 import { VISUALIZER_STYLES } from "./visualizer/styles";
 import { UpdateSheet } from "./updates/UpdateSheet";
@@ -52,12 +54,14 @@ import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
 import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
-import { chapterSeekTarget, isLibrarySource, isPlaylistSource, useApp } from "./state/store";
+import { chapterSeekTarget, isLibrarySource, isPlaylistSource, playlistIdOf, useApp } from "./state/store";
 import { cleanUpNotice } from "./util/format";
 import "./theme/base.css";
 import "./App.css";
 
 const VOLUME_STEP = 0.1;
+/** Where typing happens: a checkbox or slider has no text to cut or paste. */
+const TEXT_FIELD = "input:not([type=checkbox], [type=radio], [type=range]), textarea, [contenteditable]:not([contenteditable=false])";
 
 // The WebGL styles are most of the app's code and only matter once the visualizer is shown, so they load then.
 const VisualizerPane = lazy(() => import("./visualizer/VisualizerPane").then((module) => ({ default: module.VisualizerPane })));
@@ -96,7 +100,11 @@ function runMenuAction(action: MenuAction) {
     case "delete": {
       // Delete belongs to a focused text field, and a sheet in front (Get Info with unsaved edits) must not be replaced.
       const typing = document.activeElement?.matches("input, textarea, [contenteditable]:not([contenteditable=false])");
-      if (!typing && !document.querySelector(".sheet-backdrop")) void deleteSelection();
+      if (typing || document.querySelector(".sheet-backdrop")) return;
+      // With the selected playlist's row focused, Delete is for it, as Backspace on the row is, not for the songs.
+      const playlist = document.activeElement?.closest(".sidebar [aria-selected=true]") ? playlists.find((p) => p.id === playlistIdOf(source)) : undefined;
+      if (playlist) void deletePlaylist(playlist);
+      else void deleteSelection();
       return;
     }
     case "show-duplicates":
@@ -233,6 +241,17 @@ function useBackendEvents() {
   }, []);
 }
 
+/** The webview's own menu (Reload, Inspect) has no place in the app. Text fields keep Cut, Copy and Paste, and a surface with a menu of its own shows that. */
+function useNoDefaultContextMenu() {
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      if (!(e.target instanceof Element && e.target.closest(TEXT_FIELD))) e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+}
+
 /** Space toggles playback anywhere except while typing, as in iTunes. */
 function useGlobalKeys() {
   useEffect(() => {
@@ -258,11 +277,13 @@ export default function App() {
   const openingStream = useApp((s) => s.openingStream);
   const importSheet = useApp((s) => s.importSheet);
   const importingElsewhere = useApp((s) => s.importingElsewhere);
+  const copyFromDevice = useApp((s) => s.devices.find((d) => d.id === s.copyFromDevice));
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
   useBackendEvents();
   useGlobalKeys();
+  useNoDefaultContextMenu();
 
   return (
     <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen}>
@@ -283,6 +304,7 @@ export default function App() {
       {preferencesOpen && <Preferences />}
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
+      {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
       {connectingToServer && <ConnectToServer />}
       {openingStream && <OpenStream />}
       {importSheet && <ImportSheet preview={importSheet} />}

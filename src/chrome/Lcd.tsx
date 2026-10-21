@@ -34,6 +34,8 @@ function Progress({ positionMs, durationMs }: { positionMs: number; durationMs: 
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    // A right or middle click doesn't start a scrub.
+    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setScrubMs(msAt(e.clientX));
   };

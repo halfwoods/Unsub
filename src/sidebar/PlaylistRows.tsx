@@ -1,9 +1,10 @@
-import { ask } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { libraryAddToPlaylist, libraryCreatePlaylist, libraryDeletePlaylist, libraryMovePlaylist, libraryRenamePlaylist } from "../api/commands";
+import { libraryAddToPlaylist, libraryCreatePlaylist, libraryMovePlaylist, libraryRenamePlaylist } from "../api/commands";
 import type { Playlist } from "../api/types";
 import { playlistSource, useApp } from "../state/store";
+import { IS_MAC } from "../util/platform";
 import { SourceIcon } from "./icons";
+import { deletePlaylist, showPlaylistMenu, useRowMenu } from "./sidebarMenu";
 
 /** Song rows put their ids here when dragged; playlist rows put their own id. */
 export const TRACKS_MIME = "application/x-unsub-tracks";
@@ -50,6 +51,8 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
   const expanded = useApp((s) => s.expandedFolders.has(playlist.id));
   const { setSource, toggleFolder, setRenamingPlaylist, refreshPlaylists, refresh, openSmartEditor } = useApp.getState();
   const [dropTarget, setDropTarget] = useState(false);
+  // A name being typed keeps the text field's own menu.
+  const rowMenu = useRowMenu(renaming ? undefined : () => showPlaylistMenu(playlist));
   const folder = playlist.kind === "folder";
   const children = byParent.get(playlist.id) ?? [];
 
@@ -73,16 +76,9 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
     if (!tracks && moved && Number(moved) !== playlist.id) void libraryMovePlaylist(Number(moved), playlist.id, children.length).then(refreshPlaylists);
   };
 
-  const onKeyDown = async (e: KeyboardEvent) => {
-    if (e.key !== "Backspace" && e.key !== "Delete") return;
-    const confirmed = await ask(`Are you sure you want to delete the ${folder ? "folder" : "playlist"} “${playlist.name}”?`, {
-      title: "Unsub",
-      kind: "warning",
-    });
-    if (!confirmed) return;
-    await libraryDeletePlaylist(playlist.id);
-    await refreshPlaylists();
-    setSource("music");
+  const onKeyDown = (e: KeyboardEvent) => {
+    // Focus can sit on a row that isn't selected, e.g. after its disclosure triangle was clicked; the key is for what is on screen.
+    if (selected && (e.key === "Backspace" || e.key === "Delete")) void deletePlaylist(playlist);
   };
 
   return (
@@ -91,7 +87,7 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
         role="option"
         tabIndex={selected ? 0 : -1}
         aria-selected={selected}
-        className={["sidebar-item", depth > 0 ? "sidebar-item--child" : "", dropTarget ? "sidebar-item--drop" : ""].join(" ")}
+        className={["sidebar-item", depth > 0 ? "sidebar-item--child" : "", dropTarget ? "sidebar-item--drop" : "", rowMenu.open ? "sidebar-item--menu" : ""].join(" ")}
         style={depth > 1 ? { paddingLeft: 21 + depth * 16 } : undefined}
         draggable={!renaming}
         onDragStart={(e) => e.dataTransfer.setData(PLAYLIST_MIME, String(playlist.id))}
@@ -102,13 +98,14 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
         }}
         onDragLeave={() => setDropTarget(false)}
         onDrop={onDrop}
-        onMouseDown={() => setSource(source)}
+        onMouseDown={(e) => (e.button === 0 && !(IS_MAC && e.ctrlKey) ? setSource(source) : e.preventDefault())}
+        onContextMenu={rowMenu.onContextMenu}
         onDoubleClick={() =>
           playlist.kind === "smart" && playlist.smart
             ? openSmartEditor({ id: playlist.id, name: playlist.name, rules: playlist.smart })
             : setRenamingPlaylist(playlist.id)
         }
-        onKeyDown={(e) => void onKeyDown(e)}
+        onKeyDown={onKeyDown}
       >
         {folder && (
           <button

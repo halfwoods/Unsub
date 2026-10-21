@@ -7,7 +7,7 @@ import { useApp } from "../state/store";
 
 type MenuItems = NonNullable<MenuOptions["items"]>;
 
-const SEPARATOR = { item: "Separator" } as const;
+export const SEPARATOR = { item: "Separator" } as const;
 const RATING_LABELS = ["None", "★", "★★", "★★★", "★★★★", "★★★★★"];
 
 /** Kept until the next right-click: closing a menu as it is dismissed could drop the event of the item just chosen. */
@@ -25,7 +25,7 @@ function playlistItems(byParent: Map<number | null, Playlist[]>, parent: number 
   });
 }
 
-async function popUp(menu: Menu) {
+export async function popUp(menu: Menu) {
   void lastMenu?.close();
   lastMenu = menu;
   await menu.popup();

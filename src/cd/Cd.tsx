@@ -92,18 +92,18 @@ function ImportSettingsSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Imports the CD with the saved import settings. */
+export function importCd(discId: string) {
+  const { format, verify } = loadImportPrefs();
+  void cdImport(discId, format, verify).catch((e: unknown) => useApp.getState().showNotice(String(e)));
+}
+
 /** iTunes 10's CD controls at the bottom right: which album it is, Import Settings…, Import CD. */
 export function CdActions({ discId }: { discId: string }) {
   const cd = useApp((s) => s.cds.find((c) => c.id === discId));
   const importing = useApp((s) => s.cdRip !== null);
-  const showNotice = useApp((s) => s.showNotice);
   const [settingsOpen, setSettingsOpen] = useState(false);
   if (!cd) return null;
-
-  const start = () => {
-    const { format, verify } = loadImportPrefs();
-    void cdImport(cd.id, format, verify).catch((e: unknown) => showNotice(String(e)));
-  };
 
   return (
     <div className="bottom-right">
@@ -133,7 +133,7 @@ export function CdActions({ discId }: { discId: string }) {
           Stop Importing
         </button>
       ) : (
-        <button className="push-button bottom-push" disabled={importing} onClick={start}>
+        <button className="push-button bottom-push" disabled={importing} onClick={() => importCd(cd.id)}>
           Import CD
         </button>
       )}

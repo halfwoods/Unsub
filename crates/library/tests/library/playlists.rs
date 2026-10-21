@@ -1057,3 +1057,163 @@ fn a_database_from_before_the_floor_starts_it_at_its_highest_playlist() {
 
     assert!(made.id > highest, "{} after {highest}", made.id);
 }
+
+#[test]
+fn a_playlist_exports_as_m3u8_in_playlist_order_with_repeats() {
+    let mut library = lettered();
+    let id = regular(&mut library, "Mix", &[3, 1, 3]);
+
+    assert_eq!(
+        library.playlist_m3u8(id).unwrap(),
+        "#EXTM3U\n\
+         #EXTINF:30,Artist 3 - c\n/music/3.mp3\n\
+         #EXTINF:10,Artist 5 - a\n/music/1.mp3\n\
+         #EXTINF:30,Artist 3 - c\n/music/3.mp3\n"
+    );
+}
+
+#[test]
+fn an_m3u8_export_rounds_seconds_and_names_what_is_tagged() {
+    let mut library = library_of(&[
+        track(1, "Title Only", "", "Album", 1_499),
+        Track {
+            title: String::new(),
+            ..track(2, "", "Artist Only", "Album", 1_500)
+        },
+        Track {
+            title: "Two\nLines".into(),
+            ..track(3, "", "Artist", "Album", 0)
+        },
+    ]);
+    let id = regular(&mut library, "Odd tags", &[1, 2, 3]);
+
+    assert_eq!(
+        library.playlist_m3u8(id).unwrap(),
+        "#EXTM3U\n\
+         #EXTINF:1,Title Only\n/music/1.mp3\n\
+         #EXTINF:2,Artist Only\n/music/2.mp3\n\
+         #EXTINF:-1,Artist - Two Lines\n/music/3.mp3\n"
+    );
+}
+
+#[test]
+fn an_m3u8_export_skips_stations_but_keeps_cloud_and_missing_songs() {
+    let mut library = library_of(&[
+        track(1, "File", "Artist", "Album", 60_000),
+        Track {
+            path: "https://radio.example/stream".into(),
+            kind: MediaKind::Radio,
+            ..track(2, "Station", "", "", 0)
+        },
+        Track {
+            in_cloud: true,
+            ..track(3, "Placeholder", "Artist", "Album", 60_000)
+        },
+        Track {
+            missing: true,
+            ..track(4, "Gone", "Artist", "Album", 60_000)
+        },
+    ]);
+    let id = regular(&mut library, "Mixed", &[1, 2, 3, 4]);
+
+    let text = library.playlist_m3u8(id).unwrap();
+
+    assert_eq!(text.matches("#EXTINF").count(), 3);
+    assert!(!text.contains("radio.example"));
+    assert!(text.contains("/music/3.mp3\n") && text.contains("/music/4.mp3\n"));
+}
+
+#[test]
+fn a_duplicate_keeps_a_regular_playlists_order_with_repeats_beside_it() {
+    let mut library = lettered();
+    let folder = library
+        .create_playlist("Folder", PlaylistKind::Folder, None)
+        .unwrap()
+        .id;
+    let original = library
+        .create_playlist("Mix", PlaylistKind::Regular, Some(folder))
+        .unwrap()
+        .id;
+    library
+        .add_to_playlist(original, &[3, 1, 3, 2], None)
+        .unwrap();
+    let after = library
+        .create_playlist("After", PlaylistKind::Regular, Some(folder))
+        .unwrap()
+        .id;
+
+    let copy = library.duplicate_playlist(original).unwrap();
+    let again = library.duplicate_playlist(original).unwrap();
+
+    assert_eq!(in_order(&library, copy), "cacb");
+    assert_eq!(in_order(&library, original), "cacb");
+    let listed = library.playlists().unwrap();
+    let ids: Vec<i64> = listed.iter().skip(STOCK_PLAYLISTS).map(|p| p.id).collect();
+    assert_eq!(ids, [folder, original, again, copy, after]);
+    let copied = listed.iter().find(|p| p.id == copy).unwrap();
+    assert_eq!(
+        (copied.name.as_str(), copied.parent_id, copied.kind),
+        ("Mix 2", Some(folder), PlaylistKind::Regular)
+    );
+    assert_eq!(listed.iter().find(|p| p.id == again).unwrap().name, "Mix 3");
+}
+
+#[test]
+fn a_duplicate_of_a_frozen_smart_playlist_keeps_its_exact_songs_and_rules() {
+    let mut library = lettered();
+    let original = library
+        .create_playlist("Picks", PlaylistKind::Smart, None)
+        .unwrap()
+        .id;
+    let rules = SmartRules {
+        limit: Some(SmartLimit {
+            amount: 3,
+            unit: LimitUnit::Items,
+            selected_by: LimitOrder::Random,
+        }),
+        live: false,
+        ..SmartRules::default()
+    };
+    library.set_smart_rules(original, &rules).unwrap();
+
+    let copy = library.duplicate_playlist(original).unwrap();
+
+    assert_eq!(in_order(&library, copy).len(), 3);
+    assert_eq!(in_order(&library, copy), in_order(&library, original));
+    let copied = library
+        .playlists()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.id == copy)
+        .unwrap();
+    assert_eq!(copied.smart, Some(rules));
+    assert_eq!(copied.track_count, 3);
+}
+
+#[test]
+fn a_folder_or_a_missing_playlist_cannot_be_duplicated() {
+    let mut library = lettered();
+    let folder = library
+        .create_playlist("Folder", PlaylistKind::Folder, None)
+        .unwrap()
+        .id;
+
+    assert!(matches!(
+        library.duplicate_playlist(folder),
+        Err(Error::CannotDuplicateFolder(id)) if id == folder
+    ));
+    assert!(matches!(
+        library.duplicate_playlist(9_999),
+        Err(Error::PlaylistNotFound(9_999))
+    ));
+}
+
+#[test]
+fn exporting_a_playlist_that_does_not_exist_fails() {
+    let library = lettered();
+
+    assert!(matches!(
+        library.playlist_m3u8(9_999),
+        Err(Error::PlaylistNotFound(9_999))
+    ));
+}

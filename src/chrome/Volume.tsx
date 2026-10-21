@@ -29,6 +29,7 @@ export function Volume() {
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setVolume(volumeAt(e.clientX));
   };

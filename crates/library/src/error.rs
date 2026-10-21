@@ -24,6 +24,8 @@ pub enum Error {
     NotAFolder(i64),
     #[error("playlist {0} is not a regular playlist")]
     NotARegularPlaylist(i64),
+    #[error("playlist {0} is a folder, which cannot be duplicated")]
+    CannotDuplicateFolder(i64),
     #[error("playlist {0} is not a smart playlist")]
     NotASmartPlaylist(i64),
     #[error("a playlist cannot contain or refer to itself")]

@@ -197,6 +197,13 @@
   border-radius: 3px;
 }
 
+/* The row a right-click menu is for, which stays unselected like the classic player's outlined row. */
+.sidebar-item--menu {
+  outline: 2px solid #2f3541;
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+
 .sidebar-rename {
   flex: 1;
   min-width: 0;

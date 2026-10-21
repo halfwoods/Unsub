@@ -45,6 +45,7 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
     onCenter(clamp(Math.round(((clientX - rect.left) / rect.width) * (albums.length - 1))));
   };
   const onSliderDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     seek(e.clientX);
   };

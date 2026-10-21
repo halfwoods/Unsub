@@ -237,6 +237,8 @@ interface AppState {
   importSheet: ImportPreview | null;
   importProgress: ImportProgress | null;
   settingUpPlayer: boolean;
+  /** The iPod whose Copy to Library sheet is open. */
+  copyFromDevice: string | null;
   connectingToServer: boolean;
   openingStream: boolean;
   importingElsewhere: boolean;
@@ -315,14 +317,16 @@ interface AppState {
   setGridGroup: (group: GridGroup) => void;
   refreshPlaylists: () => Promise<void>;
   toggleFolder: (id: number) => void;
-  createPlaylist: (kind: Exclude<PlaylistKind, "smart">, fromSelection?: boolean) => Promise<void>;
+  /** `parentId` makes it a child of that folder. */
+  createPlaylist: (kind: Exclude<PlaylistKind, "smart">, fromSelection?: boolean, parentId?: number | null) => Promise<void>;
   setRenamingPlaylist: (id: number | null) => void;
   openSmartEditor: (editor: SmartEditor | null) => void;
   setPreferencesOpen: (open: boolean) => void;
   setVisualizer: (changes: Partial<VisualizerPrefs & { open: boolean }>) => void;
   setTextSizes: (sizes: TextSizes) => void;
   playAlbum: (key: string) => Promise<void>;
-  playTrackIds: (trackIds: number[]) => Promise<void>;
+  /** `shuffled` turns shuffle on and starts anywhere in the list. */
+  playTrackIds: (trackIds: number[], shuffled?: boolean) => Promise<void>;
   applyPlayerEvent: (event: PlayerEvent) => void;
   /** Shows a message in the LCD for a few seconds. */
   showNotice: (message: string) => void;
@@ -372,6 +376,7 @@ export const useApp = create<AppState>((set, get) => ({
   importSheet: null,
   importProgress: null,
   settingUpPlayer: false,
+  copyFromDevice: null,
   connectingToServer: false,
   openingStream: false,
   importingElsewhere: false,
@@ -563,7 +568,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   refreshDevices: async () => {
     const [devices, players] = await Promise.all([api.devicesList(), api.playersList()]);
-    set({ devices, players });
+    // The sheet goes with its iPod, which must not bring it back when plugged in again.
+    set((s) => ({ devices, players, copyFromDevice: devices.some((d) => d.id === s.copyFromDevice) ? s.copyFromDevice : null }));
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
     const player = playerIdOf(get().source);
@@ -641,10 +647,14 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   // Mixes arrive as ids; playing them works like any library list.
-  playTrackIds: async (trackIds) => {
+  playTrackIds: async (trackIds, shuffled = false) => {
     if (trackIds.length === 0) return;
-    set({ playingTracks: [], playingSource: { type: "library" }, podcastWish: null });
-    await api.playerPlayList({ type: "library" }, trackIds, 0);
+    // Shuffle through the engine's own mode, so the Shuffle button tells the truth and turning it off
+    // brings the list's real order back; the engine keeps the first song and shuffles the rest.
+    if (shuffled && !get().shuffle) get().toggleShuffle();
+    const tracks = await api.libraryTracks({ kind: null, search: null, sort: "name", descending: false, ids: trackIds });
+    set({ playingTracks: tracks, playingSource: { type: "library" }, podcastWish: null });
+    await api.playerPlayList({ type: "library" }, trackIds, shuffled ? Math.floor(Math.random() * trackIds.length) : 0);
   },
 
   playAlbum: async (key) => {
@@ -665,12 +675,14 @@ export const useApp = create<AppState>((set, get) => ({
     }),
 
   // Like iTunes: the new playlist is selected and its name is ready to type over.
-  createPlaylist: async (kind, fromSelection = false) => {
+  createPlaylist: async (kind, fromSelection = false, parentId = null) => {
     const { selection, source } = get();
     const trackIds = fromSelection && !isDeviceSource(source) ? [...selection] : [];
     const name = kind === "folder" ? "untitled folder" : "untitled playlist";
-    const playlist = await api.libraryCreatePlaylist(name, kind, null, trackIds);
+    const playlist = await api.libraryCreatePlaylist(name, kind, parentId, trackIds);
     await get().refreshPlaylists();
+    // A collapsed folder would hide the new row, and the name field with it.
+    if (parentId !== null && !get().expandedFolders.has(parentId)) get().toggleFolder(parentId);
     get().setSource(playlistSource(playlist.id));
     set({ renamingPlaylist: playlist.id });
   },

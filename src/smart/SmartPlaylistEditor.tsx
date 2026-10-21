@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { libraryCreatePlaylist, librarySetSmartRules } from "../api/commands";
+import { libraryCreatePlaylist, libraryRenamePlaylist, librarySetSmartRules } from "../api/commands";
 import type { SmartOp, SmartRule, SmartRules, SmartValue } from "../api/types";
 import { playlistSource, useApp } from "../state/store";
 import {
@@ -209,6 +209,7 @@ export function SmartPlaylistEditor() {
   const editor = useApp((s) => s.smartEditor);
   const { openSmartEditor, refreshPlaylists, refresh, setSource, setRenamingPlaylist } = useApp.getState();
   const [rules, setRules] = useState<SmartRules>(() => editor?.rules ?? { matchAll: true, rules: [], limit: null, onlyChecked: false, live: true });
+  const [name, setName] = useState(editor?.name ?? "");
   const [error, setError] = useState<string | null>(null);
   if (!editor) return null;
 
@@ -223,6 +224,8 @@ export function SmartPlaylistEditor() {
         setRenamingPlaylist(created.id);
       } else {
         await librarySetSmartRules(editor.id, rules);
+        const renamed = name.trim();
+        if (renamed && renamed !== editor.name) await libraryRenamePlaylist(editor.id, renamed);
         await Promise.all([refreshPlaylists(), refresh()]);
       }
       openSmartEditor(null);
@@ -235,6 +238,13 @@ export function SmartPlaylistEditor() {
   return (
     <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && openSmartEditor(null)}>
       <div className="sheet smart-sheet" role="dialog" aria-label="Smart Playlist">
+        {/* A new playlist is named in the sidebar once it exists, as in iTunes. */}
+        {editor.id !== null && (
+          <label className="smart-row">
+            Name:
+            <input className="smart-input" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+        )}
         <RuleList depth={0} rules={rules} onChange={setRules} />
         <div className="smart-options">
           <label className="smart-row">

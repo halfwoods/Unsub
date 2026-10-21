@@ -235,6 +235,19 @@ pub fn library_delete_playlist(state: State<'_, LibraryState>, id: i64) -> Comma
 }
 
 #[tauri::command]
+pub fn library_duplicate_playlist(state: State<'_, LibraryState>, id: i64) -> CommandResult<i64> {
+    Ok(state.queries().duplicate_playlist(id)?)
+}
+
+/// Writes the playlist to `path`, which the user picked in a save dialog.
+#[tauri::command]
+pub fn library_export_playlist(state: State<'_, LibraryState>, id: i64, path: PathBuf) -> CommandResult<()> {
+    let text = state.queries().playlist_m3u8(id)?;
+    unsub_library::write_beside::<unsub_library::Error>(&path, |temp| Ok(std::fs::write(temp, text)?))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn library_move_playlist(state: State<'_, LibraryState>, id: i64, parent_id: Option<i64>, index: u32) -> CommandResult<()> {
     Ok(state.queries().move_playlist(id, parent_id, index)?)
 }

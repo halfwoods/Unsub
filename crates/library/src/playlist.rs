@@ -1,10 +1,10 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
 use crate::error::{Error, Result};
 use crate::library::Library;
-use crate::model::{Playlist, PlaylistKind, TrackQuery};
+use crate::model::{MediaKind, Playlist, PlaylistKind, SortKey, Track, TrackQuery};
 use crate::scan::now_unix;
 use crate::smart::{
     Compile, DateUnit, LimitOrder, LimitUnit, SmartField, SmartLimit, SmartOp, SmartRule,
@@ -202,7 +202,42 @@ fn next_seed(previous: i64) -> i64 {
     (previous * 1_664_525 + 1_013_904_223) % (1 << 30)
 }
 
+/// The songs as M3U8 text. Stations are left out: an entry is a file, and a stream's address would only be a dead
+/// end for the players that read it. Songs that are placeholders in the cloud or missing from disk keep their
+/// entry, since their path works again once the file is downloaded or found.
+fn m3u8(tracks: &[Track]) -> String {
+    let mut text = String::from("#EXTM3U\n");
+    for track in tracks.iter().filter(|track| track.kind != MediaKind::Radio) {
+        let name = match (track.artist.is_empty(), track.title.is_empty()) {
+            (false, false) => format!("{} - {}", track.artist, track.title),
+            (true, _) => track.title.clone(),
+            (false, true) => track.artist.clone(),
+        };
+        // A line break in a tag would end the entry early.
+        let name = name.replace(['\r', '\n'], " ");
+        // M3U's -1 is "length unknown", which a song with no duration is.
+        let seconds = match track.duration_ms {
+            0 => -1,
+            ms => ((ms + 500) / 1000) as i64,
+        };
+        text.push_str(&format!("#EXTINF:{seconds},{name}\n{}\n", track.path));
+    }
+    text
+}
+
 impl Library {
+    /// The playlist as an M3U8 file's text (UTF-8, `#EXTINF` lines, the songs' own paths), in the order the
+    /// playlist plays.
+    pub fn playlist_m3u8(&self, id: i64) -> Result<String> {
+        let tracks = self.tracks(&TrackQuery {
+            kind: None,
+            playlist: Some(id),
+            sort: SortKey::PlaylistOrder,
+            ..TrackQuery::default()
+        })?;
+        Ok(m3u8(&tracks))
+    }
+
     /// Parents come before their children, siblings in position order.
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         let mut by_parent: HashMap<Option<i64>, Vec<PlaylistRow>> = HashMap::new();
@@ -239,6 +274,52 @@ impl Library {
         let id = insert_playlist(&tx, name, kind, parent_id, position, rules.as_deref())?;
         tx.commit()?;
         self.describe(require_row(&self.conn, id)?)
+    }
+
+    /// A copy of a regular or smart playlist, placed just after it: the same parent, rules, seed and songs in
+    /// order, so a frozen smart playlist keeps the songs it has rather than picking again. It is named like the
+    /// original with the first free number after it. Returns the copy's id.
+    pub fn duplicate_playlist(&mut self, id: i64) -> Result<i64> {
+        let row = require_row(&self.conn, id)?;
+        if row.kind == PlaylistKind::Folder {
+            return Err(Error::CannotDuplicateFolder(id));
+        }
+        let tx = self.conn.transaction()?;
+        let mut order = children(&tx, row.parent_id)?;
+        let taken: HashSet<String> = tx
+            .prepare_cached("SELECT name FROM playlists WHERE parent_id IS ?1")?
+            .query_map([row.parent_id], |name| name.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut number = 2;
+        let name = loop {
+            let candidate = format!("{} {number}", row.name);
+            if !taken.contains(&candidate) {
+                break candidate;
+            }
+            number += 1;
+        };
+        let copy = insert_playlist(
+            &tx,
+            &name,
+            row.kind,
+            row.parent_id,
+            order.len() as u32,
+            row.rules.as_deref(),
+        )?;
+        tx.execute(
+            "UPDATE playlists SET seed = ?2 WHERE id = ?1",
+            params![copy, row.seed],
+        )?;
+        tx.execute(
+            "INSERT INTO playlist_items (playlist_id, position, track_id)
+             SELECT ?2, position, track_id FROM playlist_items WHERE playlist_id = ?1",
+            params![id, copy],
+        )?;
+        let after = order.iter().position(|sibling| *sibling == id);
+        order.insert(after.map_or(order.len(), |at| at + 1), copy);
+        set_children(&tx, row.parent_id, &order)?;
+        tx.commit()?;
+        Ok(copy)
     }
 
     pub fn rename_playlist(&mut self, id: i64, name: &str) -> Result<()> {

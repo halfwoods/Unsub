@@ -129,6 +129,8 @@ pub fn run() {
             library::library_create_playlist,
             library::library_rename_playlist,
             library::library_delete_playlist,
+            library::library_duplicate_playlist,
+            library::library_export_playlist,
             library::library_move_playlist,
             library::library_add_to_playlist,
             library::library_remove_from_playlist,
