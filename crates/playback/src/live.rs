@@ -644,6 +644,7 @@ impl LiveFeed {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
@@ -762,21 +763,58 @@ mod tests {
         assert!(reader.read_exact(&mut buf).is_err(), "and stays refused");
     }
 
+    /// How long a test waits for the decoder's thread: a loaded machine can keep it from running for
+    /// a good while, but a hang should still end in a failure.
+    const PATIENCE: Duration = Duration::from_secs(30);
+
+    /// Polls `ready` until it holds, and fails with `what` if it never does.
+    fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
+        let deadline = Instant::now() + PATIENCE;
+        while !ready() {
+            assert!(Instant::now() < deadline, "{what}");
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// How far the decoder has read into a [`Fed`] connection, so a test can wait for it to have
+    /// used everything sent instead of guessing how long that takes.
+    #[derive(Default)]
+    struct Reading {
+        taken: AtomicUsize,
+        waiting: AtomicBool,
+    }
+
+    impl Reading {
+        /// Whether the decoder has taken all `sent` bytes and is waiting for more. Every chunk it
+        /// could make of them has been handed on by then, and no more will come.
+        fn caught_up(&self, sent: usize) -> bool {
+            self.taken.load(Ordering::SeqCst) == sent && self.waiting.load(Ordering::SeqCst)
+        }
+    }
+
     /// A connection fed by hand: bytes arrive when the test sends them, and the stream ends
     /// when the sender is dropped.
-    struct Fed(mpsc::Receiver<Vec<u8>>, Vec<u8>);
+    struct Fed {
+        bytes: mpsc::Receiver<Vec<u8>>,
+        unread: Vec<u8>,
+        reading: Arc<Reading>,
+    }
 
     impl Read for Fed {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            if self.1.is_empty() {
-                match self.0.recv() {
-                    Ok(more) => self.1 = more,
+            if self.unread.is_empty() {
+                self.reading.waiting.store(true, Ordering::SeqCst);
+                let more = self.bytes.recv();
+                self.reading.waiting.store(false, Ordering::SeqCst);
+                match more {
+                    Ok(more) => self.unread = more,
                     Err(_) => return Ok(0),
                 }
             }
-            let count = self.1.len().min(buf.len());
-            buf[..count].copy_from_slice(&self.1[..count]);
-            self.1.drain(..count);
+            let count = self.unread.len().min(buf.len());
+            buf[..count].copy_from_slice(&self.unread[..count]);
+            self.unread.drain(..count);
+            self.reading.taken.fetch_add(count, Ordering::SeqCst);
             Ok(count)
         }
     }
@@ -797,31 +835,44 @@ mod tests {
 
     /// Calls `fill` until something other than "unchanged" happens, or time runs out.
     fn until_step(feed: &mut LiveFeed, ring: &mut Ring, consumed: u64, buffer: usize) -> Step {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            match feed.fill(ring, consumed, buffer).unwrap() {
-                Step::Unchanged => thread::sleep(Duration::from_millis(2)),
-                step => return step,
-            }
-        }
-        panic!("nothing happened");
+        let mut step = Step::Unchanged;
+        wait_for("nothing happened", || {
+            step = feed.fill(ring, consumed, buffer).unwrap();
+            step != Step::Unchanged
+        });
+        step
     }
 
     #[test]
     fn playback_waits_for_the_buffer_holds_when_dry_and_finishes_when_the_stream_does() {
         let data = bytes("sine.mp3");
         let (sender, receiver) = mpsc::channel();
-        let decoder =
-            LiveDecoder::spawn(Box::new(Fed(receiver, Vec::new())), LiveFormat::Mp3).unwrap();
+        let reading = Arc::new(Reading::default());
+        let fed = Fed {
+            bytes: receiver,
+            unread: Vec::new(),
+            reading: Arc::clone(&reading),
+        };
+        let decoder = LiveDecoder::spawn(Box::new(fed), LiveFormat::Mp3).unwrap();
         // Enough to start the decoder, which has to see a few frames before it knows the format.
-        sender.send(data[..4_000].to_vec()).unwrap();
-        let info = loop {
+        let head = 4_000;
+        sender.send(data[..head].to_vec()).unwrap();
+        let mut format = None;
+        wait_for("the stream's format never came", || {
             match decoder.poll() {
-                Polled::Ready(Message::Format(info)) => break info,
-                Polled::Pending => thread::sleep(Duration::from_millis(2)),
+                Polled::Ready(Message::Format(info)) => format = Some(info),
+                Polled::Pending => {}
                 _ => panic!("expected the format first"),
             }
-        };
+            format.is_some()
+        });
+        let info = format.unwrap();
+        // The decoder may be part-way through those bytes. Everything it makes of them has to be
+        // on its way before the feed is looked at, or the rest could turn up after the stream
+        // seems to have run dry.
+        wait_for("the decoder never used the first bytes", || {
+            reading.caught_up(head)
+        });
         let out = Format {
             sample_rate: info.sample_rate,
             channels: info.channels,
@@ -848,18 +899,16 @@ mod tests {
         assert_eq!(feed.finished(heard), None, "still running, only dry");
 
         // The rest arrives and the stream ends: it plays out and then it is over.
-        sender.send(data[4_000..].to_vec()).unwrap();
+        sender.send(data[head..].to_vec()).unwrap();
         drop(sender);
         assert_eq!(
             until_step(&mut feed, &mut ring, heard, buffer),
             Step::Resumed
         );
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while feed.finished(u64::MAX).is_none() {
-            assert!(Instant::now() < deadline, "the stream never finished");
+        wait_for("the stream never finished", || {
             feed.fill(&mut ring, heard, buffer).unwrap();
-            thread::sleep(Duration::from_millis(2));
-        }
+            feed.finished(u64::MAX).is_some()
+        });
         assert_eq!(feed.finished(u64::MAX), Some("The stream ended."));
         assert_eq!(feed.finished(0), None, "not until it has all been heard");
     }

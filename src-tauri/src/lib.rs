@@ -6,6 +6,7 @@ mod devices;
 mod elsewhere;
 mod error;
 mod import;
+mod jobs;
 mod library;
 mod loudness;
 mod menu;
@@ -66,6 +67,7 @@ pub fn run() {
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
+            app.manage(jobs::Jobs::default());
             app.manage(import::ImportState::default());
             app.manage(elsewhere::ElsewhereState::default());
             app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
@@ -190,7 +192,6 @@ pub fn run() {
             library::library_edit_tracks,
             library::library_clean_up_preview,
             library::library_clean_up,
-            library::library_cancel_clean_up,
             library::library_media_settings,
             library::library_set_media_settings,
             library::library_organize,
@@ -208,7 +209,7 @@ pub fn run() {
             sync::device_set_sync_settings,
             sync::device_sync_preview,
             sync::device_sync,
-            sync::device_cancel_sync,
+            jobs::job_cancel,
             rescue::device_rescue_preview,
             rescue::device_rescue,
             updates::updates_status,

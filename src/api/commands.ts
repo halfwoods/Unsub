@@ -129,7 +129,6 @@ export const libraryCleanUpPreview = (trackIds: number[], rules: CleanUpRules) =
   invoke<CleanUpPreview>("library_clean_up_preview", { trackIds, rules });
 /** Starts the clean-up in the background; its progress and end come as events. */
 export const libraryCleanUp = (trackIds: number[], rules: CleanUpRules) => invoke<void>("library_clean_up", { trackIds, rules });
-export const libraryCancelCleanUp = () => invoke<void>("library_cancel_clean_up");
 export const onCleanUpProgress = (handler: (progress: CleanUpProgress | null) => void): Promise<UnlistenFn> =>
   listen<CleanUpProgress | null>("library://clean-up", (e) => handler(e.payload));
 export const onCleanUpDone = (handler: (done: CleanUpDone) => void): Promise<UnlistenFn> =>
@@ -150,7 +149,10 @@ export const deviceSetSyncSettings = (deviceId: string, settings: SyncSettings) 
   invoke<void>("device_set_sync_settings", { deviceId, settings });
 export const deviceSyncPreview = (deviceId: string) => invoke<SyncPreview>("device_sync_preview", { deviceId });
 export const deviceSync = (deviceId: string) => invoke<void>("device_sync", { deviceId });
-export const deviceCancelSync = () => invoke<void>("device_cancel_sync");
+/** The background work that can be started, which `jobCancel` stops. */
+export type JobKind = "import" | "cleanUp" | "sync" | "organize" | "scan" | "podcasts";
+/** Stops the running jobs of a kind at their next look; stopping one that isn't running does nothing. */
+export const jobCancel = (kind: JobKind) => invoke<void>("job_cancel", { kind });
 /** What Copy to Library would do with these choices; nothing is copied. */
 export const deviceRescuePreview = (deviceId: string, scope: RescueScope, options: RescueOptions) =>
   invoke<RescuePreview>("device_rescue_preview", { deviceId, scope, options });

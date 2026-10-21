@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { cdStopImport, deviceCancelSync, libraryCancelCleanUp, libraryMixFor, playerSeek } from "../api/commands";
+import { cdStopImport, jobCancel, libraryMixFor, playerSeek } from "../api/commands";
 import type { Chapter, RadioStation } from "../api/types";
 import { chapterIndexAt, useApp } from "../state/store";
 import { formatClock } from "../util/format";
@@ -267,7 +267,7 @@ export function Lcd() {
         subtitle={subtitle}
         fraction={total > 0 ? done / total : null}
         // Only the iPod database's commit can't be stopped halfway.
-        onCancel={stage === "writingDatabase" ? undefined : () => void deviceCancelSync()}
+        onCancel={stage === "writingDatabase" ? undefined : () => void jobCancel("sync")}
       />
     );
   }
@@ -290,7 +290,7 @@ export function Lcd() {
         title="Cleaning Up Song Info"
         subtitle={`${cleanUp.done.toLocaleString()} of ${cleanUp.total.toLocaleString()}`}
         fraction={cleanUp.total > 0 ? cleanUp.done / cleanUp.total : null}
-        onCancel={() => void libraryCancelCleanUp()}
+        onCancel={() => void jobCancel("cleanUp")}
       />
     );
   }

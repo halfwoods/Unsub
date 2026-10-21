@@ -2,7 +2,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import {
   onCastTarget,
   onCdChanged,
@@ -44,7 +44,6 @@ import { OpenStream } from "./radio/OpenStream";
 import { ConnectToServer } from "./shared/Shared";
 import { Sidebar } from "./sidebar/Sidebar";
 import { VISUALIZER_STYLES } from "./visualizer/styles";
-import { VisualizerPane } from "./visualizer/VisualizerPane";
 import { UpdateSheet } from "./updates/UpdateSheet";
 import { Welcome, showWelcomeTips } from "./welcome/Welcome";
 import { newCondition } from "./smart/fields";
@@ -57,6 +56,9 @@ import "./theme/base.css";
 import "./App.css";
 
 const VOLUME_STEP = 0.1;
+
+// The WebGL styles are most of the app's code and only matter once the visualizer is shown, so they load then.
+const VisualizerPane = lazy(() => import("./visualizer/VisualizerPane").then((module) => ({ default: module.VisualizerPane })));
 
 async function importLibraryXml() {
   const path = await open({ title: "Import Library XML", multiple: false, directory: false, filters: [{ name: "Library XML", extensions: ["xml"] }] });
@@ -239,7 +241,12 @@ export default function App() {
       <div className="window-body">
         <Sidebar />
         <Content />
-        {visualizerOpen && <VisualizerPane />}
+        {visualizerOpen && (
+          // The pane's own black, so the window doesn't flash its lists while the code arrives.
+          <Suspense fallback={<div className="visualizer-pane" />}>
+            <VisualizerPane />
+          </Suspense>
+        )}
       </div>
       <BottomBar />
       {/* Keyed so each opening starts from that playlist's saved rules. */}

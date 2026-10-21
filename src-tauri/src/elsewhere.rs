@@ -3,14 +3,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use unsub_elsewhere::{Export, Play, Service, Song};
 use unsub_library::{ExternalTrack, Library, MatchOutcome, PlaylistKind, TrackQuery};
 
 use crate::collection::{CollectionState, Source, StreamedSong};
 use crate::error::{CommandError, CommandResult};
-use crate::import::{ImportProgress, ImportStage, ImportState, PlaylistMapping, emit_progress, name_key};
+use crate::import::{ImportProgress, ImportStage, PROGRESS_EVENT, PlaylistMapping, name_key, show};
+use crate::jobs::{self, Ctx, Job, Kind};
 use crate::library::{self, LibraryState};
 
 /// Plays go to the log this many to a transaction, so the LCD moves and a failure loses little.
@@ -356,7 +357,6 @@ fn report(app: &AppHandle, service: Service, result: Result<ElsewhereSummary, St
         Err(message) => ("Import Failed", message, MessageDialogKind::Error),
     };
     app.dialog().message(text).title(title).kind(kind).show(|_| {});
-    let _ = app.emit(library::CHANGED_EVENT, ());
 }
 
 /// A ZIP is unpacked into a folder that goes when the read is over; the export has the person's IP
@@ -370,9 +370,9 @@ fn read_export(service: Service, path: &Path, unpacking: &mut dyn FnMut(u64, u64
     unsub_elsewhere::read(service, path).map_err(|e| e.to_string())
 }
 
-fn run(app: &AppHandle, prepared: &Prepared, add_plays: bool) -> Result<ElsewhereSummary, String> {
+fn run(app: &AppHandle, ctx: &Ctx, prepared: &Prepared, add_plays: bool) -> Result<ElsewhereSummary, String> {
     let mapping_path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ImportedPlaylists.json");
-    let mut progress = |progress| emit_progress(app, Some(progress));
+    let mut progress = |progress| show(ctx, progress);
     let (mut summary, wanted) = app
         .state::<LibraryState>()
         .with_writer(|library| {
@@ -399,35 +399,23 @@ fn run(app: &AppHandle, prepared: &Prepared, add_plays: bool) -> Result<Elsewher
 #[tauri::command]
 pub async fn elsewhere_inspect(
     app: AppHandle,
-    imports: State<'_, ImportState>,
     state: State<'_, ElsewhereState>,
     service: Service,
     path: PathBuf,
 ) -> CommandResult<ElsewherePreview> {
-    let _busy = imports.begin()?;
-    emit_progress(&app, Some(ImportProgress { stage: ImportStage::ReadingExport, done: 0, total: None }));
-    let handle = app.clone();
-    let read = tauri::async_runtime::spawn_blocking(move || {
-        // A big ZIP takes a while, so the LCD follows it; once a percent is enough.
-        let mut shown = u64::MAX;
+    let job = Job::new(Kind::Import, PROGRESS_EVENT).starting(ImportProgress { stage: ImportStage::ReadingExport, done: 0, total: None });
+    let read = jobs::run(&app, job, move |app, ctx| {
+        // A big ZIP takes a while, so the LCD follows it.
         let mut unpacking = |done: u64, total: u64| {
-            let percent = if total == 0 { 100 } else { done * 100 / total };
-            if percent != shown {
-                shown = percent;
-                emit_progress(
-                    &handle,
-                    Some(ImportProgress { stage: ImportStage::ReadingExport, done: done as usize, total: Some(total as usize) }),
-                );
-            }
+            show(ctx, ImportProgress { stage: ImportStage::ReadingExport, done: done as usize, total: Some(total as usize) })
         };
         let export = read_export(service, &path, &mut unpacking)?;
-        emit_progress(&handle, Some(ImportProgress { stage: ImportStage::Matching, done: 0, total: None }));
-        let matched = Matched::new(&handle.state::<LibraryState>().queries(), &export).map_err(|e| e.to_string())?;
+        show(ctx, ImportProgress { stage: ImportStage::Matching, done: 0, total: None });
+        let matched = Matched::new(&app.state::<LibraryState>().queries(), &export).map_err(|e| e.to_string())?;
         Ok::<_, String>(Prepared { service, export, matched })
     })
-    .await;
-    emit_progress(&app, None);
-    let prepared = read.map_err(|e| CommandError::from(e.to_string()))?.map_err(CommandError::from)?;
+    .await?;
+    let prepared = read.map_err(CommandError::from)?;
     let found = preview(&prepared.export, &prepared.matched);
     *state.lock() = Some(prepared);
     Ok(found)
@@ -435,21 +423,13 @@ pub async fn elsewhere_inspect(
 
 /// File › Import from Spotify, YouTube Music or ListenBrainz: brings in what `elsewhere_inspect` read.
 #[tauri::command]
-pub fn elsewhere_run(
-    app: AppHandle,
-    imports: State<'_, ImportState>,
-    state: State<'_, ElsewhereState>,
-    add_plays: bool,
-) -> CommandResult<()> {
-    let busy = imports.begin()?;
+pub fn elsewhere_run(app: AppHandle, state: State<'_, ElsewhereState>, add_plays: bool) -> CommandResult<()> {
     let prepared = state.lock().take().ok_or_else(|| CommandError::from("The export wasn't read yet.".to_owned()))?;
-    std::thread::spawn(move || {
-        let _busy = busy;
-        let result = run(&app, &prepared, add_plays);
-        emit_progress(&app, None);
-        report(&app, prepared.service, result);
-    });
-    Ok(())
+    let job = Job::new(Kind::Import, PROGRESS_EVENT).changed(library::CHANGED_EVENT);
+    jobs::start(&app, job, move |app, ctx| {
+        let result = run(app, ctx, &prepared, add_plays);
+        report(app, prepared.service, result);
+    })
 }
 
 /// The sheet was dismissed, so what it read isn't needed.

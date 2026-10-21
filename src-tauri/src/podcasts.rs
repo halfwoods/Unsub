@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
@@ -9,6 +8,7 @@ use unsub_library::{MediaKind, TrackOverrides};
 use unsub_podcasts::{Episode, Feed, FeedSettings, Podcasts};
 
 use crate::error::{CommandError, CommandResult};
+use crate::jobs::{self, Job, Kind};
 use crate::library::{self, LibraryState};
 
 pub const CHANGED_EVENT: &str = "podcasts://changed";
@@ -198,8 +198,8 @@ struct Progress {
 /// Downloads on a background thread with a second store handle (WAL makes that safe), then adds
 /// each episode to the library as a Podcast titled from the feed rather than whatever tags it has.
 fn download(app: &AppHandle, episode_ids: Vec<i64>) {
-    let app = app.clone();
-    std::thread::spawn(move || {
+    let job = Job::new(Kind::Podcasts, PROGRESS_EVENT).open_ended();
+    let _ = jobs::start(app, job, move |app, ctx| {
         let state = app.state::<PodcastsState>();
         let _turn = lock(&state.download_lock);
         let mut store = match Podcasts::open(&state.db_path, &state.download_dir) {
@@ -207,14 +207,11 @@ fn download(app: &AppHandle, episode_ids: Vec<i64>) {
             Err(error) => return eprintln!("[podcasts] {error}"),
         };
         let feeds: HashMap<i64, Feed> = store.feeds().unwrap_or_default().into_iter().map(|f| (f.id, f)).collect();
-        let cancel = AtomicBool::new(false);
         for episode_id in episode_ids {
             let result = store.download(
                 episode_id,
-                &mut |done, total| {
-                    let _ = app.emit(PROGRESS_EVENT, Progress { episode_id, done, total });
-                },
-                &cancel,
+                &mut |done, total| ctx.progress(done, total, episode_id, Progress { episode_id, done, total }),
+                ctx.cancel_flag(),
             );
             let file = match result {
                 Ok(file) => file,

@@ -1,20 +1,21 @@
 use std::collections::{HashMap, HashSet};
+use std::mem::discriminant;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use unsub_applemusic::{Located, MediaType, MusicLibrary, MusicLibraryItem, Ownership, PlaylistKind as MusicPlaylistKind};
 use unsub_library::{ExternalStats, Library, MatchQuality, MediaKind, Playlist, PlaylistKind, TrackOverrides, TrackQuery, fold};
 
 use crate::collection::external;
 use crate::error::{CommandError, CommandResult};
+use crate::jobs::{self, Ctx, Job, Kind};
 use crate::library::{self, LibraryState};
 
 /// Progress of the import for the LCD; `null` once it's done.
-const PROGRESS_EVENT: &str = "import://progress";
+pub(crate) const PROGRESS_EVENT: &str = "import://progress";
 /// Files handed to the library at a time: each is its own short transaction, and the LCD moves between them.
 const ADD_CHUNK: usize = 500;
 
@@ -22,29 +23,11 @@ const ADD_CHUNK: usize = 500;
 #[derive(Default)]
 pub struct ImportState {
     music: Mutex<Option<MusicLibrary>>,
-    busy: Arc<AtomicBool>,
-}
-
-/// Held while Music is read or imported; dropping it lets the next one start.
-pub(crate) struct Busy(Arc<AtomicBool>);
-
-impl Drop for Busy {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
 }
 
 impl ImportState {
     fn lock(&self) -> MutexGuard<'_, Option<MusicLibrary>> {
         self.music.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Two imports at once would duplicate each other's playlists and fight over the progress display.
-    pub(crate) fn begin(&self) -> CommandResult<Busy> {
-        if self.busy.swap(true, Ordering::AcqRel) {
-            return Err(CommandError::from("Another import is still running.".to_owned()));
-        }
-        Ok(Busy(Arc::clone(&self.busy)))
     }
 }
 
@@ -416,11 +399,11 @@ fn report(app: &AppHandle, result: Result<ImportSummary, String>) {
         Err(message) => ("Import Failed", message, MessageDialogKind::Error),
     };
     app.dialog().message(text).title(title).kind(kind).show(|_| {});
-    let _ = app.emit(library::CHANGED_EVENT, ());
 }
 
-pub(crate) fn emit_progress(app: &AppHandle, progress: Option<ImportProgress>) {
-    let _ = app.emit(PROGRESS_EVENT, progress);
+/// Puts the import's progress on the LCD.
+pub(crate) fn show(ctx: &Ctx, progress: ImportProgress) {
+    ctx.progress(progress.done as u64, progress.total.map(|total| total as u64), discriminant(&progress.stage), progress);
 }
 
 fn read_music(xml: Option<PathBuf>) -> Result<MusicLibrary, String> {
@@ -443,8 +426,8 @@ fn locate(music: &MusicLibrary, folder: &Path, progress: &mut dyn FnMut(ImportPr
     })
 }
 
-fn run(app: &AppHandle, music: &MusicLibrary, folder: Option<&Path>) -> Result<ImportSummary, String> {
-    let mut progress = |progress| emit_progress(app, Some(progress));
+fn run(app: &AppHandle, ctx: &Ctx, music: &MusicLibrary, folder: Option<&Path>) -> Result<ImportSummary, String> {
+    let mut progress = |progress| show(ctx, progress);
     let located = match folder {
         Some(folder) => locate(music, folder, &mut progress).map_err(|e| e.to_string())?,
         None => Located::default(),
@@ -463,12 +446,9 @@ fn run(app: &AppHandle, music: &MusicLibrary, folder: Option<&Path>) -> Result<I
 /// library for `import_music_run`.
 #[tauri::command]
 pub async fn import_music_inspect(app: AppHandle, state: State<'_, ImportState>, xml: Option<PathBuf>) -> CommandResult<ImportPreview> {
-    let _busy = state.begin()?;
-    emit_progress(&app, Some(ImportProgress { stage: ImportStage::Reading, done: 0, total: None }));
+    let job = Job::new(Kind::Import, PROGRESS_EVENT).starting(ImportProgress { stage: ImportStage::Reading, done: 0, total: None });
     // The first read of the Music app waits on the privacy prompt, so it stays off the IPC thread.
-    let read = tauri::async_runtime::spawn_blocking(move || read_music(xml)).await;
-    emit_progress(&app, None);
-    let music = read.map_err(|e| CommandError::from(e.to_string()))?.map_err(CommandError::from)?;
+    let music = jobs::run(&app, job, move |_, _| read_music(xml)).await?.map_err(CommandError::from)?;
     let preview = preview(&music);
     *state.lock() = Some(music);
     Ok(preview)
@@ -478,15 +458,12 @@ pub async fn import_music_inspect(app: AppHandle, state: State<'_, ImportState>,
 /// with their stats and playlists, looking in `folder` for the files Music has lost.
 #[tauri::command]
 pub fn import_music_run(app: AppHandle, state: State<'_, ImportState>, folder: Option<PathBuf>) -> CommandResult<()> {
-    let busy = state.begin()?;
     let music = state.lock().take().ok_or_else(|| CommandError::from("The Music library wasn't read yet.".to_owned()))?;
-    std::thread::spawn(move || {
-        let _busy = busy;
-        let result = run(&app, &music, folder.as_deref());
-        emit_progress(&app, None);
-        report(&app, result);
-    });
-    Ok(())
+    let job = Job::new(Kind::Import, PROGRESS_EVENT).changed(library::CHANGED_EVENT);
+    jobs::start(&app, job, move |app, ctx| {
+        let result = run(app, ctx, &music, folder.as_deref());
+        report(app, result);
+    })
 }
 
 /// The sheet was dismissed, so the library it read isn't needed.
@@ -869,15 +846,6 @@ mod tests {
         files.sort();
         assert_eq!(files, ["ImportedPlaylists.json"]);
         assert_eq!(PlaylistMapping::load(&path).id("L2"), mapping.id("L2"));
-    }
-
-    #[test]
-    fn a_second_import_is_refused_while_one_is_running() {
-        let state = ImportState::default();
-        let running = state.begin().unwrap();
-        assert!(state.begin().is_err());
-        drop(running);
-        assert!(state.begin().is_ok());
     }
 
     #[test]

@@ -1,8 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -12,6 +10,7 @@ use unsub_library::{
 };
 
 use crate::error::{CommandError, CommandResult};
+use crate::jobs::{self, Ctx, Job, Kind};
 
 pub const SCAN_PROGRESS_EVENT: &str = "library://scan-progress";
 pub const CHANGED_EVENT: &str = "library://changed";
@@ -33,8 +32,6 @@ pub struct LibraryState {
     file_reader: Mutex<Library>,
     /// Serializes imports; a second drop waits for the first instead of racing it.
     scan_lock: Arc<Mutex<()>>,
-    /// Set while a clean-up runs; setting the flag stops it before its next song.
-    clean_up: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl LibraryState {
@@ -47,7 +44,6 @@ impl LibraryState {
             file_reader: Mutex::new(Library::open(&db_path)?),
             db_path,
             scan_lock: Arc::new(Mutex::new(())),
-            clean_up: Mutex::new(None),
         })
     }
 
@@ -75,10 +71,6 @@ impl LibraryState {
                 Ok(default.to_path_buf())
             }
         }
-    }
-
-    fn clean_up_running(&self) -> MutexGuard<'_, Option<Arc<AtomicBool>>> {
-        self.clean_up.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn queries(&self) -> MutexGuard<'_, Library> {
@@ -293,14 +285,8 @@ pub async fn library_edit_tracks(
 
 /// How many of the changes Clean Up Song Info lists; the sheet only needs enough to scroll through.
 const CLEAN_UP_LISTED: usize = 500;
-/// Songs changed under one hold of the writer; between chunks it is let go for `CLEAN_UP_BREATHER`, so Get Info,
-/// a rating or an import gets a turn.
+/// Songs changed under one hold of the writer; between chunks it is let go, so Get Info, a rating or an import gets a turn.
 const CLEAN_UP_CHUNK: usize = 200;
-/// A std mutex is not fair, so a thread that lets go and takes it again at once would be given it again every time
-/// (a `yield_now` is not enough), and whoever waits would sleep through the whole run.
-const CLEAN_UP_BREATHER: Duration = Duration::from_millis(5);
-/// Changing a song that only exists in the library takes microseconds, which is far too often to tell the window.
-const CLEAN_UP_PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -349,36 +335,16 @@ pub async fn library_clean_up_preview(
 /// and can stop it; it takes the writer a chunk of songs at a time rather than for the whole run.
 #[tauri::command]
 pub fn library_clean_up(app: AppHandle, track_ids: Vec<i64>, rules: CleanUpRules) -> CommandResult<()> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let state = app.state::<LibraryState>();
-        let mut running = state.clean_up_running();
-        if running.is_some() {
-            return Err(CommandError::from("Clean Up Song Info is already running".to_owned()));
-        }
-        *running = Some(Arc::clone(&cancel));
-    }
-    std::thread::spawn(move || {
-        let (report, error) = run_clean_up(&app, &track_ids, &rules, &cancel);
-        *app.state::<LibraryState>().clean_up_running() = None;
-        let _ = app.emit(CLEAN_UP_EVENT, None::<CleanUpProgress>);
-        let _ = app.emit(CLEAN_UP_DONE_EVENT, CleanUpDone { report, stopped: cancel.load(Ordering::Relaxed), error });
-        let _ = app.emit(CHANGED_EVENT, ());
-    });
-    Ok(())
-}
-
-#[tauri::command]
-pub fn library_cancel_clean_up(state: State<'_, LibraryState>) {
-    if let Some(cancel) = state.clean_up_running().as_ref() {
-        cancel.store(true, Ordering::Relaxed);
-    }
+    let job = Job::new(Kind::CleanUp, CLEAN_UP_EVENT).changed(CHANGED_EVENT);
+    jobs::start(&app, job, move |app, ctx| {
+        let (report, error) = run_clean_up(&app.state::<LibraryState>(), ctx, &track_ids, &rules);
+        ctx.emit(CLEAN_UP_DONE_EVENT, CleanUpDone { report, stopped: ctx.cancelled(), error });
+    })
 }
 
 /// Changes the songs the rules touch, a chunk at a time with each chunk worked out from its rows as they are
 /// by then. Returns what was done, and why it stopped early if an error did.
-fn run_clean_up(app: &AppHandle, track_ids: &[i64], rules: &CleanUpRules, cancel: &AtomicBool) -> (EditReport, Option<String>) {
-    let state = app.state::<LibraryState>();
+fn run_clean_up(state: &LibraryState, ctx: &Ctx, track_ids: &[i64], rules: &CleanUpRules) -> (EditReport, Option<String>) {
     let mut report = EditReport::default();
     let changed: Vec<i64> = match state.with_writer(|library| library.clean_up_preview(track_ids, rules)) {
         Ok(changes) => changes.into_iter().map(|change| change.id).collect(),
@@ -386,24 +352,17 @@ fn run_clean_up(app: &AppHandle, track_ids: &[i64], rules: &CleanUpRules, cancel
     };
     let total = changed.len() as u64;
     let mut finished = 0;
-    let mut last_sent = Instant::now();
-    let mut send = |done: u64| {
-        if done == 0 || done == total || last_sent.elapsed() >= CLEAN_UP_PROGRESS_EVERY {
-            last_sent = Instant::now();
-            let _ = app.emit(CLEAN_UP_EVENT, Some(CleanUpProgress { done, total }));
-        }
-    };
+    let send = |done: u64| ctx.progress(done, Some(total), (), CleanUpProgress { done, total });
     send(0);
     for chunk in changed.chunks(CLEAN_UP_CHUNK) {
-        if cancel.load(Ordering::Relaxed) {
+        if ctx.cancelled() {
             break;
         }
-        match state.with_writer(|library| library.clean_up(chunk, rules, cancel, |done, _| send(finished + done))) {
+        match jobs::write(state, |library| library.clean_up(chunk, rules, ctx.cancel_flag(), |done, _| send(finished + done))) {
             Ok(part) => report.merge(part),
             Err(error) => return (report, Some(error.to_string())),
         }
         finished += chunk.len() as u64;
-        std::thread::sleep(CLEAN_UP_BREATHER);
     }
     (report, None)
 }
@@ -425,20 +384,16 @@ pub async fn library_set_media_settings(app: AppHandle, folder: PathBuf, organiz
 /// iTunes' Organize Library: moves every file in the media folder to where its tags say.
 #[tauri::command]
 pub fn library_organize(app: AppHandle) {
-    std::thread::spawn(move || {
-        let result: CommandResult<OrganizeReport> = app.state::<LibraryState>().with_writer(|library| {
-            library.organize_now(|progress| {
-                let _ = app.emit(ORGANIZE_EVENT, Some(progress));
-            })
-        });
-        let _ = app.emit(ORGANIZE_EVENT, None::<()>);
-        let message = match result {
+    let job = Job::new(Kind::Organize, ORGANIZE_EVENT).changed(CHANGED_EVENT);
+    let _ = jobs::start(&app, job, |app, ctx| {
+        let result: CommandResult<OrganizeReport> = app
+            .state::<LibraryState>()
+            .with_writer(|library| library.organize_now(|progress| ctx.progress(progress.done, Some(progress.total), (), progress)));
+        ctx.notice(match result {
             Ok(report) if report.failed.is_empty() => format!("Organized {} files", report.moved),
             Ok(report) => format!("Organized {} files; {} couldn't be moved", report.moved, report.failed.len()),
             Err(error) => format!("Couldn't organize the library: {error}"),
-        };
-        let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
-        let _ = app.emit(CHANGED_EVENT, ());
+        });
     });
 }
 
@@ -500,14 +455,11 @@ fn scan_notice(result: &Result<ScanSummary, impl std::fmt::Display>) -> Option<S
 pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
     let state = app.state::<LibraryState>();
     let (db_path, scan_lock) = (state.db_path.clone(), Arc::clone(&state.scan_lock));
-    let app = app.clone();
-    std::thread::spawn(move || {
+    let job = Job::new(Kind::Scan, SCAN_PROGRESS_EVENT).open_ended().changed(CHANGED_EVENT);
+    let _ = jobs::start(app, job, move |_, ctx| {
         let _turn = scan_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let result = Library::open(&db_path).and_then(|mut library| {
-            library.add_paths(&paths, |progress| {
-                let _ = app.emit(SCAN_PROGRESS_EVENT, progress);
-            })
-        });
+        let result = Library::open(&db_path)
+            .and_then(|mut library| library.add_paths(&paths, |progress| ctx.progress(progress.scanned, None, (), progress)));
         match &result {
             Ok(summary) if !summary.failed.is_empty() => {
                 eprintln!("[library] {} files could not be read: {:?}", summary.failed.len(), summary.failed)
@@ -516,9 +468,8 @@ pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
             Err(error) => eprintln!("[library] import failed: {error}"),
         }
         if let Some(message) = scan_notice(&result) {
-            let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
+            ctx.notice(message);
         }
-        let _ = app.emit(CHANGED_EVENT, ());
     });
 }
 

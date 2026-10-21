@@ -26,3 +26,17 @@
   min-height: 0;
   display: flex;
 }
+
+/* Over the sidebar and the list, under the toolbar, as iTunes 10 drew it in the main window. */
+.visualizer-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #000;
+}
+
+/* Full screen takes the toolbar too. */
+.visualizer-pane[data-fullscreen="true"] {
+  position: fixed;
+  z-index: 20;
+}

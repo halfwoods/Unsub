@@ -10,8 +10,8 @@ use unsub_library::{Library, LibraryStats, MediaKind, Track, TrackQuery};
 
 use crate::cd::Cds;
 use crate::error::{CommandError, CommandResult};
+use crate::jobs::Jobs;
 use crate::playback::{PlaySource, PlaybackState};
-use crate::sync::SyncState;
 
 pub const CHANGED_EVENT: &str = "devices://changed";
 
@@ -381,10 +381,10 @@ pub fn device_stats(state: State<'_, DevicesState>, device_id: String, view: Dev
 }
 
 #[tauri::command]
-pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, syncs: State<'_, SyncState>, device_id: String) -> CommandResult<()> {
+pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, jobs: State<'_, Jobs>, device_id: String) -> CommandResult<()> {
     let device = state.find(&device_id)?;
     // Taking the iPod away mid-way would cut the sync or the copy off from its files.
-    if syncs.is_busy_with(&device_id) {
+    if jobs.is_busy_with(&device_id) {
         return Err(CommandError::from(format!("“{}” is being synced or copied. Stop that first.", device.ipod.name)));
     }
     // Release our open files first, or the OS refuses to unmount.

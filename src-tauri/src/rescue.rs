@@ -5,10 +5,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager};
 use unsub_ipod::{Ipod, IpodTrack, Rescue, RescuePlaylist, RescueSong};
 use unsub_library::{
     CopyIn, ExternalStats, ExternalTrack, Library, MatchOutcome, MatchQuality, PlaylistKind, Track, TrackOverrides, TrackQuery, song_key,
@@ -17,19 +16,17 @@ use unsub_library::{
 use crate::devices::{DevicesState, media_kind};
 use crate::error::{CommandError, CommandResult};
 use crate::import::{PlaylistMapping, merged, whole_stars};
+use crate::jobs::{self, Ctx, Kind};
 use crate::library::{self, LibraryState};
-use crate::sync::{SYNC_EVENT, SyncState};
+use crate::sync::SYNC_EVENT;
 
 /// The stage the LCD titles "Copying from …"; a sync's own stages are the iPod database's.
 const STAGE: &str = "rescuing";
 /// Songs copied under one hold of the writer, and the most bytes they add up to (unless one song is bigger). Each
 /// is read off the iPod over USB and stopping waits for the chunk in hand, so a chunk of audiobooks must not be
-/// a chunk of minutes. Between chunks the writer is let go for `COPY_BREATHER`.
+/// a chunk of minutes. Between chunks the writer is let go.
 const COPY_CHUNK: usize = 10;
 const COPY_CHUNK_BYTES: u64 = 64 << 20;
-/// A std mutex is not fair, so a thread that lets go and takes it again at once would be given it again every
-/// time, and whoever waits (Get Info, a rating) would sleep through the whole copy.
-const COPY_BREATHER: Duration = Duration::from_millis(5);
 /// How far apart two lengths of one song can be when its title and artist both agree: what the matcher calls the
 /// same recording.
 const SAME_SONG_MS: u64 = 3_000;
@@ -586,7 +583,7 @@ fn copy(library: &LibraryState, job: &Job, cancel: &AtomicBool, progress: &mut d
         let (chunk, protected): (Vec<&Todo>, Vec<&Todo>) =
             chunk.iter().partition(|todo| !unsub_ipod::holds_protected_audio(&todo.song.track));
         summary.protected += protected.len();
-        let outcomes = library.with_writer(|writer| land(writer, job, &chunk))?;
+        let outcomes = jobs::write(library, |writer| land(writer, job, &chunk))?;
         // An iPod pulled out part-way fails every song after it, which says nothing about the songs.
         let gone = !job.ipod.mount_path.is_dir();
         for (todo, outcome) in chunk.iter().zip(outcomes) {
@@ -608,7 +605,6 @@ fn copy(library: &LibraryState, job: &Job, cancel: &AtomicBool, progress: &mut d
             summary.disconnected = true;
             break;
         }
-        std::thread::sleep(COPY_BREATHER);
     }
 
     let to_make = playlists_to_make(job.rescue, job.scope);
@@ -801,48 +797,31 @@ fn notice(summary: &Summary, ipod_name: &str) -> String {
     sentences.join(" ")
 }
 
-fn run(
-    app: &AppHandle,
-    device_id: &str,
-    scope: &RescueScope,
-    options: RescueOptions,
-    cancel: &AtomicBool,
-) -> CommandResult<(Summary, String)> {
-    let mut status = |done: usize, total: usize, current: &str| {
-        let status = RescueStatus { device_id: device_id.to_owned(), stage: STAGE, done, total, current: current.to_owned() };
-        let _ = app.emit(SYNC_EVENT, Some(status));
-    };
-    // Reading a big iPod takes a while, and the LCD should say so from the first moment.
-    status(0, 0, "Reading the iPod…");
+fn run(app: &AppHandle, ctx: &Ctx, device_id: &str, scope: &RescueScope, options: RescueOptions) -> CommandResult<(Summary, String)> {
     let (ipod, rescue, mapping_path) = read(app, device_id)?;
     let job = Job { ipod: &ipod, rescue: &rescue, scope, options, mapping_path: &mapping_path };
-    let summary = copy(&app.state::<LibraryState>(), &job, cancel, &mut status)?;
+    let mut status = |done: usize, total: usize, current: &str| {
+        let status = RescueStatus { device_id: device_id.to_owned(), stage: STAGE, done, total, current: current.to_owned() };
+        // Each chunk is its own stage: one report is made per chunk, before its slow copy, and must show.
+        ctx.progress(done as u64, Some(total as u64), (STAGE, done), status);
+    };
+    let summary = copy(&app.state::<LibraryState>(), &job, ctx.cancel_flag(), &mut status)?;
     Ok((summary, ipod.name.clone()))
 }
 
 /// Copy to Library: copies the chosen songs off the iPod in the background. It takes the sync's place, so the
 /// two can't run at once, and the LCD shows it and stops it the same way.
 #[tauri::command]
-pub fn device_rescue(
-    app: AppHandle,
-    state: State<'_, SyncState>,
-    device_id: String,
-    scope: RescueScope,
-    options: RescueOptions,
-) -> CommandResult<()> {
-    let cancel = state.begin(&device_id)?;
-    std::thread::spawn(move || {
-        let result = run(&app, &device_id, &scope, options, &cancel);
-        app.state::<SyncState>().finish();
-        let _ = app.emit(SYNC_EVENT, None::<RescueStatus>);
-        let _ = app.emit(library::CHANGED_EVENT, ());
-        let message = match result {
+pub fn device_rescue(app: AppHandle, device_id: String, scope: RescueScope, options: RescueOptions) -> CommandResult<()> {
+    // Reading a big iPod takes a while, and the LCD should say so from the first moment.
+    let reading = RescueStatus { device_id: device_id.clone(), stage: STAGE, done: 0, total: 0, current: "Reading the iPod…".to_owned() };
+    let job = jobs::Job::new(Kind::Sync, SYNC_EVENT).resource(&device_id).starting(reading).changed(library::CHANGED_EVENT);
+    jobs::start(&app, job, move |app, ctx| {
+        ctx.notice(match run(app, ctx, &device_id, &scope, options) {
             Ok((summary, name)) => notice(&summary, &name),
             Err(error) => format!("Copy failed: {error}"),
-        };
-        let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
-    });
-    Ok(())
+        });
+    })
 }
 
 #[cfg(test)]
