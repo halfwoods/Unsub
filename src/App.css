@@ -20,6 +20,12 @@
   z-index: 10;
 }
 
+/* Nothing of the frame is left to round when the window fills the screen. */
+.window[data-fullscreen="true"],
+.window[data-fullscreen="true"]::after {
+  border-radius: 0;
+}
+
 .window-body {
   position: relative;
   flex: 1;

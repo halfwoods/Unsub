@@ -196,6 +196,8 @@ interface SelectModifiers {
 
 interface AppState {
   windowActive: boolean;
+  /** Native full screen, which the player can enter without the visualizer. */
+  windowFullscreen: boolean;
   source: SourceId;
   viewMode: ViewMode;
   query: TrackQuery;
@@ -268,6 +270,7 @@ interface AppState {
   rowHeight: number;
 
   setWindowActive: (active: boolean) => void;
+  setWindowFullscreen: (fullscreen: boolean) => void;
   setSource: (source: SourceId) => void;
   setViewMode: (mode: ViewMode) => void;
   setSearch: (search: string) => void;
@@ -316,6 +319,7 @@ const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", on
 
 export const useApp = create<AppState>((set, get) => ({
   windowActive: true,
+  windowFullscreen: false,
   source: "music",
   viewMode: "list",
   query: { kind: "music", search: null, sort: "artist", descending: false },
@@ -374,6 +378,7 @@ export const useApp = create<AppState>((set, get) => ({
   rowHeight: listRowHeight(loadTextSizes()),
 
   setWindowActive: (windowActive) => set({ windowActive }),
+  setWindowFullscreen: (windowFullscreen) => set({ windowFullscreen }),
 
   setSource: (source) => {
     const device = parseDeviceSource(source);

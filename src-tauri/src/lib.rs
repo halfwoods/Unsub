@@ -26,6 +26,7 @@ mod test_support;
 mod updates;
 mod visualizer;
 mod welcome;
+mod window;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -44,12 +45,15 @@ use sharing::SharingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    window::keep_full_screen_item_ours();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(menu::build)
         .on_menu_event(menu::on_event)
+        .on_window_event(window::on_event)
         .register_asynchronous_uri_scheme_protocol("artwork", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_owned();
@@ -249,16 +253,21 @@ pub fn run() {
             welcome::welcome_due,
             welcome::welcome_done,
             welcome::welcome_folders,
+            window::window_double_click_action,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Unsub")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // A speaker left playing would carry on from a server that is gone, then go quiet.
-            if matches!(event, tauri::RunEvent::Exit)
-                && let Some(cast) = app.try_state::<cast::CastState>()
-            {
-                cast.end();
+            tauri::RunEvent::Exit => {
+                if let Some(cast) = app.try_state::<cast::CastState>() {
+                    cast.end();
+                }
             }
+            // Closing the window only hid it, so the Dock icon is how it comes back.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { has_visible_windows: false, .. } => window::show(app),
+            _ => {}
         });
 }
 

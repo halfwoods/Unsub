@@ -78,6 +78,12 @@
   opacity: 0.85;
 }
 
+/* A full-screen window can't be minimized, so the button says so. */
+.traffic-light:disabled {
+  filter: saturate(0);
+  opacity: 0.5;
+}
+
 .traffic-light:active {
   filter: brightness(0.8);
 }

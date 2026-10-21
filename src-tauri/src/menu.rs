@@ -1,8 +1,8 @@
 use tauri::menu::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Window, Wry};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{library, updates};
+use crate::{library, updates, window};
 
 /// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
 /// So are the imports, whose sheet asks where the music files are now.
@@ -19,6 +19,23 @@ const NOT_APPLE: &str = "Not affiliated with or endorsed by Apple. iTunes, iPod 
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
 const SHOW_VISUALIZER: (&str, &str, Option<&str>) = ("show-visualizer", "Show Visualizer", Some("CmdOrCtrl+T"));
+/// The system's own Close Window asks the window's close button to act, and a borderless window has none.
+#[cfg(target_os = "macos")]
+const CLOSE_WINDOW: (&str, &str, Option<&str>) = ("close-window", "Close Window", Some("CmdOrCtrl+W"));
+#[cfg(target_os = "macos")]
+const FULL_SCREEN_KEYS: &str = "Ctrl+Cmd+F";
+#[cfg(not(target_os = "macos"))]
+const FULL_SCREEN_KEYS: &str = "F11";
+const FULL_SCREEN: (&str, &str, Option<&str>) = ("toggle-full-screen", "Enter Full Screen", Some(FULL_SCREEN_KEYS));
+const EXIT_FULL_SCREEN: &str = "Exit Full Screen";
+/// The system's Minimize and Zoom press the window's own buttons too, so they are ours on macOS.
+#[cfg(target_os = "macos")]
+const MINIMIZE_WINDOW: (&str, &str, Option<&str>) = ("minimize-window", "Minimize", Some("CmdOrCtrl+M"));
+#[cfg(target_os = "macos")]
+const ZOOM_WINDOW: (&str, &str, Option<&str>) = ("zoom-window", "Zoom", None);
+/// A way back to the window besides the Dock icon, since closing it only hides it.
+#[cfg(target_os = "macos")]
+const SHOW_WINDOW: (&str, &str, Option<&str>) = ("show-window", "Unsub", None);
 const VISUALIZER_STYLES: [(&str, &str, Option<&str>); 5] = [
     ("visualizer-classic", "Classic", None),
     ("visualizer-lights", "Lights", None),
@@ -55,6 +72,9 @@ const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("volume-up", "Increase Volume", Some("CmdOrCtrl+Up")),
     ("volume-down", "Decrease Volume", Some("CmdOrCtrl+Down")),
 ];
+
+/// Kept so the label can follow the window in and out of full screen, however it got there.
+struct FullScreenItem<R: Runtime>(MenuItem<R>);
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let info = app.package_info();
@@ -101,6 +121,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
     file.append(&PredefinedMenuItem::separator(app)?)?;
+    #[cfg(target_os = "macos")]
+    file.append(&MenuItem::with_id(app, CLOSE_WINDOW.0, CLOSE_WINDOW.1, true, CLOSE_WINDOW.2)?)?;
+    // Elsewhere closing the window quits, so the system's own item (Alt+F4) stays rather than a Ctrl+W that would quit by accident.
+    #[cfg(not(target_os = "macos"))]
     file.append(&PredefinedMenuItem::close_window(app, None)?)?;
     // Predefined edit items keep copy/paste and undo working in the search field.
     let edit = Submenu::with_items(
@@ -123,11 +147,18 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     for (id, label, accelerator) in VISUALIZER_STYLES {
         visualizer_styles.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
+    let full_screen = MenuItem::with_id(app, FULL_SCREEN.0, FULL_SCREEN.1, true, FULL_SCREEN.2)?;
+    app.manage(FullScreenItem(full_screen.clone()));
     let view = Submenu::with_items(
         app,
         "View",
         true,
-        &[&MenuItem::with_id(app, SHOW_VISUALIZER.0, SHOW_VISUALIZER.1, true, SHOW_VISUALIZER.2)?, &visualizer_styles],
+        &[
+            &MenuItem::with_id(app, SHOW_VISUALIZER.0, SHOW_VISUALIZER.1, true, SHOW_VISUALIZER.2)?,
+            &visualizer_styles,
+            &PredefinedMenuItem::separator(app)?,
+            &full_screen,
+        ],
     )?;
     let controls = Submenu::new(app, "Controls", true)?;
     for (index, (id, label, accelerator)) in CONTROL_ACTIONS.into_iter().enumerate() {
@@ -140,23 +171,55 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // Only where there are cloud placeholders to fetch and give back.
     #[cfg(any(target_os = "macos", windows))]
     advanced.append(&MenuItem::with_id(app, SONG_DETAILS.0, SONG_DETAILS.1, true, SONG_DETAILS.2)?)?;
-    let window = Submenu::with_items(
-        app,
-        "Window",
-        true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::maximize(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?,
-        ],
-    )?;
+    let window = Submenu::new(app, "Window", true)?;
+    #[cfg(target_os = "macos")]
+    for (id, label, accelerator) in [MINIMIZE_WINDOW, ZOOM_WINDOW] {
+        window.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.append(&PredefinedMenuItem::minimize(app, None)?)?;
+        window.append(&PredefinedMenuItem::maximize(app, None)?)?;
+    }
+    window.append(&PredefinedMenuItem::separator(app)?)?;
+    window.append(&MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?)?;
+    #[cfg(target_os = "macos")]
+    window.insert(&MenuItem::with_id(app, SHOW_WINDOW.0, SHOW_WINDOW.1, true, SHOW_WINDOW.2)?, 3)?;
     let help = Submenu::with_items(app, "Help", true, &[&MenuItem::with_id(app, WELCOME.0, WELCOME.1, true, WELCOME.2)?])?;
     Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &advanced, &window, &help])
 }
 
+/// The View menu's item says what it would do, which depends on where the window is now.
+pub fn sync_full_screen_label(window: &Window) {
+    if let Some(item) = window.try_state::<FullScreenItem<Wry>>() {
+        let label = if window.is_fullscreen().unwrap_or(false) { EXIT_FULL_SCREEN } else { FULL_SCREEN.1 };
+        let _ = item.0.set_text(label);
+    }
+}
+
+/// The items that do the window's own work, which only macOS has to do for itself. Says whether `id` was one.
+#[cfg(target_os = "macos")]
+fn window_item(app: &AppHandle, id: &str) -> bool {
+    if id == CLOSE_WINDOW.0 {
+        window::close(app);
+    } else if id == MINIMIZE_WINDOW.0 {
+        window::minimize(app);
+    } else if id == ZOOM_WINDOW.0 {
+        window::zoom(app);
+    } else if id == SHOW_WINDOW.0 {
+        window::show(app);
+    } else {
+        return false;
+    }
+    true
+}
+
 pub fn on_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
+    #[cfg(target_os = "macos")]
+    if window_item(app, id) {
+        return;
+    }
     if id == ADD_TO_LIBRARY {
         let handle = app.clone();
         app.dialog().file().set_title("Add to Library").pick_folders(move |folders| {
@@ -165,8 +228,15 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
                 library::add_paths(&handle, paths);
             }
         });
+    } else if CONTROL_ACTIONS.iter().any(|(action, _, _)| *action == id) {
+        // Playback keeps working with the window hidden.
+        let _ = app.emit(MENU_ACTION_EVENT, id);
     } else if id == CHECK_FOR_UPDATES {
+        window::show(app);
         updates::run_check(app, true);
+    } else if id == FULL_SCREEN.0 {
+        window::show(app);
+        window::toggle_full_screen(app);
     } else if id == PREFERENCES.0
         || id == EQUALIZER.0
         || id == IMPORT_MUSIC
@@ -177,8 +247,10 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == CLEAN_UP.0
         || id == SONG_DETAILS.0
         || id == WELCOME.0
-        || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&CONTROL_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
+        || FILE_ACTIONS.iter().chain(&LIBRARY_ACTIONS).chain(&VISUALIZER_STYLES).any(|(action, _, _)| *action == id)
     {
+        // The UI answers these, and the window it answers in may be hidden.
+        window::show(app);
         let _ = app.emit(MENU_ACTION_EVENT, id);
     }
 }

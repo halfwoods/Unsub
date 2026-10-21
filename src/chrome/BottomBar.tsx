@@ -49,7 +49,7 @@ export function BottomBar() {
   const [one, many] = NOUN[source] ?? (songs ? ["song", "songs"] : ["item", "items"]);
 
   return (
-    <footer className={discId === null ? "bottom-bar chrome-surface" : "bottom-bar bottom-bar--actions chrome-surface"} data-tauri-drag-region>
+    <footer className={discId === null ? "bottom-bar chrome-surface" : "bottom-bar bottom-bar--actions chrome-surface"}>
       <div className="bottom-left">
         <Icon d={PLUS} label="Create a playlist" onClick={() => void createPlaylist("regular")} />
         <Icon d={SHUFFLE} label="Shuffle" on={shuffle} onClick={toggleShuffle} />
@@ -58,7 +58,7 @@ export function BottomBar() {
         </span>
         <Icon d={ARTWORK} label="Show artwork" on={showArtwork} onClick={toggleArtwork} />
       </div>
-      <div className="bottom-status" data-tauri-drag-region>
+      <div className="bottom-status">
         {stats && stats.count > 0
           ? `${pluralize(stats.count, one, many)}, ${formatTotalDuration(stats.totalDurationMs)}, ${formatBytes(stats.totalBytes)}`
           : ""}

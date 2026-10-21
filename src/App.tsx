@@ -159,7 +159,8 @@ function runMenuAction(action: MenuAction) {
 /** Subscribes to backend events for the lifetime of the window. */
 function useBackendEvents() {
   useEffect(() => {
-    const { refresh, refreshDevices, refreshCds, refreshShared, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive } = useApp.getState();
+    const { refresh, refreshDevices, refreshCds, refreshShared, refreshPlaylists, applyPlayerEvent, setScan, setWindowActive, setWindowFullscreen } =
+      useApp.getState();
     const subscriptions = [
       onPlayerEvent(applyPlayerEvent),
       onCastTarget((castTarget) => useApp.setState({ castTarget })),
@@ -189,6 +190,7 @@ function useBackendEvents() {
         void showWelcomeTips();
       }),
       getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
+      getCurrentWindow().onResized(() => void getCurrentWindow().isFullscreen().then(setWindowFullscreen)),
       getCurrentWebview().onDragDropEvent(({ payload }) => {
         if (payload.type === "drop" && payload.paths.length > 0) addDropped(payload.paths);
       }),
@@ -226,6 +228,7 @@ function useGlobalKeys() {
 
 export default function App() {
   const windowActive = useApp((s) => s.windowActive);
+  const windowFullscreen = useApp((s) => s.windowFullscreen);
   const smartEditor = useApp((s) => s.smartEditor);
   const preferencesOpen = useApp((s) => s.preferencesOpen);
   const settingUpPlayer = useApp((s) => s.settingUpPlayer);
@@ -240,7 +243,7 @@ export default function App() {
   useGlobalKeys();
 
   return (
-    <div className="window" data-active={windowActive}>
+    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen}>
       <Toolbar />
       <div className="window-body">
         <Sidebar />

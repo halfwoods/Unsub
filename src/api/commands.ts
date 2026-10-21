@@ -15,6 +15,7 @@ import type {
   ComposerSummary,
   Device,
   DirectoryStation,
+  DoubleClickAction,
   ElsewherePreview,
   ElsewhereService,
   ArtworkChange,
@@ -320,6 +321,7 @@ export const welcomeDue = () => invoke<boolean>("welcome_due");
 export const welcomeDone = () => invoke<void>("welcome_done");
 /** The music folders worth offering as a click. Music is checked for holding something; iCloud Drive's only for existing, since looking inside it can raise a macOS privacy prompt. */
 export const welcomeFolders = () => invoke<WelcomeFolder[]>("welcome_folders");
+export const windowDoubleClickAction = () => invoke<DoubleClickAction>("window_double_click_action");
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
 export const sharingGeneratePassword = () => invoke<string>("sharing_generate_password");

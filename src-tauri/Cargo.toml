@@ -41,11 +41,12 @@ unsub-elsewhere.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-# macOS only: ask for microphone access up front, since a refusal is otherwise just silence.
+# macOS only: ask for microphone access up front, since a refusal is otherwise just silence; and read the
+# system's choice of what a title-bar double-click does.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"

@@ -796,6 +796,9 @@ export interface UpdatesStatus {
   update: UpdateInfo | null;
 }
 
+/** What a double-click on the toolbar does, as the system's setting for title bars says. */
+export type DoubleClickAction = "zoom" | "minimize" | "nothing";
+
 /** A folder the welcome offers as a button. */
 export interface WelcomeFolder {
   path: string;
