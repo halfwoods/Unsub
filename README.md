@@ -13,6 +13,8 @@
   <img src="docs/readme/button-gpl.svg" alt="GPL: free as in 2004" width="88" height="31">
 </p>
 
+<h3 align="center">Cancel your subscription. Keep your music.</h3>
+
 <p align="center">
   <a href="https://github.com/halfwoods/Unsub/releases/latest"><b>⬇ Download for Mac or Windows</b></a>
   &nbsp;·&nbsp; <a href="#leaving-spotify">Leaving Spotify?</a>
@@ -52,7 +54,7 @@ It's inspired by classic iTunes, the good one from before it became a storefront
 - **Brings your stuff with you.** Import your Music or iTunes library with its play counts, ratings and playlists intact. Leaving Spotify or YouTube Music? Bring your playlists **and your listening history**. Songs you don't own yet land on a list called **To Own**, which is a bit like a guilt list, but productive.
 - **Plays to your speakers.** Chromecast, Sonos and other UPnP speakers, plus AirPlay on the Mac. Your music, in the kitchen, without a "premium tier".
 - **Works with an iCloud Drive library.** 37,000 songs that aren't actually on your Mac? Fine. Unsub reads them without downloading anything, and fetches each one when you press play.
-- **Syncs classic iPods.** Classic, video, mini, nano 1st–5th gen, shuffle. Yes, that one in your drawer. Go charge it. We'll wait.
+- **Syncs classic iPods.** Classic, video, mini, nano 1st–5th gen, shuffle. Yes, that one in your drawer. Go charge it. We'll wait. *(New, and so far tested only against very convincing simulated iPods. Tell us how yours does; your iPod's opinion matters to us.)*
 - **Syncs other players too.** Rockbox, USB players, Android phones.
 - **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations worked out *on your computer, for you*. Not for an ad network.
 - **Rips CDs** with MusicBrainz lookup and AccurateRip verification. For the fourteen CDs you kept "just in case". This is the case.
@@ -95,6 +97,9 @@ It uses math. On your computer. The same kind your calculator uses, but more of 
 
 **What does it send to the internet?**
 Only what you ask for: radio streams, podcast feeds, album info from MusicBrainz, and a check on GitHub for updates. No account, no analytics, no telemetry. We don't have a server. We don't want one.
+
+**Which iPods?**
+Classic, video, mini, nano 1st–5th generation and shuffle 1st–4th generation. Not the nano 6th/7th generation (their database checksum was never cracked) and not iPod touch or iPhone (they want Apple's private sync protocol, and Apple isn't sharing). On Windows, an iPod formatted on a Mac can't be read at all; that's a Windows thing, not an us thing.
 
 **Why does it look like 2010?**
 Because software peaked and we're not afraid to say it.
