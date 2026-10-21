@@ -8,10 +8,12 @@ let latestBuild = 0;
 
 /**
  * Builds an on-device mix from `song` and plays it, saying what is happening in the LCD. The build takes a moment, so
- * the result is dropped when a newer mix was asked for, or when the song playing has changed since the click, which
- * is the user choosing something else: playing it then would override that choice.
+ * the result is dropped when a newer mix was asked for. With `followsPlayback` (the LCD button, which mixes from the
+ * song playing) it is dropped too when the song playing has changed since the click, which is the user choosing
+ * something else: playing it then would override that choice. A mix asked for from a list is not about the song
+ * playing, so there only a newer mix overtakes it.
  */
-export async function startMixFrom(song: Pick<Track, "id" | "title">): Promise<void> {
+export async function startMixFrom(song: Pick<Track, "id" | "title">, { followsPlayback = true } = {}): Promise<void> {
   const build = ++latestBuild;
   const playingAtClick = useApp.getState().nowPlaying?.id;
   const { showNotice, playTrackIds } = useApp.getState();
@@ -20,7 +22,7 @@ export async function startMixFrom(song: Pick<Track, "id" | "title">): Promise<v
   try {
     const related = await libraryMixFor([song.id]);
     if (build !== latestBuild) return;
-    if (useApp.getState().nowPlaying?.id !== playingAtClick) {
+    if (followsPlayback && useApp.getState().nowPlaying?.id !== playingAtClick) {
       if (useApp.getState().notice === making) useApp.setState({ notice: null });
       return;
     }

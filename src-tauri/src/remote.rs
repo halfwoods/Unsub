@@ -358,6 +358,7 @@ fn to_track(index: usize, song: &Song) -> Track {
         loudness: None,
         remember_position: false,
         has_lyrics: false,
+        album_group: String::new(),
         compilation: false,
         sort_title: None,
         sort_artist: None,

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { message } from "@tauri-apps/plugin-dialog";
+import { useEffect, useState, type MouseEvent } from "react";
 import {
   onPodcastProgress,
   onPodcastsChanged,
@@ -11,9 +12,10 @@ import {
   podcastsUnsubscribe,
 } from "../api/commands";
 import type { FeedSettings, KeepRule, PodcastEpisode, PodcastFeed } from "../api/types";
+import { SEPARATOR, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
-import { IS_MAC } from "../util/platform";
+import { IS_MAC, isContextClick } from "../util/platform";
 import { FindPodcastsSheet, ImportFromPodcastsAppSheet } from "./FindPodcasts";
 import "./PodcastsView.css";
 
@@ -71,6 +73,23 @@ function SubscribeSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+const KEEP_DOWNLOADS = "Keep Downloaded Episodes";
+const DELETE_DOWNLOADS = "Delete Downloads";
+
+/** Asks what becomes of the downloaded files before unsubscribing, since they are the listener's to keep. */
+async function unsubscribe(feed: PodcastFeed) {
+  try {
+    const choice = await message(`Unsubscribe from “${feed.title}”? You can keep the episodes you've downloaded, or delete them.`, {
+      title: "Unsub",
+      kind: "warning",
+      buttons: { yes: KEEP_DOWNLOADS, no: DELETE_DOWNLOADS, cancel: "Cancel" },
+    });
+    if (choice === KEEP_DOWNLOADS || choice === DELETE_DOWNLOADS) await podcastsUnsubscribe(feed.id, choice === DELETE_DOWNLOADS);
+  } catch (e) {
+    useApp.getState().showNotice(String(e));
+  }
+}
+
 const KEEP_OPTIONS: { label: string; value: KeepRule }[] = [
   { label: "All episodes", value: "all" },
   { label: "All unplayed episodes", value: "unplayed" },
@@ -124,7 +143,7 @@ function SettingsSheet({ feed, onClose }: { feed: PodcastFeed; onClose: () => vo
 function EpisodeDownload({ download, onGet }: { download: { fraction: number | null } | undefined; onGet: () => void }) {
   if (!download) {
     return (
-      <button className="podcast-get" onClick={onGet}>
+      <button className="podcast-get" onClick={(e) => !isContextClick(e) && onGet()}>
         GET
       </button>
     );
@@ -191,8 +210,33 @@ export function PodcastsView() {
       else next.add(id);
       return next;
     });
+  const report = (error: unknown) => showNotice(String(error));
   const play = (episode: PodcastEpisode) =>
-    episode.trackId !== null ? void playTrackIds([episode.trackId]) : playPodcastWhenDownloaded(episode);
+    episode.trackId !== null ? void playTrackIds([episode.trackId]).catch(report) : playPodcastWhenDownloaded(episode);
+
+  const onFeedMenu = (e: MouseEvent, f: PodcastFeed) => {
+    e.preventDefault();
+    setSelectedFeed(f.id);
+    const unplayed = (episodes[f.id] ?? []).filter((episode) => !episode.played);
+    void showMenu([
+      { text: "Update Podcast", action: () => void podcastsRefresh(f.id).catch(report) },
+      { text: "Podcast Settings…", action: () => setSheet("settings") },
+      { text: "Mark All as Played", enabled: unplayed.length > 0, action: () => void Promise.all(unplayed.map((episode) => podcastsSetPlayed(episode.id, true))).catch(report) },
+      SEPARATOR,
+      { text: "Unsubscribe…", action: () => void unsubscribe(f) },
+    ]);
+  };
+
+  const onEpisodeMenu = (e: MouseEvent, episode: PodcastEpisode) => {
+    e.preventDefault();
+    const downloaded = episode.trackId !== null;
+    void showMenu([
+      { text: downloaded ? "Play" : "Download and Play", action: () => play(episode) },
+      ...(downloaded ? [] : [{ text: "Download", enabled: !(episode.id in downloads), action: () => downloadPodcasts([episode]) }]),
+      SEPARATOR,
+      { text: episode.played ? "Mark as Unplayed" : "Mark as Played", action: () => void podcastsSetPlayed(episode.id, !episode.played).catch(report) },
+    ]);
+  };
 
   return (
     <div className="podcasts">
@@ -223,12 +267,13 @@ export function PodcastsView() {
           const missing = list.filter((e) => e.trackId === null && !(e.id in downloads));
           return (
             <div key={f.id}>
-              <div className={selectedFeed === f.id ? "podcast-row podcast-row--feed song-row--selected" : "podcast-row podcast-row--feed"} onMouseDown={() => setSelectedFeed(f.id)}>
+              <div className={selectedFeed === f.id ? "podcast-row podcast-row--feed song-row--selected" : "podcast-row podcast-row--feed"} onMouseDown={() => setSelectedFeed(f.id)} onContextMenu={(e) => onFeedMenu(e, f)}>
                 <span className="podcast-title">
                   <button
                     className={isOpen ? "sidebar-disclosure sidebar-disclosure--open podcast-disclosure" : "sidebar-disclosure podcast-disclosure"}
                     aria-label={isOpen ? `Collapse ${f.title}` : `Expand ${f.title}`}
-                    onClick={() => toggle(f.id)}
+                    // Ctrl-click on a Mac is a context click that WebKit reports as a click too, which must not act on the row.
+                    onClick={(e) => !isContextClick(e) && toggle(f.id)}
                   />
                   {f.artworkUrl && <img className="podcast-art" src={f.artworkUrl} alt="" />}
                   <strong>{f.title}</strong>
@@ -239,7 +284,7 @@ export function PodcastsView() {
                 <span className="podcast-description">
                   {plainText(f.description)}
                   {missing.length > 0 && (
-                    <button className="podcast-get" onClick={() => downloadPodcasts(missing)}>
+                    <button className="podcast-get" onClick={(e) => !isContextClick(e) && downloadPodcasts(missing)}>
                       GET ALL
                     </button>
                   )}
@@ -247,7 +292,7 @@ export function PodcastsView() {
               </div>
               {isOpen &&
                 list.map((e, i) => (
-                  <div key={e.id} className={i % 2 ? "podcast-row song-row--odd" : "podcast-row"} onDoubleClick={() => play(e)}>
+                  <div key={e.id} className={i % 2 ? "podcast-row song-row--odd" : "podcast-row"} onDoubleClick={() => play(e)} onContextMenu={(event) => onEpisodeMenu(event, e)}>
                     <span className="podcast-title podcast-title--episode">
                       <span className={e.played ? "podcast-dot" : "podcast-dot podcast-dot--unplayed"} />
                       {e.title}
@@ -258,7 +303,7 @@ export function PodcastsView() {
                       {plainText(e.description)}
                       {e.trackId === null && <EpisodeDownload download={downloads[e.id]} onGet={() => downloadPodcasts([e])} />}
                       {e.trackId !== null && !e.played && (
-                        <button className="podcast-get" onClick={() => void podcastsSetPlayed(e.id, true)} title="Mark as played">
+                        <button className="podcast-get" onClick={(event) => !isContextClick(event) && void podcastsSetPlayed(e.id, true)} title="Mark as played">
                           ✓
                         </button>
                       )}
@@ -298,8 +343,8 @@ export function PodcastsView() {
         <button className="push-button" disabled={!feed} onClick={() => setSheet("settings")}>
           Settings…
         </button>
-        <button className="push-button" disabled={!feed} onClick={() => feed && void podcastsUnsubscribe(feed.id, false)}>
-          Unsubscribe
+        <button className="push-button" disabled={!feed} onClick={() => feed && void unsubscribe(feed)}>
+          Unsubscribe…
         </button>
       </div>
       {sheet === "find" && <FindPodcastsSheet feeds={feeds} onClose={() => setSheet(null)} />}

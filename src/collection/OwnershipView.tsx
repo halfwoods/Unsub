@@ -1,7 +1,7 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   collectionDownloadFromIcloud,
   collectionForgetStreamed,
@@ -16,8 +16,9 @@ import {
   purchasesLinks,
 } from "../api/commands";
 import type { AlbumGroup, OwnershipReport, OwnStatus, ReportTrack, StoreLink } from "../api/types";
+import { showMenu } from "../browser/songMenu";
 import { formatClock, pluralize } from "../util/format";
-import { IS_MAC } from "../util/platform";
+import { IS_MAC, isContextClick } from "../util/platform";
 import "./OwnershipView.css";
 
 type Filter = OwnStatus | "all";
@@ -242,6 +243,15 @@ export function OwnershipView() {
     void collectionLoadMusicApp();
   };
 
+  const removeStreamed = (persistentId: string) => void collectionRemoveStreamed(persistentId).catch((e: unknown) => setError(String(e)));
+
+  // Only the songs a streaming service's export added can be taken off; the rest are the library's own.
+  const onTrackMenu = (e: MouseEvent, track: ReportTrack) => {
+    if (!track.persistentId.startsWith("streamed:")) return;
+    e.preventDefault();
+    void showMenu([{ text: "Remove from To Own", action: () => removeStreamed(track.persistentId) }]);
+  };
+
   // Importing the export again brings them back, and nothing in the library changes.
   const forget = async (service: string, songs: number) => {
     const confirmed = await ask(`Take the ${pluralize(songs, "song", "songs")} that ${service} found off your To Own list?`, { title: "Unsub", kind: "warning" });
@@ -367,7 +377,12 @@ export function OwnershipView() {
             }
             const { track } = row;
             return (
-              <div key={`t-${item.index}`} className={`ownership-track ${item.index % 2 ? "ownership-track--odd" : ""}`} style={style}>
+              <div
+                key={`t-${item.index}`}
+                className={`ownership-track ${item.index % 2 ? "ownership-track--odd" : ""}`}
+                style={style}
+                onContextMenu={(e) => onTrackMenu(e, track)}
+              >
                 <span className="ownership-track-number">{track.trackNumber ?? ""}</span>
                 <span className="ownership-track-title">{track.title}</span>
                 <span className="ownership-track-artist">{track.artist === row.album.albumArtist ? "" : track.artist}</span>
@@ -382,7 +397,8 @@ export function OwnershipView() {
                       className="ownership-remove"
                       title="Remove from To Own"
                       aria-label={`Remove ${track.title} from To Own`}
-                      onClick={() => void collectionRemoveStreamed(track.persistentId).catch((e: unknown) => setError(String(e)))}
+                      // Ctrl-click on a Mac is a context click that WebKit reports as a click too, and the menu offers the same removal.
+                      onClick={(e) => !isContextClick(e) && removeStreamed(track.persistentId)}
                     >
                       ×
                     </button>

@@ -1,10 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useMemo, useRef, type CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
 import type { Track } from "../api/types";
-import { useApp } from "../state/store";
+import { playlistIdOf, useApp } from "../state/store";
+import { isContextClick } from "../util/platform";
 import { trackAlbumKey } from "./albumKeys";
 import { Artwork } from "./Artwork";
 import { COLUMNS, gridTemplate } from "./columns";
+import { showAlbumMenu, showSongMenu } from "./songMenu";
 import { NowPlayingIcon } from "./SongList";
 import "./AlbumList.css";
 import "./SongList.css";
@@ -39,6 +41,7 @@ export function AlbumList() {
   const playing = useApp((s) => s.playback.state === "playing");
   const selectRow = useApp((s) => s.selectRow);
   const playRow = useApp((s) => s.playRow);
+  const isRegularPlaylist = useApp((s) => s.playlists.some((p) => p.id === playlistIdOf(s.source) && p.kind === "regular"));
   const groups = useMemo(() => groupTracks(tracks), [tracks]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useApp((s) => s.rowHeight);
@@ -51,6 +54,23 @@ export function AlbumList() {
     estimateSize: (i) => Math.max(groups[i].tracks.length, minRows) * rowHeight,
     overscan: 4,
   });
+
+  const onSongMenu = (e: MouseEvent, track: Track, index: number) => {
+    e.preventDefault();
+    if (!selection.has(track.id)) selectRow(index, { extend: false, toggle: false });
+    void showSongMenu(track, isRegularPlaylist);
+  };
+
+  // An album already selected whole keeps the selection, which may take in other albums; any other is selected in its place.
+  const onAlbumMenu = (e: MouseEvent, group: Group) => {
+    e.preventDefault();
+    if (group.tracks.every((t) => selection.has(t.id))) {
+      void showAlbumMenu(tracks.filter((t) => selection.has(t.id)));
+      return;
+    }
+    useApp.setState({ selection: new Set(group.tracks.map((t) => t.id)), selectionAnchor: group.start });
+    void showAlbumMenu(group.tracks);
+  };
 
   return (
     <div className="song-list album-list" style={{ "--grid": GRID_TEMPLATE } as CSSProperties}>
@@ -75,7 +95,7 @@ export function AlbumList() {
             const rows = Math.max(group.tracks.length, minRows);
             return (
               <div key={item.key} className="album-block" style={{ transform: `translateY(${item.start}px)`, height: rows * rowHeight }}>
-                <div className="album-block-info" style={{ width: ALBUM_COLUMN }}>
+                <div className="album-block-info" style={{ width: ALBUM_COLUMN }} onContextMenu={(e) => onAlbumMenu(e, group)}>
                   <Artwork trackId={first.id} size={ART} className="album-block-art" />
                   <div className="album-block-title">{first.album || "Unknown Album"}</div>
                   <div className="album-block-artist">{first.compilation ? "Various Artists" : first.albumArtist || first.artist}</div>
@@ -93,7 +113,9 @@ export function AlbumList() {
                         role="row"
                         aria-selected={selected}
                         className={classes.join(" ")}
-                        onMouseDown={(e) => selectRow(index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
+                        // A context click is settled in onContextMenu, so it can keep a multi-selection.
+                        onMouseDown={(e) => !isContextClick(e) && selectRow(index, { extend: e.shiftKey, toggle: e.metaKey || e.ctrlKey })}
+                        onContextMenu={(e) => onSongMenu(e, track, index)}
                         onDoubleClick={() => void playRow(index)}
                       >
                         <div className="song-cell song-cell--status">{track.id === nowPlayingId && <NowPlayingIcon playing={playing} />}</div>

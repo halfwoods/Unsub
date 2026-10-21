@@ -437,6 +437,7 @@ fn station_row(station: &Clean) -> Track {
         loudness: None,
         remember_position: false,
         has_lyrics: false,
+        album_group: String::new(),
         sort_title: None,
         sort_artist: None,
         sort_album: None,

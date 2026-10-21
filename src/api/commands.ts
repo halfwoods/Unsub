@@ -75,6 +75,7 @@ import type {
   InstallEvent,
   MicDevice,
   UpdateResult,
+  UpcomingPick,
   UpdatesStatus,
   WelcomeFolder,
 } from "./types";
@@ -273,11 +274,13 @@ export const onCollectionChanged = (handler: (error: string | null) => void): Pr
   listen<string | null>("collection://changed", (e) => handler(e.payload));
 
 export const partyView = () => invoke<PartyView>("party_view");
-export const partyPlay = (index: number | null) => invoke<PartyView>("party_play", { index });
+/** Plays from `pick`, or does nothing if that song is no longer there; null picks up where the party left off. */
+export const partyPlay = (pick: UpcomingPick | null) => invoke<PartyView>("party_play", { pick });
 export const partySetSettings = (settings: PartySettings) => invoke<PartyView>("party_set_settings", { settings });
 /** `at` 0 is "Play Next"; null appends. */
 export const partyAdd = (trackIds: number[], at: number | null) => invoke<PartyView>("party_add", { trackIds, at });
-export const partyRemove = (positions: number[]) => invoke<PartyView>("party_remove", { positions });
+/** Removes the picked songs that are still where they were picked. */
+export const partyRemove = (picks: UpcomingPick[]) => invoke<PartyView>("party_remove", { picks });
 export const partyMove = (positions: number[], to: number) => invoke<PartyView>("party_move", { positions, to });
 export const partyReshuffle = () => invoke<PartyView>("party_reshuffle");
 export const onPartyChanged = (handler: () => void): Promise<UnlistenFn> => listen("party://changed", () => handler());

@@ -1,8 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useApp, type GridGroup } from "../state/store";
 import { pluralize } from "../util/format";
+import { shownTracksOf } from "./albumKeys";
 import { Artwork } from "./Artwork";
+import { showAlbumMenu } from "./songMenu";
 import "./AlbumGrid.css";
 
 const LABEL_HEIGHT = 40;
@@ -68,6 +70,15 @@ export function AlbumGrid() {
     }
   };
 
+  // Only albums have songs to play, tag or delete; an artist, genre or composer is a way to find them.
+  const onContextMenu = (e: MouseEvent, key: string) => {
+    if (group !== "albums") return;
+    e.preventDefault();
+    setSelected(key);
+    const album = albums.find((a) => a.key === key);
+    if (album) void showAlbumMenu(shownTracksOf(useApp.getState().tracks, album));
+  };
+
   return (
     <div className="album-grid">
       <div className="album-grid-bar">
@@ -108,6 +119,7 @@ export function AlbumGrid() {
                   className={selected === item.key ? "album-tile album-tile--selected" : "album-tile"}
                   style={{ width: size }}
                   onClick={() => setSelected(item.key)}
+                  onContextMenu={(e) => onContextMenu(e, item.key)}
                   onDoubleClick={() => open(item.key, item.title)}
                 >
                   {item.artwork !== null ? (

@@ -38,6 +38,8 @@ export interface Track {
   artist: string;
   albumArtist: string;
   album: string;
+  /** The library's own identity for the album, which an album tile's `key` is too; empty on songs not from the library. */
+  albumGroup: string;
   genre: string;
   composer: string;
   year: number | null;
@@ -664,6 +666,12 @@ export interface PartyView {
   history: Track[];
   current: Track | null;
   upcoming: Track[];
+}
+
+/** An upcoming row as it was chosen: where it stood and which song it held, so a queue that moved on since is not misread. */
+export interface UpcomingPick {
+  position: number;
+  trackId: number;
 }
 
 export interface SharingSettings {

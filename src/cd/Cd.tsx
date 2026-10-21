@@ -92,7 +92,7 @@ function ImportSettingsSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Imports the CD with the saved import settings. */
+/** Imports the disc with the format and verification chosen in Import Settings. */
 export function importCd(discId: string) {
   const { format, verify } = loadImportPrefs();
   void cdImport(discId, format, verify).catch((e: unknown) => useApp.getState().showNotice(String(e)));

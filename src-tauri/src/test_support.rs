@@ -38,6 +38,7 @@ pub fn track(id: i64, codec: &str, kind: MediaKind) -> Track {
         loudness: None,
         remember_position: false,
         has_lyrics: false,
+        album_group: String::new(),
         compilation: false,
         sort_title: None,
         sort_artist: None,

@@ -115,6 +115,10 @@ pub struct Track {
     pub artist: String,
     pub album_artist: String,
     pub album: String,
+    /// The album this song is filed under, which an album's `key` in [`AlbumSummary`] is too: the
+    /// library's own identity for it, finer than the tags (accents and case fold, compilations pool).
+    /// Empty on songs that don't come from the library, such as a CD's, an iPod's or a shared library's.
+    pub album_group: String,
     pub genre: String,
     pub composer: String,
     pub year: Option<i32>,

@@ -1,7 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { lazy, Suspense, useEffect } from "react";
 import {
   onCastTarget,
@@ -34,6 +33,7 @@ import {
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
+import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
@@ -72,7 +72,7 @@ async function importLibraryXml() {
 }
 
 function runMenuAction(action: MenuAction) {
-  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, setVisualizer, openLibrarySheet, openImportSheet, showDuplicates, showNotice, deleteSelection } =
+  const { togglePlay, setVolume, seekTo, playback, createPlaylist, openSmartEditor, playlists, setPreferencesOpen, setVisualizer, openLibrarySheet, openImportSheet, showDuplicates, deleteSelection } =
     useApp.getState();
   const { source, selection, tracks, chapters } = useApp.getState();
   // Only songs in the library can be edited or shown; a CD's or iPod's are read-only here.
@@ -93,9 +93,8 @@ function runMenuAction(action: MenuAction) {
       return openLibrarySheet({ type: "songDetails" });
     case "show-in-finder": {
       const track = tracks.find((t) => selection.has(t.id));
-      if (!inLibrary || !track) return;
-      if (track.missing) return showNotice("The file for this song can't be found");
-      return void revealItemInDir(track.path);
+      if (inLibrary && track) revealTrack(track);
+      return;
     }
     case "delete": {
       // Delete belongs to a focused text field, and a sheet in front (Get Info with unsaved edits) must not be replaced.

@@ -50,10 +50,17 @@ const FILE_ACTIONS: [(&str, &str, Option<&str>); 5] = [
     ("new-playlist-folder", "New Playlist Folder", Some("Shift+Alt+CmdOrCtrl+N")),
     ("open-stream", "Open Stream…", Some("CmdOrCtrl+U")),
 ];
+/// The platform's own name for its file manager, which the context menus in src/browser/songMenu.ts use too.
+#[cfg(target_os = "macos")]
+const SHOW_IN_FILE_MANAGER: &str = "Show in Finder";
+#[cfg(windows)]
+const SHOW_IN_FILE_MANAGER: &str = "Show in Explorer";
+#[cfg(not(any(target_os = "macos", windows)))]
+const SHOW_IN_FILE_MANAGER: &str = "Show in File Manager";
 /// The selection-dependent half of iTunes 10's File menu.
 const LIBRARY_ACTIONS: [(&str, &str, Option<&str>); 7] = [
     ("get-info", "Get Info", Some("CmdOrCtrl+I")),
-    ("show-in-finder", "Show in Finder", Some("Shift+CmdOrCtrl+R")),
+    ("show-in-finder", SHOW_IN_FILE_MANAGER, Some("Shift+CmdOrCtrl+R")),
     ("show-duplicates", "Display Duplicates", None),
     ("show-exact-duplicates", "Display Exact Duplicates", None),
     ("organize-library", "Organize Library…", None),

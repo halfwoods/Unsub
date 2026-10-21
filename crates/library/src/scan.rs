@@ -579,6 +579,8 @@ fn new_track(
         loudness: meta.loudness,
         remember_position: meta.kind != MediaKind::Music,
         has_lyrics: meta.has_lyrics,
+        // Filed by the writer, which reads it back from the library.
+        album_group: String::new(),
         sort_title: meta.sort_title,
         sort_artist: meta.sort_artist,
         sort_album: meta.sort_album,

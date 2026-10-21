@@ -1,13 +1,10 @@
-import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
+import { Menu } from "@tauri-apps/api/menu";
 import { castOpenAirplay, castSelect, castSpeakers } from "../api/commands";
 import type { SpeakerKind } from "../api/types";
+import { SEPARATOR, type MenuItems } from "../browser/songMenu";
 import { loadBitPerfect } from "../preferences/playbackPrefs";
 import { useApp } from "../state/store";
 import { IS_MAC } from "../util/platform";
-
-type MenuItems = NonNullable<MenuOptions["items"]>;
-
-const SEPARATOR = { item: "Separator" } as const;
 
 /** The speaker menu's groups, in order. */
 const GROUPS: [SpeakerKind, string][] = [

@@ -113,6 +113,7 @@ pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) 
         loudness: None,
         remember_position: false,
         has_lyrics: false,
+        album_group: String::new(),
         sort_title: None,
         sort_artist: None,
         sort_album: None,

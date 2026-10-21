@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
 import type { AlbumSummary } from "../api/types";
 import { useApp } from "../state/store";
-import { summaryAlbumKey, trackAlbumKey } from "./albumKeys";
+import { isContextClick } from "../util/platform";
+import { shownTracksOf, summaryAlbumKey, trackAlbumKey } from "./albumKeys";
 import { Artwork } from "./Artwork";
+import { showAlbumMenu } from "./songMenu";
 import { SongList } from "./SongList";
 import "./CoverFlow.css";
 
@@ -44,6 +46,13 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
     if (!rect || albums.length < 2) return;
     onCenter(clamp(Math.round(((clientX - rect.left) / rect.width) * (albums.length - 1))));
   };
+  // The album under the cursor takes the centre, which is what selects it; the one already there keeps the song selection.
+  const onAlbumMenu = (e: MouseEvent, i: number) => {
+    e.preventDefault();
+    if (i !== center) onCenter(i);
+    void showAlbumMenu(shownTracksOf(useApp.getState().tracks, albums[i]));
+  };
+
   const onSliderDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -76,7 +85,9 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
               key={album.key}
               className="coverflow-cover"
               style={{ width: cover, height: cover, transform: placement(offset, cover), zIndex: 100 - Math.abs(offset) }}
-              onClick={() => onCenter(i)}
+              // Ctrl-click on a Mac is a context click that WebKit reports as a click too, which would reset the song selection.
+              onClick={(e) => !isContextClick(e) && onCenter(i)}
+              onContextMenu={(e) => onAlbumMenu(e, i)}
               aria-label={`${album.album} by ${album.albumArtist}`}
             >
               <Artwork trackId={album.artworkTrackId} size={cover} />
@@ -85,7 +96,7 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
         })}
       </div>
       {current && (
-        <div className="coverflow-caption" style={{ top: height * 0.1 + cover + 14 }}>
+        <div className="coverflow-caption" style={{ top: height * 0.1 + cover + 14 }} onContextMenu={(e) => onAlbumMenu(e, center)}>
           <div className="coverflow-caption-title">{current.album || "Unknown Album"}</div>
           <div className="coverflow-caption-artist">{current.albumArtist}</div>
         </div>

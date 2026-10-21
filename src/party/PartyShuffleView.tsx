@@ -1,10 +1,12 @@
-import { useEffect, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { onPartyChanged, onPlayerEvent, partyAdd, partyMove, partyPlay, partyRemove, partyReshuffle, partySetSettings, partyView } from "../api/commands";
-import type { PartySettings, PartyView, Track } from "../api/types";
+import type { PartySettings, PartyView, Track, UpcomingPick } from "../api/types";
 import { NowPlayingIcon } from "../browser/SongList";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
+import { SEPARATOR, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
+import { isContextClick } from "../util/platform";
 import "./PartyShuffleView.css";
 
 const ROWS_MIME = "application/x-unsub-party-rows";
@@ -40,12 +42,43 @@ export function PartyShuffleView() {
   const settings = view.settings;
   const update = (next: Partial<PartySettings>) => void partySetSettings({ ...settings, ...next }).then(setView);
 
+  // Rows are named by song as well as position: the queue moves on under an open menu, and the backend skips what has moved.
+  const picksOf = (positions: Iterable<number>) =>
+    [...positions].flatMap((position) => {
+      const track = view.upcoming[position];
+      return track ? [{ position, trackId: track.id }] : [];
+    });
+
+  const removeUpcoming = (picks: UpcomingPick[]) => {
+    void partyRemove(picks).then(setView);
+    setSelected(new Set());
+  };
+
+  const playUpcoming = (pick: UpcomingPick) => {
+    useApp.setState({ podcastWish: null });
+    void partyPlay(pick).then(setView);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if ((e.key === "Backspace" || e.key === "Delete") && selected.size > 0) {
       e.preventDefault();
-      void partyRemove([...selected]).then(setView);
-      setSelected(new Set());
+      removeUpcoming(picksOf(selected));
     }
+  };
+
+  // A selected row keeps the selection it is part of, so Remove can take several songs out at once.
+  const onContextMenu = (e: MouseEvent, row: Row) => {
+    if (row.part !== "upcoming") return;
+    e.preventDefault();
+    const targets = selected.has(row.upcomingIndex) ? selected : new Set([row.upcomingIndex]);
+    setSelected(targets);
+    const picks = picksOf(targets);
+    const clicked = { position: row.upcomingIndex, trackId: row.track.id };
+    void showMenu([
+      { text: "Play", action: () => playUpcoming(clicked) },
+      SEPARATOR,
+      { text: "Remove from Party Shuffle", action: () => removeUpcoming(picks) },
+    ]);
   };
 
   const onDrop = (e: DragEvent) => {
@@ -91,17 +124,15 @@ export function PartyShuffleView() {
                 setDropAt(e.clientY - rect.top > rect.height / 2 ? row.upcomingIndex + 1 : row.upcomingIndex);
               }}
               onMouseDown={(e) => {
-                if (row.part !== "upcoming") return;
+                // A context click is settled in onContextMenu, so it can keep a multi-selection.
+                if (row.part !== "upcoming" || isContextClick(e)) return;
                 const next = new Set(e.metaKey || e.ctrlKey ? selected : []);
                 if (next.has(row.upcomingIndex)) next.delete(row.upcomingIndex);
                 else next.add(row.upcomingIndex);
                 setSelected(next);
               }}
-              onDoubleClick={() => {
-                if (row.part !== "upcoming") return;
-                useApp.setState({ podcastWish: null });
-                void partyPlay(row.upcomingIndex).then(setView);
-              }}
+              onContextMenu={(e) => onContextMenu(e, row)}
+              onDoubleClick={() => row.part === "upcoming" && playUpcoming({ position: row.upcomingIndex, trackId: row.track.id })}
             >
               <div className="song-cell song-cell--status">{row.part === "current" && <NowPlayingIcon playing={playing} />}</div>
               <div className="song-cell">{row.track.title}</div>

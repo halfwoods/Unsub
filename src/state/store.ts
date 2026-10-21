@@ -652,6 +652,7 @@ export const useApp = create<AppState>((set, get) => ({
     // Shuffle through the engine's own mode, so the Shuffle button tells the truth and turning it off
     // brings the list's real order back; the engine keeps the first song and shuffles the rest.
     if (shuffled && !get().shuffle) get().toggleShuffle();
+    // The LCD names a song from the list playback started from while it downloads from iCloud.
     const tracks = await api.libraryTracks({ kind: null, search: null, sort: "name", descending: false, ids: trackIds });
     set({ playingTracks: tracks, playingSource: { type: "library" }, podcastWish: null });
     await api.playerPlayList({ type: "library" }, trackIds, shuffled ? Math.floor(Math.random() * trackIds.length) : 0);

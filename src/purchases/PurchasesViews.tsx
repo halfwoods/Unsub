@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { onPurchasesChanged, purchasesAccept, purchasesIgnore, purchasesScan, purchasesSetWatching, purchasesStatus } from "../api/commands";
-import type { PurchaseStore, PurchasesStatus } from "../api/types";
+import type { PurchaseCandidate, PurchaseStore, PurchasesStatus } from "../api/types";
+import { showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatBytes, pluralize } from "../util/format";
+import { isContextClick } from "../util/platform";
 import "./PurchasesViews.css";
 
 const STORE_NAMES: Record<PurchaseStore, string> = {
@@ -80,6 +82,16 @@ export function InboxView() {
     }
   };
 
+  const ignore = (id: number) => void purchasesIgnore(id).catch((e: unknown) => useApp.getState().showNotice(String(e)));
+
+  const onContextMenu = (e: MouseEvent, c: PurchaseCandidate) => {
+    e.preventDefault();
+    void showMenu([
+      { text: "Add to Library", enabled: !busy.has(c.id), action: () => void accept(c.id) },
+      { text: "Ignore", enabled: !busy.has(c.id), action: () => ignore(c.id) },
+    ]);
+  };
+
   return (
     <div className="purchases">
       {error && <div className="ownership-error-bar">{error}</div>}
@@ -88,7 +100,7 @@ export function InboxView() {
       ) : (
         <ul className="purchases-list">
           {status.candidates.map((c) => (
-            <li key={c.id} className="purchase-row">
+            <li key={c.id} className="purchase-row" onContextMenu={(e) => onContextMenu(e, c)}>
               <span className={`purchase-store purchase-store--${c.store}`}>{STORE_NAMES[c.store]}</span>
               <span className="purchase-main">
                 <strong>{c.album || "Untitled"}</strong>
@@ -97,10 +109,11 @@ export function InboxView() {
               <span className="purchase-meta">
                 {pluralize(c.trackCount, "song", "songs")} · {c.formats.join(", ")} · {formatBytes(c.bytes)}
               </span>
-              <button className="push-button" disabled={busy.has(c.id)} onClick={() => void accept(c.id)}>
+              {/* Ctrl-click on a Mac is a context click that WebKit reports as a click too, which must not act on the row. */}
+              <button className="push-button" disabled={busy.has(c.id)} onClick={(e) => !isContextClick(e) && void accept(c.id)}>
                 {busy.has(c.id) ? "Adding…" : "Add to Library"}
               </button>
-              <button className="push-button" disabled={busy.has(c.id)} onClick={() => void purchasesIgnore(c.id)}>
+              <button className="push-button" disabled={busy.has(c.id)} onClick={(e) => !isContextClick(e) && ignore(c.id)}>
                 Ignore
               </button>
             </li>

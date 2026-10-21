@@ -57,6 +57,15 @@ pub struct PartyView {
     pub upcoming: Vec<Track>,
 }
 
+/// An upcoming row as it was when it was chosen: where it stood and which song it held. The queue moves on
+/// under an open menu, so an action names the song as well and is skipped where it no longer stands.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpcomingPick {
+    pub position: usize,
+    pub track_id: i64,
+}
+
 /// Higher-rated songs come up more often when asked: an unrated song has weight 1, five stars 6.
 fn weight(rating: u8, favor_rated: bool) -> u32 {
     if favor_rated { 1 + u32::from(rating) / 20 } else { 1 }
@@ -100,6 +109,22 @@ impl PartyShuffle {
             self.upcoming.push(pool.swap_remove(index).id);
         }
         Ok(())
+    }
+
+    /// The song chosen by `pick`, if it is still where it was chosen.
+    fn picked(&self, pick: UpcomingPick) -> Option<i64> {
+        self.upcoming.get(pick.position).copied().filter(|&id| id == pick.track_id)
+    }
+
+    /// Takes out the chosen songs that are still where they were chosen; the rest are left alone.
+    fn remove_picked(&mut self, picks: &[UpcomingPick]) {
+        let doomed: Vec<usize> = picks.iter().filter(|&&pick| self.picked(pick).is_some()).map(|pick| pick.position).collect();
+        let mut index = 0;
+        self.upcoming.retain(|_| {
+            let keep = !doomed.contains(&index);
+            index += 1;
+            keep
+        });
     }
 
     /// The engine started `track_id`: move the old current song into history and step forward.
@@ -190,31 +215,34 @@ pub fn party_view(playback: State<'_, PlaybackState>, library: State<'_, Library
     view(&playback, &library)
 }
 
-/// Starts the party: from a chosen upcoming song (double-click), or picks up where it left off.
+/// Starts the party: from a chosen upcoming song (double-click), or picks up where it left off. A chosen song
+/// that is no longer where it was chosen starts nothing.
 #[tauri::command]
 pub fn party_play(
     app: AppHandle,
     playback: State<'_, PlaybackState>,
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
-    index: Option<usize>,
+    pick: Option<UpcomingPick>,
 ) -> CommandResult<PartyView> {
     let tracks = Tracks { library: &library, devices: &devices };
     let mut slot = playback.playing();
     {
         let mut party = playback.party();
         party.refill(&library.queries())?;
-        let start = match index {
-            Some(i) => party.upcoming.get(i).copied(),
-            None => party.current.or_else(|| party.upcoming.first().copied()),
+        let nothing_to_play = || CommandError::from("Party Shuffle has nothing to play".to_owned());
+        let start = match pick {
+            Some(pick) => party.picked(pick),
+            None => Some(party.current.or_else(|| party.upcoming.first().copied()).ok_or_else(nothing_to_play)?),
+        };
+        if let Some(start) = start {
+            party.advance_to(start);
+            party.refill(&library.queries())?;
+            let queue = party_queue(&party).ok_or_else(nothing_to_play)?;
+            let playing = Playing { source: PlaySource::Library, queue, party: true };
+            playback.start(&tracks, &playing)?;
+            *slot = Some(playing);
         }
-        .ok_or_else(|| CommandError::from("Party Shuffle has nothing to play".to_owned()))?;
-        party.advance_to(start);
-        party.refill(&library.queries())?;
-        let queue = party_queue(&party).ok_or_else(|| CommandError::from("Party Shuffle has nothing to play".to_owned()))?;
-        let playing = Playing { source: PlaySource::Library, queue, party: true };
-        playback.start(&tracks, &playing)?;
-        *slot = Some(playing);
     }
     drop(slot);
     let _ = app.emit(PARTY_EVENT, ());
@@ -285,15 +313,10 @@ pub fn party_remove(
     playback: State<'_, PlaybackState>,
     library: State<'_, LibraryState>,
     devices: State<'_, DevicesState>,
-    positions: Vec<usize>,
+    picks: Vec<UpcomingPick>,
 ) -> CommandResult<PartyView> {
     edit(&app, &playback, &library, &devices, |party, _| {
-        let mut index = 0;
-        party.upcoming.retain(|_| {
-            let keep = !positions.contains(&index);
-            index += 1;
-            keep
-        });
+        party.remove_picked(&picks);
         Ok(())
     })
 }
@@ -362,6 +385,26 @@ mod tests {
         party.advance_to(7);
         assert_eq!(party.upcoming, vec![8]);
         assert!(party.history.is_empty());
+    }
+
+    fn pick(position: usize, track_id: i64) -> UpcomingPick {
+        UpcomingPick { position, track_id }
+    }
+
+    #[test]
+    fn a_pick_names_a_song_only_where_it_still_stands() {
+        let party = PartyShuffle { upcoming: vec![5, 6, 7], ..PartyShuffle::default() };
+        assert_eq!(party.picked(pick(1, 6)), Some(6));
+        // The queue moved up one while the menu was open: 6 now stands at 0, and 7 where 6 was.
+        assert_eq!(party.picked(pick(2, 6)), None);
+        assert_eq!(party.picked(pick(3, 7)), None);
+    }
+
+    #[test]
+    fn removing_picks_skips_those_that_moved_and_keeps_the_rest_in_order() {
+        let mut party = PartyShuffle { upcoming: vec![1, 2, 3, 4, 5], ..PartyShuffle::default() };
+        party.remove_picked(&[pick(1, 2), pick(2, 9), pick(4, 3), pick(7, 5), pick(3, 4)]);
+        assert_eq!(party.upcoming, vec![1, 3, 5]);
     }
 
     #[test]

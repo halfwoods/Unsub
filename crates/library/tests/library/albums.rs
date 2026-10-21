@@ -193,6 +193,31 @@ fn album_summaries_aggregate_their_tracks() {
 }
 
 #[test]
+fn tracks_carry_the_key_of_the_album_they_are_on() {
+    let library = catalogue();
+    let albums = library.albums(&TrackQuery::default()).unwrap();
+    let tracks = library.tracks(&TrackQuery::default()).unwrap();
+
+    for album in &albums {
+        let on_it = tracks.iter().filter(|t| t.album_group == album.key).count();
+        assert_eq!(on_it, album.track_count as usize, "{}", album.key);
+    }
+    let group_of = |id| &tracks.iter().find(|t| t.id == id).unwrap().album_group;
+    assert_eq!(group_of(1), &format!("ann{SEP}first"));
+    assert_eq!(group_of(7), &format!("compilations{SEP}hits"));
+
+    // Spelling variants of one album share a group, which tags compared as written would not.
+    let variants = library_of(&[
+        track(1, "a", "Beyonc\u{e9}", "Lemonade", 1_000),
+        track(2, "b", "BEYONCE", "lemonade", 1_000),
+    ]);
+    let tracks = variants.tracks(&TrackQuery::default()).unwrap();
+    let albums = variants.albums(&TrackQuery::default()).unwrap();
+    assert_eq!(albums.len(), 1);
+    assert!(tracks.iter().all(|t| t.album_group == albums[0].key));
+}
+
+#[test]
 fn albums_sort_by_artist_or_by_album_and_blanks_come_last() {
     let library = catalogue();
 
