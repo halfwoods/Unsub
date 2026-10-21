@@ -213,6 +213,7 @@ pub fn run() {
             updates::updates_install,
             sharing::sharing_status,
             sharing::sharing_update,
+            sharing::sharing_generate_password,
             radio::radio_genres,
             radio::radio_stations,
             radio::radio_search,
@@ -261,6 +262,23 @@ fn migrate_data_dir(old: &Path, new: &Path) {
     if let Err(error) = std::fs::rename(old, new) {
         eprintln!("[migrate] couldn't move {} to {}: {error}", old.display(), new.display());
     }
+}
+
+/// Saves a file that holds passwords, readable by this user only. It is built under another name and renamed into place, so
+/// it is never readable by others for a moment, and a file an older version left readable is replaced, not kept.
+pub(crate) fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let temp = path.with_extension("tmp");
+    let _ = std::fs::remove_file(&temp);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let written = options.open(&temp).and_then(|mut file| file.write_all(contents)).and_then(|()| std::fs::rename(&temp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 #[cfg(test)]
@@ -332,5 +350,33 @@ mod tests {
 
         assert!(!new.exists());
         assert_eq!(read_library(&old), library_files("old"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_files_are_replaced_with_ones_only_their_owner_can_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("Sharing.json");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private(&path, b"new").unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1, "no temporary file is left");
+    }
+
+    #[test]
+    fn a_failed_private_write_leaves_the_old_file_as_it_was() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("Remote.json");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::create_dir(path.with_extension("tmp")).unwrap();
+
+        assert!(write_private(&path, b"new").is_err());
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
     }
 }

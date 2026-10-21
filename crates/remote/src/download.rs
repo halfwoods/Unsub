@@ -472,8 +472,16 @@ impl Job {
             file.write_all(&buffer[..read])?;
             let mut state = self.shared.lock();
             state.downloaded += read as u64;
-            // A server that never says how big the file is still cannot overfill the cache.
-            if state.total.is_none() && state.downloaded > self.limit {
+            // Neither a server that never says how big the file is nor one that sends more than it
+            // said can overfill the cache.
+            if let Some(total) = state.total
+                && state.downloaded > total
+            {
+                return Err(Error::DownloadFailed(format!(
+                    "the server sent more than the {total} bytes it said the song has"
+                )));
+            }
+            if state.downloaded > self.limit {
                 return Err(Error::TooLargeForCache {
                     size: state.downloaded,
                     limit: self.limit,

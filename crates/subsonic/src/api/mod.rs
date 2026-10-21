@@ -11,11 +11,11 @@ mod queue;
 mod rating;
 mod system;
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, State},
     http::{HeaderMap, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
@@ -83,6 +83,7 @@ fn strip_nulls(value: &mut Value) {
 pub async fn handle(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     method: Method,
     uri: Uri,
     headers: HeaderMap,
@@ -101,7 +102,10 @@ pub async fn handle(
         params,
         headers,
     };
-    let outcome = match auth::authenticate(&ctx.state.config, &ctx.params) {
+    let checked = ctx.state.throttle.guard(peer.ip(), || {
+        auth::authenticate(&ctx.state.config, &ctx.params)
+    });
+    let outcome = match checked {
         Ok(()) => dispatch(&ctx, endpoint).await,
         Err(err) => Err(err),
     };

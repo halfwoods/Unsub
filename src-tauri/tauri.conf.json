@@ -26,7 +26,32 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: artwork: http://artwork.localhost https: http:",
+        "media-src": "'self' blob:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": "'self' data:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'",
+        "form-action": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self' http://localhost:1420",
+        "script-src": "'self' http://localhost:1420",
+        "style-src": "'self' 'unsafe-inline' http://localhost:1420",
+        "img-src": "'self' data: blob: artwork: http://artwork.localhost https: http:",
+        "media-src": "'self' blob:",
+        "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "font-src": "'self' data:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-src": "'none'",
+        "form-action": "'none'"
+      }
     }
   },
   "plugins": {

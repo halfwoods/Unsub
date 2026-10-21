@@ -318,20 +318,24 @@ pub(crate) fn sanitize(name: &str, fallback: &str) -> String {
     }
 }
 
-/// Prefers the URL's own extension, which is what players and tag readers expect.
+/// What an episode may be saved as. The feed names the file, so an extension that opens or runs
+/// something (`.app`, `.command`, `.html`) must never come from it.
+const EPISODE_EXTENSIONS: &[&str] = &[
+    "mp3", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wav", "flac", "mp4", "m4v", "mov",
+];
+
+/// Prefers the URL's own extension, which is what players and tag readers expect, if it is one an
+/// episode can have.
 fn file_extension(url: &str, mime_type: Option<&str>) -> String {
     let path = url.split(['?', '#']).next().unwrap_or(url);
     let from_url = path
         .rsplit('/')
         .next()
         .and_then(|name| name.rsplit_once('.'))
-        .map(|(_, extension)| extension)
-        .filter(|extension| {
-            (1..=4).contains(&extension.len())
-                && extension.bytes().all(|b| b.is_ascii_alphanumeric())
-        });
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .filter(|extension| EPISODE_EXTENSIONS.contains(&extension.as_str()));
     if let Some(extension) = from_url {
-        return extension.to_ascii_lowercase();
+        return extension;
     }
     let from_type = match mime_type
         .map(|mime| mime.trim().to_ascii_lowercase())
@@ -437,5 +441,25 @@ mod tests {
             file_extension("https://example.com/a.b/stream", Some("audio/mp4")),
             "m4a"
         );
+    }
+
+    #[test]
+    fn an_extension_a_feed_picks_must_be_audio_or_video() {
+        for extension in EPISODE_EXTENSIONS {
+            let url = format!("https://cdn.example/ep.{}", extension.to_ascii_uppercase());
+            assert_eq!(file_extension(&url, None), *extension);
+        }
+        // Falls back to what the type says, or to the default.
+        for hostile in [
+            "app", "command", "html", "svg", "exe", "sh", "pkg", "webloc", "js",
+        ] {
+            let url = format!("https://cdn.example/ep.{hostile}?x=1");
+            assert_eq!(
+                file_extension(&url, Some("audio/flac")),
+                "flac",
+                "{hostile}"
+            );
+            assert_eq!(file_extension(&url, None), "mp3", "{hostile}");
+        }
     }
 }

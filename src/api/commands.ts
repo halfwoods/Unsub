@@ -295,6 +295,7 @@ export const welcomeDone = () => invoke<void>("welcome_done");
 export const welcomeFolders = () => invoke<WelcomeFolder[]>("welcome_folders");
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
+export const sharingGeneratePassword = () => invoke<string>("sharing_generate_password");
 export const visualizerStart = (onFrame: (frame: VisualizerFrame) => void, source: VisualizerSource) => {
   const channel = new Channel<VisualizerFrame>();
   channel.onmessage = onFrame;

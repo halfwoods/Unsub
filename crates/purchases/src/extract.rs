@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
 use crate::error::{Error, Result};
-use crate::files::{is_artwork, is_audio, is_junk};
+use crate::files::{is_artwork, is_audio, is_extra, is_junk};
 use crate::ledger::{Inbox, Kind};
 use crate::model::Purchase;
 use crate::scan::survey;
@@ -22,7 +22,9 @@ pub(crate) struct Limits {
     pub max_bytes: u64,
     pub max_entries: usize,
     /// Only files with one of these extensions are unpacked, and only they count against the
-    /// byte limit. `None` takes everything.
+    /// byte limit. `None` takes what an album's download is made of: tracks, cover art and the
+    /// booklet, cue sheet, log and playlist that come with them. A store names the files, so
+    /// nothing else, such as a program, is ever written to disk.
     pub only: Option<&'static [&'static str]>,
 }
 
@@ -34,12 +36,13 @@ impl Limits {
     };
 
     fn wants(&self, name: &str) -> bool {
-        self.only.is_none_or(|extensions| {
-            let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
-            extensions
-                .iter()
-                .any(|wanted| extension.eq_ignore_ascii_case(wanted))
-        })
+        let Some(extensions) = self.only else {
+            return is_audio(name) || is_artwork(name) || is_extra(name);
+        };
+        let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
+        extensions
+            .iter()
+            .any(|wanted| extension.eq_ignore_ascii_case(wanted))
     }
 }
 
@@ -189,14 +192,19 @@ fn copy_folder(
             limit: limits.max_entries,
         });
     }
-    let total = survey.bytes();
+    let wanted: Vec<_> = survey
+        .files
+        .iter()
+        .filter(|(relative, _)| limits.wants(relative))
+        .collect();
+    let total: u64 = wanted.iter().map(|(_, size)| size).sum();
     if total > limits.max_bytes {
         return Err(Error::TooLarge {
             limit: limits.max_bytes,
         });
     }
     let mut writer = Writer::new(staging, total, limits.max_bytes, progress);
-    for (relative, _) in &survey.files {
+    for (relative, _) in wanted {
         let parts: Vec<String> = relative.split('/').map(sanitize).collect();
         writer.write(&parts, &mut File::open(folder.join(relative))?)?;
     }
@@ -535,6 +543,78 @@ mod tests {
         let result = unpack(&zip, dir.path(), &["json"], 100, &mut |_, _| {});
 
         assert!(matches!(result, Err(Error::TooLarge { limit: 100 })));
+    }
+
+    const WANTED: [&str; 8] = [
+        "Album/01 Song.flac",
+        "Album/02 Song.MP3",
+        "Album/cover.jpg",
+        "Album/Booklet.PDF",
+        "Album/notes.txt",
+        "Album/rip.log",
+        "Album/album.cue",
+        "Album/album.m3u8",
+    ];
+    const NOT_WANTED: [&str; 9] = [
+        "Album/Install.app/Contents/MacOS/Install",
+        "Album/Install.command",
+        "Album/setup.exe",
+        "Album/readme.html",
+        "Album/get-the-rest.webloc",
+        "Album/run.sh",
+        "Album/lib.dylib",
+        "Album/archive.zip",
+        "Album/noextension",
+    ];
+
+    #[test]
+    fn a_zip_unpacks_tracks_art_and_extras_and_nothing_a_store_could_run() {
+        let body = [0; 100];
+        let entries: Vec<(&str, &[u8])> = WANTED
+            .iter()
+            .chain(&NOT_WANTED)
+            .map(|name| (*name, body.as_slice()))
+            .collect();
+        let limits = Limits {
+            max_entries: 100,
+            ..ROOMY
+        };
+        let (dir, result) = extract(&entries, limits);
+
+        let mut written = result.unwrap();
+        written.sort();
+        let mut expected: Vec<PathBuf> = WANTED
+            .iter()
+            .map(|name| PathBuf::from(name.strip_prefix("Album/").unwrap()))
+            .collect();
+        expected.sort();
+        assert_eq!(written, expected);
+        // What was left out is not on disk, and its size did not count against the limit.
+        assert_eq!(
+            fs::read_dir(dir.path().join("staging")).unwrap().count(),
+            WANTED.len()
+        );
+    }
+
+    #[test]
+    fn a_folder_copies_the_same_kinds_and_only_those_count_against_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, staging) = (dir.path().join("download"), dir.path().join("staging"));
+        fs::create_dir_all(source.join("Install.app/Contents")).unwrap();
+        fs::create_dir(&staging).unwrap();
+        fs::write(source.join("01 Song.flac"), [0; 100]).unwrap();
+        fs::write(source.join("Booklet.pdf"), [0; 100]).unwrap();
+        fs::write(source.join("Install.command"), [0; 2000]).unwrap();
+        fs::write(source.join("Install.app/Contents/Install"), [0; 2000]).unwrap();
+
+        let mut written = copy_folder(&source, &staging, ROOMY, &mut |_, _| {}).unwrap();
+
+        written.sort();
+        assert_eq!(
+            written,
+            [PathBuf::from("01 Song.flac"), PathBuf::from("Booklet.pdf")]
+        );
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 2);
     }
 
     #[test]

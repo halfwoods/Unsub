@@ -4,6 +4,9 @@ const AUDIO: &[&str] = &[
     "flac", "mp3", "m4a", "ogg", "opus", "wav", "aif", "aiff", "wv",
 ];
 const ARTWORK: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
+/// What an album's download may carry besides tracks and cover art: booklet, notes, cue sheet, rip
+/// log, playlist.
+const EXTRAS: &[&str] = &["pdf", "txt", "cue", "log", "m3u", "m3u8"];
 const IN_PROGRESS: &[&str] = &["crdownload", "part", "download", "partial"];
 
 pub(crate) fn extension(name: &str) -> Option<String> {
@@ -21,6 +24,10 @@ pub(crate) fn is_audio(name: &str) -> bool {
 
 pub(crate) fn is_artwork(name: &str) -> bool {
     has_extension(name, ARTWORK)
+}
+
+pub(crate) fn is_extra(name: &str) -> bool {
+    has_extension(name, EXTRAS)
 }
 
 /// Browsers rename a download to its real name when it finishes; until then it carries one of

@@ -409,6 +409,8 @@ export interface SharedLibrary {
   name: string;
   discovered: boolean;
   hasLogin: boolean;
+  /** A login is saved, but the library answers to its name from another address now, so it asks again. */
+  addressChanged: boolean;
   connected: boolean;
   /** Its songs are still arriving, page by page. */
   loading: boolean;

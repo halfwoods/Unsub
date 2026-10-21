@@ -5736,6 +5736,7 @@ version = "0.2.0"
 dependencies = [
  "block2",
  "fastrand",
+ "getrandom 0.3.4",
  "if-addrs",
  "objc2",
  "objc2-foundation",

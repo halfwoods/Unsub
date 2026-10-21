@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -250,6 +251,27 @@ pub enum ArtworkChange {
     Remove,
 }
 
+/// A cover is a few megabytes at most; this stops a path to something huge from being read whole.
+const MAX_ARTWORK_BYTES: u64 = 20 << 20;
+
+/// The bytes of a picture file, and nothing else: whatever file a path points to would otherwise be written into the songs.
+fn read_picture(path: &Path) -> CommandResult<Vec<u8>> {
+    let not_a_picture = || CommandError::from("That file isn't a picture".to_owned());
+    let metadata = std::fs::metadata(path).map_err(|e| CommandError::from(e.to_string()))?;
+    if !metadata.is_file() || metadata.len() > MAX_ARTWORK_BYTES {
+        return Err(not_a_picture());
+    }
+    // The file may have grown since it was measured.
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path).map_err(|e| CommandError::from(e.to_string()))?;
+    file.take(MAX_ARTWORK_BYTES + 1).read_to_end(&mut bytes).map_err(|e| CommandError::from(e.to_string()))?;
+    // Only a picture decodes; a file with a picture's first bytes but something else after them does not.
+    if bytes.len() as u64 > MAX_ARTWORK_BYTES || unsub_library::shrink_to_jpeg(&bytes, 1).is_none() {
+        return Err(not_a_picture());
+    }
+    Ok(bytes)
+}
+
 /// Get Info's OK: writes the new tags into the files. Artwork comes as a file path so the
 /// image never crosses the bridge as JSON.
 #[tauri::command]
@@ -260,7 +282,7 @@ pub async fn library_edit_tracks(
     artwork: Option<ArtworkChange>,
 ) -> CommandResult<EditReport> {
     edits.artwork = match artwork {
-        Some(ArtworkChange::File { path }) => Some(Some(std::fs::read(&path).map_err(|e| CommandError::from(e.to_string()))?)),
+        Some(ArtworkChange::File { path }) => Some(Some(read_picture(&path)?)),
         Some(ArtworkChange::Remove) => Some(None),
         None => None,
     };
@@ -527,5 +549,48 @@ mod tests {
     #[test]
     fn an_import_that_failed_shows_the_error() {
         assert_eq!(scan_notice(&Err::<ScanSummary, _>("disk full")).as_deref(), Some("Couldn't add to the library: disk full"));
+    }
+
+    /// A 1x1 PNG.
+    const PNG: [u8; 70] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63,
+        0x64, 0x60, 0xf8, 0x5f, 0x0f, 0x00, 0x02, 0x87, 0x01, 0x80, 0xeb, 0x47, 0xba, 0x92, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+        0xae, 0x42, 0x60, 0x82,
+    ];
+
+    fn picture_error(contents: &[u8]) -> Option<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover");
+        std::fs::write(&path, contents).unwrap();
+        read_picture(&path).err().map(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_picture_file_is_read_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover.png");
+        std::fs::write(&path, PNG).unwrap();
+        assert_eq!(read_picture(&path).unwrap(), PNG);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_picture_is_refused_before_it_can_be_put_in_a_song() {
+        let refused = Some("That file isn't a picture".to_owned());
+        assert_eq!(picture_error(b"-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----\n"), refused);
+        // Starts like a picture, as a renamed text file can with "BM", but is not one.
+        assert_eq!(picture_error(b"BM is not a picture, just text that starts that way"), refused);
+        assert_eq!(picture_error(&[&PNG[..8], b"not the rest of a png"].concat()), refused);
+        assert_eq!(picture_error(b""), refused);
+    }
+
+    #[test]
+    fn a_huge_file_or_a_folder_is_refused_without_being_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.png");
+        let file = std::fs::File::create(&big).unwrap();
+        file.set_len(MAX_ARTWORK_BYTES + 1).unwrap();
+        assert_eq!(read_picture(&big).unwrap_err().to_string(), "That file isn't a picture");
+        assert_eq!(read_picture(dir.path()).unwrap_err().to_string(), "That file isn't a picture");
     }
 }

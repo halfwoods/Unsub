@@ -51,6 +51,9 @@ pub struct Mode {
     pub stall_after: Option<usize>,
     /// Take requests and never answer them.
     pub silent: bool,
+    /// Name this as the song's size in `Content-Range` while sending all of it, as a server that
+    /// misreports its own file would.
+    pub understate_total: Option<usize>,
     /// Report a missing song as a bare HTTP 404 (as Unsub does) rather than as a Subsonic
     /// error document (as Navidrome does).
     pub missing_as_404: bool,
@@ -333,9 +336,10 @@ fn song_reply(state: &State, params: &HashMap<String, String>, range: Option<&st
             }
             start = requested;
             reply.status = 206;
+            let declared = mode.understate_total.unwrap_or(total);
             reply = reply.with(
                 "Content-Range",
-                &format!("bytes {start}-{}/{total}", total - 1),
+                &format!("bytes {start}-{}/{declared}", declared - 1),
             );
         }
     }

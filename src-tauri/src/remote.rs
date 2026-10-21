@@ -15,6 +15,8 @@ pub const CHANGED_EVENT: &str = "remote://changed";
 const PAGE: u32 = 500;
 /// Songs fetched from shared libraries are kept up to this size, least recently used going first.
 const CACHE_BYTES: u64 = 4 << 30;
+/// A server may list as many songs as it likes, and each one is held in memory.
+const MAX_SONGS: usize = 500_000;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -81,14 +83,8 @@ impl RemoteState {
 
     fn save(&self, saved: &Saved) -> CommandResult<()> {
         let json = serde_json::to_vec_pretty(saved).map_err(to_error)?;
-        std::fs::write(&self.path, json).map_err(to_error)?;
-        // Other people's passwords: readable by this user only.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600)).map_err(to_error)?;
-        }
-        Ok(())
+        // Other people's passwords.
+        crate::write_private(&self.path, &json).map_err(to_error)
     }
 
     /// What the player needs to fetch a shared song: the client, the server's own id for the
@@ -147,7 +143,10 @@ pub struct SharedLibrary {
     name: String,
     /// Found on the network, or added by hand.
     discovered: bool,
+    /// A login is saved and the library is where it was saved for.
     has_login: bool,
+    /// A login is saved, but the library answers to its name from somewhere else now.
+    address_changed: bool,
     connected: bool,
     loading: bool,
     song_count: usize,
@@ -157,10 +156,11 @@ pub struct SharedLibrary {
 pub fn remote_libraries(state: State<'_, RemoteState>) -> Vec<SharedLibrary> {
     let saved = lock(&state.saved);
     let connected = lock(&state.connected);
-    let entry = |id: String, name: String, discovered: bool| {
+    let entry = |id: String, name: String, discovered: bool, address_changed: bool| {
         let live = connected.get(&id);
         SharedLibrary {
-            has_login: saved.logins.contains_key(&id),
+            has_login: saved.logins.contains_key(&id) && !address_changed,
+            address_changed,
             connected: live.is_some(),
             loading: live.is_some_and(|c| c.loading),
             song_count: live.map_or(0, |c| c.songs.len()),
@@ -172,18 +172,33 @@ pub fn remote_libraries(state: State<'_, RemoteState>) -> Vec<SharedLibrary> {
     let peers = lock(&state.peers);
     peers
         .iter()
-        .map(|p| entry(format!("peer:{}", p.name), p.name.clone(), true))
-        .chain(saved.servers.iter().map(|s| entry(format!("server:{}", s.url), s.name.clone(), false)))
+        .map(|p| {
+            let id = format!("peer:{}", p.name);
+            let address_changed = saved.logins.get(&id).is_some_and(|login| !at_saved_address(p, login));
+            entry(id, p.name.clone(), true, address_changed)
+        })
+        .chain(saved.servers.iter().map(|s| entry(format!("server:{}", s.url), s.name.clone(), false, false)))
         .collect()
 }
 
-fn peer_url(state: &RemoteState, library: &str) -> Option<String> {
+fn peer_named(state: &RemoteState, library: &str) -> Option<Peer> {
     let name = library.strip_prefix("peer:")?;
-    let peers = lock(&state.peers);
-    let peer = peers.iter().find(|p| p.name == name)?;
+    lock(&state.peers).iter().find(|p| p.name == name).cloned()
+}
+
+fn peer_url(state: &RemoteState, library: &str) -> Option<String> {
+    let peer = peer_named(state, library)?;
     // IPv4 first: a link-local IPv6 address needs its interface, which isn't recorded.
     let host = peer.addresses.first().map_or_else(|| peer.host.clone(), |address| address.to_string());
     Some(format!("http://{host}:{}", peer.port))
+}
+
+/// Whether a Mac announcing a name is where the login saved under that name was made. Anyone on the network can announce any
+/// name, so a saved password only goes to the host and port it was first given to.
+fn at_saved_address(peer: &Peer, login: &Login) -> bool {
+    let Some((host, port)) = login.url.strip_prefix("http://").and_then(|rest| rest.rsplit_once(':')) else { return false };
+    let same_host = if peer.addresses.is_empty() { peer.host == host } else { peer.addresses.iter().any(|a| a.to_string() == host) };
+    same_host && port == peer.port.to_string()
 }
 
 /// Logs in to a shared library (saving the login for next time) and loads its songs in the
@@ -229,9 +244,10 @@ pub fn remote_open(app: AppHandle, state: State<'_, RemoteState>, library: Strin
         return Ok(());
     }
     let login = lock(&state.saved).logins.get(&library).cloned().ok_or_else(|| to_error("no login saved"))?;
-    // A Mac found on the network may have a new address since the login was saved.
-    let url = peer_url(&state, &library).unwrap_or(login.url);
-    start_loading(&app, &library, Client::new(&url, &login.username, &login.password).with_cache_limit(CACHE_BYTES));
+    if peer_named(&state, &library).is_some_and(|peer| !at_saved_address(&peer, &login)) {
+        return Err(to_error("This library is at a different address than before."));
+    }
+    start_loading(&app, &library, Client::new(&login.url, &login.username, &login.password).with_cache_limit(CACHE_BYTES));
     Ok(())
 }
 
@@ -249,12 +265,11 @@ fn start_loading(app: &AppHandle, library: &str, client: Client) {
                 Ok(page) => {
                     let done = page.is_empty();
                     offset += u32::try_from(page.len()).unwrap_or(u32::MAX);
-                    if let Some(connected) = lock(&app.state::<RemoteState>().connected).get_mut(&library) {
-                        connected.songs.extend(page);
-                    }
+                    let capped =
+                        lock(&app.state::<RemoteState>().connected).get_mut(&library).is_some_and(|c| extend_capped(&mut c.songs, page));
                     let _ = app.emit(CHANGED_EVENT, ());
-                    if done {
-                        break Ok(());
+                    if done || capped {
+                        break Ok(capped);
                     }
                 }
                 Err(error) => break Err(error),
@@ -263,9 +278,15 @@ fn start_loading(app: &AppHandle, library: &str, client: Client) {
         let state = app.state::<RemoteState>();
         let mut connected = lock(&state.connected);
         match outcome {
-            Ok(()) => {
+            Ok(capped) => {
                 if let Some(c) = connected.get_mut(&library) {
                     c.loading = false;
+                }
+                if capped {
+                    drop(connected);
+                    let message =
+                        format!("“{}” has more than {MAX_SONGS} songs; only the first {MAX_SONGS} are listed.", state.name_of(&library));
+                    let _ = app.emit(crate::playback::PLAYER_EVENT, unsub_playback::PlayerEvent::Notice { message });
                 }
             }
             Err(error) => {
@@ -277,6 +298,14 @@ fn start_loading(app: &AppHandle, library: &str, client: Client) {
         }
         let _ = app.emit(CHANGED_EVENT, ());
     });
+}
+
+/// Adds a page of songs, stopping at `MAX_SONGS`; true when songs were left out.
+fn extend_capped<T>(songs: &mut Vec<T>, page: Vec<T>) -> bool {
+    let room = MAX_SONGS.saturating_sub(songs.len());
+    let capped = page.len() > room;
+    songs.extend(page.into_iter().take(room));
+    capped
 }
 
 #[tauri::command]
@@ -373,4 +402,58 @@ pub fn remote_tracks(state: State<'_, RemoteState>, library: String, query: Trac
         if query.descending { order.reverse() } else { order }
     });
     tracks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Login, MAX_SONGS, at_saved_address, extend_capped};
+    use std::net::IpAddr;
+    use unsub_remote::Peer;
+
+    fn peer(addresses: &[&str], port: u16) -> Peer {
+        Peer {
+            name: "Riley's Library".to_owned(),
+            host: "rileys-macbook.local".to_owned(),
+            port,
+            addresses: addresses.iter().map(|a| a.parse::<IpAddr>().unwrap()).collect(),
+        }
+    }
+
+    fn login(url: &str) -> Login {
+        Login { url: url.to_owned(), username: "unsub".to_owned(), password: "k3Xq9vR2pL".to_owned() }
+    }
+
+    #[test]
+    fn a_saved_login_is_only_for_the_host_and_port_it_was_made_at() {
+        let saved = login("http://192.168.1.20:4533");
+        assert!(at_saved_address(&peer(&["192.168.1.20"], 4533), &saved));
+        // A Mac with several addresses may list them in another order.
+        assert!(at_saved_address(&peer(&["10.0.0.5", "192.168.1.20"], 4533), &saved));
+        // Someone else announcing the same name, or the same host on another port.
+        assert!(!at_saved_address(&peer(&["192.168.1.99"], 4533), &saved));
+        assert!(!at_saved_address(&peer(&["192.168.1.20"], 4534), &saved));
+        assert!(!at_saved_address(&peer(&["192.168.1.20"], 4533), &login("not a url")));
+    }
+
+    #[test]
+    fn a_login_saved_by_host_name_needs_the_same_host_name() {
+        let saved = login("http://rileys-macbook.local:4533");
+        assert!(at_saved_address(&peer(&[], 4533), &saved));
+        let mut other = peer(&[], 4533);
+        other.host = "attacker.local".to_owned();
+        assert!(!at_saved_address(&other, &saved));
+    }
+
+    #[test]
+    fn a_server_cannot_list_more_than_the_cap() {
+        let mut songs = vec![0u8; MAX_SONGS - 2];
+        assert!(!extend_capped(&mut songs, vec![1, 1]));
+        assert_eq!(songs.len(), MAX_SONGS);
+        assert!(extend_capped(&mut songs, vec![2]));
+        assert_eq!(songs.len(), MAX_SONGS);
+
+        let mut songs = vec![0u8; MAX_SONGS - 1];
+        assert!(extend_capped(&mut songs, vec![1, 1, 1]));
+        assert_eq!((songs.len(), songs[MAX_SONGS - 1]), (MAX_SONGS, 1));
+    }
 }

@@ -67,6 +67,7 @@ export function SharedLogin({ library }: { library: SharedLibrary }) {
             ? "This library is shared with a password. Its owner can find the user name and password in Unsub's Preferences › Sharing."
             : "Sign in to this server with your account on it."}
         </p>
+        {library.addressChanged && <p className="prefs-note">This library is at a different address than before.</p>}
         <div className="prefs-grid shared-fields">
           <LoginFields autoFocus username={username} password={password} onUsername={setUsername} onPassword={setPassword} onSubmit={() => void connect()} />
         </div>

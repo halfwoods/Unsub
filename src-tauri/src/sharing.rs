@@ -22,6 +22,11 @@ const STARRED_RATING: u8 = 100;
 const STREAM_KBPS: u32 = 192;
 const OPUS_STREAM_KBPS: u32 = 128;
 
+/// Anyone on the network can try passwords, so a short one is refused.
+const MIN_PASSWORD_CHARS: usize = 10;
+const GENERATED_PASSWORD_CHARS: usize = 12;
+const PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
 fn source_err(error: impl std::fmt::Display) -> unsub_subsonic::Error {
     unsub_subsonic::Error::Source(error.to_string())
 }
@@ -453,6 +458,27 @@ pub struct SharingSettings {
     pub shared_name: String,
 }
 
+/// A password from the operating system's random numbers. Bytes past the largest multiple of the alphabet's size are skipped,
+/// so no letter is likelier than another.
+fn random_password() -> String {
+    let unbiased = 256 - 256 % PASSWORD_ALPHABET.len();
+    let mut password = String::with_capacity(GENERATED_PASSWORD_CHARS);
+    while password.len() < GENERATED_PASSWORD_CHARS {
+        let mut bytes = [0_u8; 32];
+        getrandom::fill(&mut bytes).expect("the operating system has no random numbers to give");
+        let wanted = GENERATED_PASSWORD_CHARS - password.len();
+        password.extend(
+            bytes
+                .iter()
+                .map(|&b| usize::from(b))
+                .filter(|&b| b < unbiased)
+                .take(wanted)
+                .map(|b| char::from(PASSWORD_ALPHABET[b % PASSWORD_ALPHABET.len()])),
+        );
+    }
+    password
+}
+
 fn default_shared_name() -> String {
     let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default();
     let mut letters = user.chars();
@@ -465,7 +491,7 @@ fn default_shared_name() -> String {
 impl Default for SharingSettings {
     /// Off until the user turns it on; 4533 is Navidrome's port, which many apps suggest by default.
     fn default() -> Self {
-        let password: String = std::iter::repeat_with(fastrand::alphanumeric).take(12).collect();
+        let password = random_password();
         Self { enabled: false, port: 4533, username: "unsub".to_owned(), password, max_kbps: None, shared_name: default_shared_name() }
     }
 }
@@ -573,13 +599,29 @@ pub fn sharing_status(state: State<'_, SharingState>) -> SharingStatus {
     state.status()
 }
 
+/// A new password for the user to apply, from the same random numbers as the first one.
 #[tauri::command]
-pub async fn sharing_update(state: State<'_, SharingState>, settings: SharingSettings) -> CommandResult<SharingStatus> {
+pub fn sharing_generate_password() -> String {
+    random_password()
+}
+
+fn check_credentials(settings: &SharingSettings) -> CommandResult<()> {
     if settings.username.trim().is_empty() || settings.password.is_empty() {
         return Err(CommandError::from("A user name and password are required so only your devices can connect.".to_owned()));
     }
+    if settings.password.chars().count() < MIN_PASSWORD_CHARS {
+        return Err(CommandError::from(format!(
+            "The password needs at least {MIN_PASSWORD_CHARS} characters, since anyone on your network can try to guess it. Regenerate makes a good one."
+        )));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sharing_update(state: State<'_, SharingState>, settings: SharingSettings) -> CommandResult<SharingStatus> {
+    check_credentials(&settings)?;
     let json = serde_json::to_vec(&settings).map_err(|e| CommandError::from(e.to_string()))?;
-    std::fs::write(&state.settings_path, json).map_err(|e| CommandError::from(e.to_string()))?;
+    crate::write_private(&state.settings_path, &json).map_err(|e| CommandError::from(e.to_string()))?;
     *lock(&state.settings) = settings;
     state.apply();
     Ok(state.status())
@@ -587,7 +629,9 @@ pub async fn sharing_update(state: State<'_, SharingState>, settings: SharingSet
 
 #[cfg(test)]
 mod tests {
-    use super::{LibrarySource, decode, encode, track_id};
+    use super::{
+        LibrarySource, MIN_PASSWORD_CHARS, PASSWORD_ALPHABET, SharingSettings, check_credentials, decode, encode, random_password, track_id,
+    };
     use crate::test_support::track;
     use std::net::{Ipv4Addr, SocketAddr};
     use std::path::PathBuf;
@@ -651,5 +695,31 @@ mod tests {
         assert_eq!(decode("al", "alzz"), None);
         assert_eq!(track_id("tr42"), Some(42));
         assert_eq!(track_id("pl42"), None);
+    }
+
+    #[test]
+    fn generated_passwords_are_long_enough_and_alphanumeric() {
+        let passwords: Vec<String> = (0..50).map(|_| random_password()).collect();
+        for password in &passwords {
+            assert!(password.chars().count() >= MIN_PASSWORD_CHARS);
+            assert!(password.bytes().all(|b| PASSWORD_ALPHABET.contains(&b)), "{password}");
+        }
+        assert!(passwords.windows(2).all(|pair| pair[0] != pair[1]));
+        assert!(check_credentials(&SharingSettings { password: passwords[0].clone(), ..SharingSettings::default() }).is_ok());
+    }
+
+    #[test]
+    fn short_passwords_are_refused_with_a_reason() {
+        let with = |username: &str, password: &str| SharingSettings {
+            username: username.to_owned(),
+            password: password.to_owned(),
+            ..SharingSettings::default()
+        };
+        assert!(check_credentials(&with("unsub", "123456789")).unwrap_err().to_string().contains("at least 10 characters"));
+        assert!(check_credentials(&with("unsub", "")).is_err());
+        assert!(check_credentials(&with(" ", "long enough password")).is_err());
+        // Characters count, not bytes.
+        assert!(check_credentials(&with("unsub", "ééééé")).is_err());
+        assert!(check_credentials(&with("unsub", "éééééééééé")).is_ok());
     }
 }

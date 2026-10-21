@@ -143,6 +143,30 @@ fn wrong_api_key_is_error_44() {
 }
 
 #[test]
+fn an_address_that_keeps_guessing_is_turned_away_even_with_the_right_password() {
+    let h = Harness::start();
+    for guess in 0..5 {
+        assert_eq!(code(&h, &format!("u=alice&p=guess{guess}")), 40);
+    }
+    // Turned away with the answer a wrong password gets, whatever it sends, and before anything
+    // else is looked at.
+    assert_eq!(code(&h, "u=alice&p=sesame"), 40);
+    assert_eq!(code(&h, &format!("apiKey={API_KEY}")), 40);
+    assert!(h.source.calls.lock().unwrap().open_stream.is_empty());
+}
+
+#[test]
+fn a_right_password_before_the_limit_starts_the_count_over() {
+    let h = Harness::start();
+    for round in 0..3 {
+        for guess in 0..4 {
+            assert_eq!(code(&h, &format!("u=alice&p=guess{round}{guess}")), 40);
+        }
+        assert_ok(&h, "u=alice&p=sesame");
+    }
+}
+
+#[test]
 fn api_key_combined_with_other_credentials_is_error_43() {
     let h = Harness::start();
     for extra in ["u=alice", "p=sesame", "u=alice&p=sesame", "t=abc&s=def"] {
@@ -170,7 +194,6 @@ fn the_configured_key_does_not_work_as_a_password() {
 
 #[test]
 fn every_endpoint_demands_credentials() {
-    let h = Harness::start();
     for endpoint in [
         "ping",
         "getLicense",
@@ -215,6 +238,8 @@ fn every_endpoint_demands_credentials() {
         "getBookmarks",
         "jukeboxControl",
     ] {
+        // A server each: this many wrong passwords from one address would get it turned away.
+        let h = Harness::start();
         let reply = h.get_url(&format!(
             "{}/rest/{endpoint}?id=s-1&type=newest&query=x&username=alice",
             h.base
@@ -225,9 +250,9 @@ fn every_endpoint_demands_credentials() {
             h.base
         ));
         assert_eq!(error_of(&reply).0, 40, "{endpoint}");
+        assert!(h.source.calls.lock().unwrap().scrobbles.is_empty());
+        assert!(h.source.calls.lock().unwrap().open_stream.is_empty());
     }
-    assert!(h.source.calls.lock().unwrap().scrobbles.is_empty());
-    assert!(h.source.calls.lock().unwrap().open_stream.is_empty());
 }
 
 #[test]

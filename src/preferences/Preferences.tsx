@@ -7,6 +7,7 @@ import {
   playerSetBitPerfect,
   playerSetCrossfade,
   playerSetSoundCheck,
+  sharingGeneratePassword,
   sharingStatus,
   sharingUpdate,
   visualizerMicDevices,
@@ -285,6 +286,17 @@ function SharingTab() {
           />
           <button className="push-button" onClick={() => setRevealed((r) => !r)}>
             {revealed ? "Hide" : "Show"}
+          </button>
+          <button
+            className="push-button"
+            onClick={() =>
+              void sharingGeneratePassword().then((password) => {
+                setDraft({ ...draft, password });
+                setRevealed(true);
+              })
+            }
+          >
+            Regenerate
           </button>
         </span>
         <span className="prefs-label">Stream at most:</span>

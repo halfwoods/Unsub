@@ -10,7 +10,7 @@ use std::{
 use axum::{Router, routing::any};
 use tokio::{net::TcpListener, runtime, sync::oneshot};
 
-use crate::{Error, LinkSource, MusicSource, Result, api, link, session::Session};
+use crate::{Error, LinkSource, MusicSource, Result, api, auth::Throttle, link, session::Session};
 
 /// How long `stop` lets in-flight transfers finish before abandoning them.
 const GRACE: Duration = Duration::from_secs(5);
@@ -46,6 +46,7 @@ pub struct AppState {
     pub config: ServerConfig,
     pub source: Arc<dyn MusicSource>,
     pub session: Session,
+    pub throttle: Throttle,
 }
 
 /// A running Subsonic server. Dropping it shuts it down without waiting; [`Server::stop`] waits.
@@ -70,6 +71,7 @@ impl Server {
             config,
             source,
             session: Session::default(),
+            throttle: Throttle::default(),
         });
         let app = Router::new()
             .route("/rest/{name}", any(api::handle))
@@ -164,12 +166,15 @@ fn run(
 
         let (stopping_tx, stopping_rx) = oneshot::channel::<()>();
         let serve = tokio::spawn(
-            axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    let _ = shutdown.await;
-                    let _ = stopping_tx.send(());
-                })
-                .into_future(),
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                let _ = shutdown.await;
+                let _ = stopping_tx.send(());
+            })
+            .into_future(),
         );
         let _ = stopping_rx.await;
         // Past the grace period the runtime shutdown below cancels whatever is still streaming.

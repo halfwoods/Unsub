@@ -245,6 +245,25 @@ fn a_song_of_unknown_length_cannot_overfill_the_cache() {
 }
 
 #[test]
+fn a_server_cannot_send_more_than_it_said_the_song_has() {
+    let (server, data) = server_with_song();
+    let dir = tempfile::tempdir().unwrap();
+    let client = connect(&server);
+    interrupt(&server, &client, dir.path(), 250_000);
+    server.mode(|mode| mode.understate_total = Some(300_000));
+
+    let result = client.download_to_cache("s-1", dir.path());
+
+    assert!(
+        matches!(&result, Err(Error::DownloadFailed(reason)) if reason.contains("more than the 300000 bytes")),
+        "{result:?}"
+    );
+    // It was stopped soon after the declared end, not left to send the rest.
+    let part = file_ending(dir.path(), ".flac.part");
+    assert!(fs::metadata(part).unwrap().len() < data.len() as u64);
+}
+
+#[test]
 fn the_least_recently_used_songs_are_deleted_to_stay_under_the_limit() {
     let server = FakeServer::start();
     for (id, seed) in [("a", 1), ("b", 2), ("c", 3), ("d", 4)] {
