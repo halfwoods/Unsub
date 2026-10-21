@@ -19,6 +19,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 fastrand = "2"
 if-addrs = "0.15"
+# An imported ZIP is unpacked here, and removed when the import is done.
+tempfile = "3"
 unsub-library.workspace = true
 unsub-playback.workspace = true
 unsub-ipod.workspace = true
@@ -32,6 +34,7 @@ unsub-remote.workspace = true
 unsub-radio.workspace = true
 unsub-visualize.workspace = true
 unsub-cast.workspace = true
+unsub-elsewhere.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
@@ -45,4 +48,5 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 tauri-plugin-updater = "2"
 
 [dev-dependencies]
-tempfile = "3"
+# Test fixtures for a ZIP; the same build purchases already compiles.
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

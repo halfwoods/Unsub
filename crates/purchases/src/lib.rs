@@ -14,6 +14,7 @@ mod tags;
 mod watch;
 
 pub use error::{Error, Result};
+pub use extract::unpack;
 pub use ledger::Inbox;
 pub use links::purchase_links;
 pub use model::{Candidate, Purchase, Store, StoreLink};

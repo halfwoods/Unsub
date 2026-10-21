@@ -1,0 +1,64 @@
+[
+  {
+    "ts": "2024-03-01T20:44:12Z",
+    "platform": "ios",
+    "ms_played": 200000,
+    "conn_country": "ZZ",
+    "ip_addr": "203.0.113.7",
+    "master_metadata_track_name": "Fixture Song",
+    "master_metadata_album_artist_name": "The Fixtures",
+    "master_metadata_album_album_name": "Test Album",
+    "spotify_track_uri": "spotify:track:aaa",
+    "episode_name": null,
+    "episode_show_name": null,
+    "spotify_episode_uri": null,
+    "reason_start": "trackdone",
+    "reason_end": "trackdone",
+    "shuffle": false,
+    "skipped": false,
+    "offline": false,
+    "offline_timestamp": 0,
+    "incognito_mode": false
+  },
+  {
+    "ts": "2024-03-01T20:45:00Z",
+    "platform": "ios",
+    "ms_played": 29999,
+    "master_metadata_track_name": "Second Song",
+    "master_metadata_album_artist_name": "Sample Band",
+    "master_metadata_album_album_name": "Second Album",
+    "spotify_track_uri": "spotify:track:bbb",
+    "skipped": true
+  },
+  {
+    "ts": "2024-03-02T08:10:00Z",
+    "platform": "ios",
+    "ms_played": 30000,
+    "master_metadata_track_name": "Second Song",
+    "master_metadata_album_artist_name": "Sample Band",
+    "master_metadata_album_album_name": "Second Album",
+    "spotify_track_uri": "spotify:track:bbb",
+    "skipped": false
+  },
+  {
+    "ts": "2024-03-03T09:00:00Z",
+    "platform": "ios",
+    "ms_played": 900000,
+    "master_metadata_track_name": null,
+    "master_metadata_album_artist_name": null,
+    "master_metadata_album_album_name": null,
+    "spotify_track_uri": null,
+    "episode_name": "Episode 1",
+    "episode_show_name": "Some Show",
+    "spotify_episode_uri": "spotify:episode:eee"
+  },
+  {
+    "ts": "2024-03-04T10:00:00Z",
+    "platform": "ios",
+    "ms_played": 240000,
+    "master_metadata_track_name": "Loose Single",
+    "master_metadata_album_artist_name": "Sample Band",
+    "master_metadata_album_album_name": null,
+    "spotify_track_uri": "spotify:track:ddd"
+  }
+]

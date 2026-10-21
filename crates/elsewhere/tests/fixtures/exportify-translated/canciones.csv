@@ -1,0 +1,2 @@
+"URI de la canción","Nombre de la canción","URI(s) del artista","Nombre(s) del artista","URI del álbum","Nombre del álbum","URI(s) del artista del álbum","Nombre(s) del artista del álbum","Fecha de lanzamiento","Número de disco","Número de pista","Duración de la canción (ms)"
+"spotify:track:aaa","Fixture Song","spotify:artist:1","The Fixtures","spotify:album:1","Test Album","spotify:artist:1","The Fixtures","2020-01-01","1","1","200500"

@@ -1,0 +1,60 @@
+[
+  {
+    "header": "YouTube Music",
+    "title": "Watched Fixture Song",
+    "titleUrl": "https://music.youtube.com/watch?v=vid0001",
+    "subtitles": [{"name": "The Fixtures - Topic", "url": "https://www.youtube.com/channel/UC0001"}],
+    "time": "2024-03-01T20:44:12.345Z",
+    "products": ["YouTube"],
+    "activityControls": ["YouTube watch history"]
+  },
+  {
+    "header": "YouTube Music",
+    "title": "Watched Second Song",
+    "titleUrl": "https://music.youtube.com/watch?v=vid0002&list=RDAMVM",
+    "subtitles": [{"name": "Sample Band - Topic", "url": "https://www.youtube.com/channel/UC0002"}],
+    "time": "2024-03-02T08:10:00.000Z",
+    "products": ["YouTube"],
+    "activityControls": ["YouTube watch history"]
+  },
+  {
+    "header": "YouTube Music",
+    "title": "Watched Fixture Song (Official Video)",
+    "titleUrl": "https://music.youtube.com/watch?v=vid0006",
+    "subtitles": [{"name": "TheFixturesVEVO", "url": "https://www.youtube.com/channel/UC0006"}],
+    "time": "2024-03-01T21:00:00.000Z",
+    "products": ["YouTube"]
+  },
+  {
+    "header": "YouTube Music",
+    "title": "Angesehen: Fixture Song",
+    "titleUrl": "https://music.youtube.com/watch?v=vid0007",
+    "subtitles": [{"name": "The Fixtures - Topic"}],
+    "time": "2024-03-01T21:30:00.000Z",
+    "products": ["YouTube"]
+  },
+  {
+    "header": "YouTube",
+    "title": "Watched A Cooking Video",
+    "titleUrl": "https://www.youtube.com/watch?v=vid0003",
+    "subtitles": [{"name": "Some Channel", "url": "https://www.youtube.com/channel/UC0003"}],
+    "time": "2024-03-02T09:00:00.000Z",
+    "products": ["YouTube"]
+  },
+  {
+    "header": "YouTube Music",
+    "title": "Watched https://music.youtube.com/watch?v=gone",
+    "titleUrl": "https://music.youtube.com/watch?v=gone",
+    "time": "2024-03-03T09:00:00.000Z",
+    "products": ["YouTube"]
+  },
+  {
+    "header": "YouTube Music",
+    "title": "Watched Advertised Song",
+    "titleUrl": "https://music.youtube.com/watch?v=vid0005",
+    "subtitles": [{"name": "Ad Band - Topic"}],
+    "details": [{"name": "From Google Ads"}],
+    "time": "2024-03-04T09:00:00.000Z",
+    "products": ["YouTube"]
+  }
+]

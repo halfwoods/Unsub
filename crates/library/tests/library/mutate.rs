@@ -173,12 +173,73 @@ fn external_stats_merge_without_losing_either_sides_history() {
         .unwrap();
 
     let merged = library.track(halo).unwrap().unwrap();
-    assert_eq!(merged.play_count, 4, "the larger count");
+    assert_eq!(
+        merged.play_count, 6,
+        "their 2 plus the 4 played here, which they never saw"
+    );
     assert_eq!(merged.skip_count, 3);
     assert_eq!(merged.last_played, Some(1_003), "the later date");
     assert_eq!(merged.rating, 40, "ours stands when we have one");
     assert_eq!(merged.date_added, ours.date_added - 1_000, "the earliest");
     assert!(!merged.enabled, "the checkbox follows theirs");
+}
+
+#[test]
+fn music_counts_and_streaming_plays_add_up_whichever_is_imported_first() {
+    for streaming_first in [true, false] {
+        let (mut library, _dir) = scanned_library();
+        let halo = track_titled(&library, "Halo").id;
+        let streamed: Vec<(i64, i64)> = (0..40).map(|n| (halo, 1_000 + n * 1_000)).collect();
+        let music = |library: &mut Library| {
+            library
+                .apply_external_stats(&[(halo, stats(|s| s.play_count = 25))])
+                .unwrap();
+        };
+        let streaming = |library: &mut Library| {
+            library.record_plays_from("spotify", &streamed).unwrap();
+        };
+
+        if streaming_first {
+            streaming(&mut library);
+            music(&mut library);
+        } else {
+            music(&mut library);
+            streaming(&mut library);
+        }
+        let count = |library: &Library| library.track(halo).unwrap().unwrap().play_count;
+        assert_eq!(count(&library), 65, "streaming first: {streaming_first}");
+
+        // Importing either again changes nothing, and neither swallows the other's plays.
+        music(&mut library);
+        streaming(&mut library);
+        assert_eq!(count(&library), 65, "streaming first: {streaming_first}");
+
+        // Plays since, in Unsub and in Music, are kept: Music's 30 and the 41 logged here.
+        library.record_play(halo, 90_000).unwrap();
+        music(&mut library);
+        assert_eq!(count(&library), 66);
+        library
+            .apply_external_stats(&[(halo, stats(|s| s.play_count = 30))])
+            .unwrap();
+        assert_eq!(count(&library), 71);
+    }
+}
+
+#[test]
+fn plays_logged_in_unsub_are_added_to_musics_count_and_not_added_again() {
+    let (mut library, _dir) = scanned_library();
+    let halo = track_titled(&library, "Halo").id;
+    for n in 0..3 {
+        library.record_play(halo, 1_000 + n).unwrap();
+    }
+    let music = stats(|s| s.play_count = 25);
+
+    library
+        .apply_external_stats(&[(halo, music.clone())])
+        .unwrap();
+    assert_eq!(library.track(halo).unwrap().unwrap().play_count, 28);
+    library.apply_external_stats(&[(halo, music)]).unwrap();
+    assert_eq!(library.track(halo).unwrap().unwrap().play_count, 28);
 }
 
 #[test]

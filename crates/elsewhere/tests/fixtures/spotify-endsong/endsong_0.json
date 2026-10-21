@@ -1,0 +1,13 @@
+[
+  {
+    "ts": "2016-05-04T10:20:30Z",
+    "username": "fixture",
+    "platform": "Android OS",
+    "ms_played": 250000,
+    "ip_addr_decrypted": "203.0.113.9",
+    "master_metadata_track_name": "Old Song",
+    "master_metadata_album_artist_name": "Sample Band",
+    "master_metadata_album_album_name": "Old Album",
+    "spotify_track_uri": "spotify:track:old"
+  }
+]

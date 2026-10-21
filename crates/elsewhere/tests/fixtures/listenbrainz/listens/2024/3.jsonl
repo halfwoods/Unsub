@@ -1,0 +1,3 @@
+{"inserted_at": 1709325000, "listened_at": 1709325852, "recording_msid": "m1", "user_name": "fixture", "track_metadata": {"artist_name": "The Fixtures", "track_name": "Fixture Song", "release_name": "Test Album", "additional_info": {"duration_ms": 200000, "submission_client": "test"}}}
+
+{"inserted_at": 1709325001, "listened_at": 1709366400, "recording_msid": "m2", "user_name": "fixture", "track_metadata": {"artist_name": "Sample Band", "track_name": "No Album Song", "release_name": ""}}

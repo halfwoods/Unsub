@@ -946,6 +946,7 @@ fn nothing_that_works_on_files_touches_stations() {
         track_number: None,
         disc_number: None,
         path: None,
+        heard_ms: None,
     };
     let matched = library
         .match_external(&[external("Halo", "Halo Artist"), external("Halo", "")])
@@ -1344,7 +1345,7 @@ fn a_library_from_before_stations_upgrades_and_keeps_everything() {
         .unwrap()
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     assert_eq!(
         listed(&library, &kind_query(Some(MediaKind::Music))),
         ["A Song"]

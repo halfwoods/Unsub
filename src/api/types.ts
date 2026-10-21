@@ -199,10 +199,30 @@ export interface ImportPreview {
 }
 
 export interface ImportProgress {
-  stage: "reading" | "locating" | "adding" | "merging";
+  stage: "reading" | "locating" | "adding" | "merging" | "readingExport" | "matching" | "applying" | "plays";
   done: number;
   /** Null while the library is read or the folder is listed. */
   total: number | null;
+}
+
+/** A streaming service whose export can be brought in. */
+export type ElsewhereService = "spotify" | "youtubeMusic" | "listenBrainz";
+
+/** What importing an export would find, measured against the songs you own. */
+export interface ElsewherePreview {
+  playlists: number;
+  /** Entries in playlists, counting a song once for each playlist it is in. */
+  playlistSongs: number;
+  playlistMatched: number;
+  /** Entries that fit more than one of your songs equally well, so are left out. */
+  playlistAmbiguous: number;
+  plays: number;
+  playsMatched: number;
+  playsAmbiguous: number;
+  /** Plays under 30 seconds, which Spotify doesn't count either. */
+  shortPlays: number;
+  /** Playlist entries that were only a video ID, which nothing in the export could name. */
+  unnamed: number;
 }
 
 export interface LibraryStats {
@@ -450,6 +470,8 @@ export interface ReportTrack {
   status: OwnStatus;
   trackId: number | null;
   matchQuality: "sameFile" | "exact" | "close" | null;
+  /** Where streaming exports found a song, such as `Spotify playlist “Road Trip”`, joined by “ · ”; null for Apple Music songs no export named. */
+  from: string | null;
 }
 
 export interface AlbumGroup {
@@ -464,6 +486,8 @@ export interface OwnershipReport {
   totals: { songs: number; inLibrary: number; import: number; locate: number; redownload: number; buy: number; unknown: number };
   missingRoots: { root: string; count: number; available: boolean }[];
   albums: AlbumGroup[];
+  /** How many entries each streaming service found, so its songs can be forgotten. */
+  streamed: { service: string; songs: number }[];
 }
 
 export interface AlbumSummary {

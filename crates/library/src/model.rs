@@ -207,6 +207,10 @@ pub struct ExternalTrack {
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,
     pub path: Option<String>,
+    /// For a song known only from how long it was played (a stream's play log): it is at least
+    /// this long, so a shorter track, give or take a skipped bit, is not it.
+    #[serde(default)]
+    pub heard_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -223,6 +227,28 @@ pub struct TrackMatch {
     pub external_id: String,
     pub track_id: i64,
     pub quality: MatchQuality,
+}
+
+/// Whether an external song is in the library, for a caller that must not guess.
+#[derive(Debug, Clone)]
+pub enum MatchOutcome {
+    Found(TrackMatch),
+    /// Tracks on different albums fit equally well, so none is picked.
+    Ambiguous,
+    Missing,
+}
+
+impl MatchOutcome {
+    pub fn track_id(&self) -> Option<i64> {
+        match self {
+            Self::Found(found) => Some(found.track_id),
+            Self::Ambiguous | Self::Missing => None,
+        }
+    }
+
+    pub fn is_ambiguous(&self) -> bool {
+        matches!(self, Self::Ambiguous)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

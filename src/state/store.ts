@@ -231,6 +231,7 @@ interface AppState {
   settingUpPlayer: boolean;
   connectingToServer: boolean;
   openingStream: boolean;
+  importingElsewhere: boolean;
   /** The station being listened to, kept once paused so Play can tune it in again; a song replaces it. */
   liveStation: RadioStation | null;
   liveTitle: RadioTitle | null;
@@ -337,6 +338,7 @@ export const useApp = create<AppState>((set, get) => ({
   settingUpPlayer: false,
   connectingToServer: false,
   openingStream: false,
+  importingElsewhere: false,
   liveStation: null,
   liveTitle: null,
   liveLink: null,

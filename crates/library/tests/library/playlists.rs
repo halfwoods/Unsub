@@ -943,3 +943,117 @@ fn json_contract_for_playlists_and_playlist_queries() {
     );
     assert_eq!(TrackQuery::default().playlist, None);
 }
+
+#[test]
+fn set_playlist_items_replaces_the_contents_in_order_with_repeats() {
+    let mut library = lettered();
+    let id = library
+        .create_playlist("Mix", PlaylistKind::Regular, None)
+        .unwrap()
+        .id;
+    library.add_to_playlist(id, &[1, 2, 3], None).unwrap();
+
+    library.set_playlist_items(id, &[5, 4, 5]).unwrap();
+    assert_eq!(in_order(&library, id), "ede");
+
+    library.set_playlist_items(id, &[]).unwrap();
+    assert_eq!(in_order(&library, id), "");
+}
+
+#[test]
+fn set_playlist_items_is_all_or_nothing_and_only_for_regular_playlists() {
+    let mut library = lettered();
+    let id = library
+        .create_playlist("Mix", PlaylistKind::Regular, None)
+        .unwrap()
+        .id;
+    let folder = library
+        .create_playlist("Folder", PlaylistKind::Folder, None)
+        .unwrap()
+        .id;
+    library.add_to_playlist(id, &[1, 2], None).unwrap();
+
+    assert!(matches!(
+        library.set_playlist_items(id, &[3, 9_999]),
+        Err(Error::TrackNotFound(9_999))
+    ));
+    assert_eq!(in_order(&library, id), "ab");
+    assert!(matches!(
+        library.set_playlist_items(folder, &[1]),
+        Err(Error::NotARegularPlaylist(_))
+    ));
+}
+
+#[test]
+fn a_deleted_playlists_id_is_never_given_to_another() {
+    let mut library = lettered();
+    let first = library
+        .create_playlist("One", PlaylistKind::Regular, None)
+        .unwrap()
+        .id;
+    let second = library
+        .create_playlist("Two", PlaylistKind::Folder, None)
+        .unwrap()
+        .id;
+
+    library.delete_playlist(second).unwrap();
+    let third = library
+        .create_playlist("Three", PlaylistKind::Regular, None)
+        .unwrap()
+        .id;
+    library.delete_playlist(first).unwrap();
+    let fourth = library
+        .create_playlist("Four", PlaylistKind::Smart, None)
+        .unwrap()
+        .id;
+
+    assert!(third > second, "{third} after {second}");
+    assert!(fourth > third, "{fourth} after {third}");
+}
+
+#[test]
+fn ids_stay_unused_across_reopening_and_for_the_stock_playlists_too() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("library.db");
+    let highest = {
+        let mut library = Library::open(&db_path).unwrap();
+        // Deleting the last of the stock playlists would free its id for the next one made.
+        let stock = library.playlists().unwrap();
+        let last = stock.iter().map(|p| p.id).max().unwrap();
+        library.delete_playlist(last).unwrap();
+        last
+    };
+
+    let mut library = Library::open(&db_path).unwrap();
+    let made = library
+        .create_playlist("New", PlaylistKind::Regular, None)
+        .unwrap();
+
+    assert!(made.id > highest, "{} after {highest}", made.id);
+}
+
+#[test]
+fn a_database_from_before_the_floor_starts_it_at_its_highest_playlist() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("library.db");
+    let highest = {
+        let mut library = Library::open(&db_path).unwrap();
+        library
+            .create_playlist("Mine", PlaylistKind::Regular, None)
+            .unwrap()
+            .id
+    };
+    rewind_schema(&db_path, 10);
+    Connection::open(&db_path)
+        .unwrap()
+        .execute("DELETE FROM settings WHERE key = 'playlist_id_floor'", [])
+        .unwrap();
+
+    let mut library = Library::open(&db_path).unwrap();
+    library.delete_playlist(highest).unwrap();
+    let made = library
+        .create_playlist("Next", PlaylistKind::Regular, None)
+        .unwrap();
+
+    assert!(made.id > highest, "{} after {highest}", made.id);
+}

@@ -3,6 +3,7 @@ mod cast;
 mod cd;
 mod collection;
 mod devices;
+mod elsewhere;
 mod error;
 mod import;
 mod library;
@@ -57,13 +58,14 @@ pub fn run() {
             migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
-            app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json")));
+            app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json"), data_dir.join("StreamedSongs.json")));
             app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("Unsub"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
             app.manage(import::ImportState::default());
+            app.manage(elsewhere::ElsewhereState::default());
             app.manage(updates::UpdatesState::load(data_dir.join("Updates.json")));
             app.manage(loudness::LoudnessState::default());
             app.manage(visualizer::VisualizerState::default());
@@ -140,9 +142,14 @@ pub fn run() {
             collection::collection_import_owned,
             collection::collection_locate_folder,
             collection::collection_download_from_icloud,
+            collection::collection_remove_streamed,
+            collection::collection_forget_streamed,
             import::import_music_inspect,
             import::import_music_run,
             import::import_music_cancel,
+            elsewhere::elsewhere_inspect,
+            elsewhere::elsewhere_run,
+            elsewhere::elsewhere_cancel,
             playback::player_play_list,
             playback::player_toggle_pause,
             playback::player_next,

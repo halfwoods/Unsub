@@ -35,6 +35,7 @@ import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
+import { ImportElsewhere } from "./import/ImportElsewhere";
 import { ImportSheet } from "./import/ImportSheet";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { addDropped } from "./radio/importStations";
@@ -106,6 +107,8 @@ function runMenuAction(action: MenuAction) {
       return void openImportSheet(null);
     case "import-library-xml":
       return void importLibraryXml();
+    case "import-elsewhere":
+      return useApp.setState({ importingElsewhere: true });
     case "equalizer":
       return useApp.setState((s) => ({ equalizerOpen: !s.equalizerOpen }));
     case "preferences":
@@ -217,6 +220,7 @@ export default function App() {
   const connectingToServer = useApp((s) => s.connectingToServer);
   const openingStream = useApp((s) => s.openingStream);
   const importSheet = useApp((s) => s.importSheet);
+  const importingElsewhere = useApp((s) => s.importingElsewhere);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
   useBackendEvents();
@@ -239,6 +243,7 @@ export default function App() {
       {connectingToServer && <ConnectToServer />}
       {openingStream && <OpenStream />}
       {importSheet && <ImportSheet preview={importSheet} />}
+      {importingElsewhere && <ImportElsewhere />}
       <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
     </div>

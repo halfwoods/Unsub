@@ -1,0 +1,5 @@
+[
+  {"endTime": "2024-03-01 20:44", "artistName": "The Fixtures", "trackName": "Fixture Song", "msPlayed": 200000},
+  {"endTime": "2024-03-01 20:45", "artistName": "Sample Band", "trackName": "Second Song", "msPlayed": 12000},
+  {"endTime": "2024-03-02 08:10", "artistName": "Sample Band", "trackName": "Second Song", "msPlayed": 180000}
+]

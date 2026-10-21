@@ -203,10 +203,40 @@
   text-overflow: ellipsis;
 }
 
+/* Where a streaming export found a song you don't have. */
+.ownership-track-from {
+  flex: 1 1 22%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-small);
+  color: #8a8a8a;
+}
+
 .ownership-track-time {
   flex: 0 0 44px;
   text-align: right;
   color: #555555;
+}
+
+/* A small button on the rows a streaming export added, to take one off the list. */
+.ownership-track-remove {
+  flex: 0 0 16px;
+}
+
+.ownership-remove {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  line-height: 14px;
+  color: #8a8a8a;
+}
+
+.ownership-remove:hover {
+  color: #a1260d;
 }
 
 .ownership-status {

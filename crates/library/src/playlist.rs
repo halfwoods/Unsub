@@ -154,6 +154,50 @@ fn store_items(tx: &Transaction<'_>, id: i64, items: &[i64]) -> Result<()> {
     Ok(())
 }
 
+/// Makes a playlist under an id nobody has had before: the one past the highest ever given out,
+/// which is kept in the settings. Left to itself SQLite gives a deleted playlist's id to the next
+/// one made, and an import that remembers its playlists by id would take it for the old one.
+fn insert_playlist(
+    conn: &Connection,
+    name: &str,
+    kind: PlaylistKind,
+    parent_id: Option<i64>,
+    position: u32,
+    rules: Option<&str>,
+) -> Result<i64> {
+    let id: i64 = conn.query_row(
+        "SELECT MAX(
+            COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'playlist_id_floor'), 0),
+            COALESCE(MAX(id), 0)
+         ) + 1 FROM playlists",
+        [],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO playlists (id, name, kind, parent_id, position, rules)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, name, kind, parent_id, position, rules],
+    )?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('playlist_id_floor', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [id.to_string()],
+    )?;
+    Ok(id)
+}
+
+fn require_tracks(tx: &Transaction<'_>, track_ids: &[i64]) -> Result<()> {
+    for track_id in track_ids.iter().collect::<BTreeSet<_>>() {
+        let exists = tx
+            .prepare_cached("SELECT 1 FROM tracks WHERE id = ?1")?
+            .exists([track_id])?;
+        if !exists {
+            return Err(Error::TrackNotFound(*track_id));
+        }
+    }
+    Ok(())
+}
+
 fn next_seed(previous: i64) -> i64 {
     (previous * 1_664_525 + 1_013_904_223) % (1 << 30)
 }
@@ -192,11 +236,7 @@ impl Library {
         let rules = (kind == PlaylistKind::Smart)
             .then(|| serde_json::to_string(&SmartRules::default()))
             .transpose()?;
-        tx.execute(
-            "INSERT INTO playlists (name, kind, parent_id, position, rules) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![name, kind, parent_id, position, rules],
-        )?;
-        let id = tx.last_insert_rowid();
+        let id = insert_playlist(&tx, name, kind, parent_id, position, rules.as_deref())?;
         tx.commit()?;
         self.describe(require_row(&self.conn, id)?)
     }
@@ -258,18 +298,22 @@ impl Library {
     pub fn add_to_playlist(&mut self, id: i64, track_ids: &[i64], at: Option<u32>) -> Result<()> {
         regular_row(&self.conn, id)?;
         let tx = self.conn.transaction()?;
-        for track_id in track_ids.iter().collect::<BTreeSet<_>>() {
-            let exists = tx
-                .prepare_cached("SELECT 1 FROM tracks WHERE id = ?1")?
-                .exists([track_id])?;
-            if !exists {
-                return Err(Error::TrackNotFound(*track_id));
-            }
-        }
+        require_tracks(&tx, track_ids)?;
         let mut items = load_items(&tx, id)?;
         let index = at.map_or(items.len(), |at| (at as usize).min(items.len()));
         items.splice(index..index, track_ids.iter().copied());
         store_items(&tx, id, &items)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Makes the playlist hold exactly `track_ids`, in that order (repeats allowed), whatever it
+    /// held. All or nothing: an unknown track leaves the old contents.
+    pub fn set_playlist_items(&mut self, id: i64, track_ids: &[i64]) -> Result<()> {
+        regular_row(&self.conn, id)?;
+        let tx = self.conn.transaction()?;
+        require_tracks(&tx, track_ids)?;
+        store_items(&tx, id, track_ids)?;
         tx.commit()?;
         Ok(())
     }
@@ -466,16 +510,16 @@ pub(crate) fn seed_defaults(conn: &Connection) -> Result<()> {
             },
         ),
     ];
-    let mut insert = conn.prepare(
-        "INSERT INTO playlists (name, kind, parent_id, position, rules) VALUES (?1, ?2, NULL, ?3, ?4)",
-    )?;
     for (position, (name, rules)) in defaults.iter().enumerate() {
-        insert.execute(params![
+        let rules = serde_json::to_string(rules)?;
+        insert_playlist(
+            conn,
             name,
             PlaylistKind::Smart,
+            None,
             position as u32,
-            serde_json::to_string(rules)?
-        ])?;
+            Some(&rules),
+        )?;
     }
     Ok(())
 }

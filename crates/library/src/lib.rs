@@ -41,10 +41,11 @@ pub use loudness::{
 pub use lyrics::{Lyrics, LyricsSource};
 pub use model::{
     AddSummary, AlbumSummary, ArtistSummary, Artwork, ComposerSummary, ExternalStats,
-    ExternalTrack, GenreSummary, LibraryStats, MatchQuality, MediaKind, Mix, Playlist,
-    PlaylistKind, ScanProgress, ScanSummary, SortKey, Track, TrackMatch, TrackOverrides,
+    ExternalTrack, GenreSummary, LibraryStats, MatchOutcome, MatchQuality, MediaKind, Mix,
+    Playlist, PlaylistKind, ScanProgress, ScanSummary, SortKey, Track, TrackMatch, TrackOverrides,
     TrackQuery,
 };
+pub use normalize::{album_key, fold, is_generic_title, song_key};
 pub use organize::{MediaSettings, OrganizeProgress, OrganizeReport};
 pub use smart::{
     DateUnit, LimitOrder, LimitUnit, SmartField, SmartLimit, SmartOp, SmartRule, SmartRules,

@@ -1,12 +1,15 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collectionDownloadFromIcloud,
+  collectionForgetStreamed,
   collectionImportOwned,
   collectionLoadMusicApp,
   collectionLocateFolder,
   collectionLoadXml,
+  collectionRemoveStreamed,
   collectionReport,
   onCollectionChanged,
   onLibraryChanged,
@@ -143,6 +146,9 @@ function Intro({ error, onLoadXml, onLoadMusic }: { error: string | null; onLoad
             ? "macOS will ask before Unsub can read your Music library. Nothing in it is changed."
             : "In iTunes, choose File › Library › Export Library…, then pick the file here."}
         </p>
+        <p className="ownership-note">
+          Songs from Spotify, YouTube Music or ListenBrainz that you don't have join this list when you import them (File › Import).
+        </p>
         {error && <p className="ownership-error">{error}</p>}
       </div>
     </div>
@@ -236,6 +242,12 @@ export function OwnershipView() {
     void collectionLoadMusicApp();
   };
 
+  // Importing the export again brings them back, and nothing in the library changes.
+  const forget = async (service: string, songs: number) => {
+    const confirmed = await ask(`Take the ${pluralize(songs, "song", "songs")} that ${service} found off your To Own list?`, { title: "Unsub", kind: "warning" });
+    if (confirmed) void collectionForgetStreamed(service).catch((e: unknown) => setError(String(e)));
+  };
+
   if (reading) return <Reading />;
   if (report === undefined) return <div className="ownership" />;
   if (report === null) return <Intro error={error} onLoadXml={loadXml} onLoadMusic={loadMusic} />;
@@ -250,6 +262,9 @@ export function OwnershipView() {
     all: report.totals.songs,
   };
 
+  // With no Apple Music library read yet, the button is how to read one.
+  const fromMusicApp = report.source ? report.source === "Music" : IS_MAC;
+
   return (
     <div className="ownership">
       <header className="ownership-header">
@@ -260,12 +275,22 @@ export function OwnershipView() {
               Import {pluralize(report.totals.import, "Owned File", "Owned Files")}
             </button>
           )}
+          {report.streamed.map(({ service, songs }) => (
+            <button
+              key={service}
+              className="push-button"
+              title={`Take the ${pluralize(songs, "song", "songs")} ${service} found off this list. Your library and playlists aren't touched.`}
+              onClick={() => void forget(service, songs)}
+            >
+              Forget {service} Songs
+            </button>
+          ))}
           <button
             className="push-button"
-            title={`Read ${new Date(report.loadedAt * 1000).toLocaleString()} from ${report.source}`}
-            onClick={() => (report.source === "Music" ? loadMusic() : loadXml())}
+            title={report.source ? `Read ${new Date(report.loadedAt * 1000).toLocaleString()} from ${report.source}` : "Add the songs in your Music library"}
+            onClick={() => (fromMusicApp ? loadMusic() : loadXml())}
           >
-            Refresh
+            {report.source ? "Refresh" : "Compare with Music…"}
           </button>
         </div>
       </header>
@@ -346,8 +371,23 @@ export function OwnershipView() {
                 <span className="ownership-track-number">{track.trackNumber ?? ""}</span>
                 <span className="ownership-track-title">{track.title}</span>
                 <span className="ownership-track-artist">{track.artist === row.album.albumArtist ? "" : track.artist}</span>
+                <span className="ownership-track-from" title={track.from ?? undefined}>
+                  {track.from}
+                </span>
                 <span className="ownership-track-time">{track.durationMs ? formatClock(track.durationMs) : ""}</span>
                 <span className={`ownership-status ownership-status--${track.status}`}>{STATUS_LABEL[track.status]}</span>
+                <span className="ownership-track-remove">
+                  {track.persistentId.startsWith("streamed:") && (
+                    <button
+                      className="ownership-remove"
+                      title="Remove from To Own"
+                      aria-label={`Remove ${track.title} from To Own`}
+                      onClick={() => void collectionRemoveStreamed(track.persistentId).catch((e: unknown) => setError(String(e)))}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
               </div>
             );
           })}

@@ -111,6 +111,35 @@ const MIGRATIONS: &[&str] = &[
         favicon_url TEXT,
         radio_browser_uuid TEXT UNIQUE
     );",
+    // Plays brought in from a streaming service name it in `source`, and `song_key` says which
+    // song they were (title and artist as matching folds them, not the track, since a person
+    // can own the song twice). Importing a history again adds nothing. Another service's record
+    // of the same listen is not added either: it is noted in `play_duplicates` as claiming that
+    // listen's event, one claim to an event, so that each of several real plays of a song needs
+    // an event of its own to be absorbed by one. A claim goes when its event does. Plays Unsub
+    // logged itself have no source and are never deduplicated: playing a song twice in a second
+    // still counts twice.
+    "ALTER TABLE play_events ADD COLUMN source TEXT;
+    ALTER TABLE play_events ADD COLUMN song_key TEXT;
+    CREATE UNIQUE INDEX play_events_source ON play_events(source, at, song_key)
+        WHERE source IS NOT NULL;
+    CREATE INDEX play_events_song ON play_events(song_key, at) WHERE source IS NOT NULL;
+    CREATE TABLE play_duplicates (
+        source TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        song_key TEXT NOT NULL,
+        of_rowid INTEGER NOT NULL,
+        UNIQUE (source, at, song_key),
+        UNIQUE (source, of_rowid)
+    );
+    CREATE INDEX play_duplicates_of ON play_duplicates(of_rowid);
+    CREATE TRIGGER play_duplicates_cleanup AFTER DELETE ON play_events BEGIN
+        DELETE FROM play_duplicates WHERE of_rowid = OLD.rowid;
+    END;
+    -- The highest playlist id ever given out. SQLite would give a deleted playlist's id to the
+    -- next one made, and what remembers playlists by id (imports) could not tell them apart.
+    INSERT OR REPLACE INTO settings (key, value)
+        SELECT 'playlist_id_floor', CAST(COALESCE(MAX(id), 0) AS TEXT) FROM playlists;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

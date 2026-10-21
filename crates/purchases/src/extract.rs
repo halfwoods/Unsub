@@ -21,13 +21,26 @@ const FOLDER_NAME_LIMIT: usize = 120;
 pub(crate) struct Limits {
     pub max_bytes: u64,
     pub max_entries: usize,
+    /// Only files with one of these extensions are unpacked, and only they count against the
+    /// byte limit. `None` takes everything.
+    pub only: Option<&'static [&'static str]>,
 }
 
 impl Limits {
     const DEFAULT: Self = Self {
         max_bytes: MAX_BYTES,
         max_entries: MAX_ENTRIES,
+        only: None,
     };
+
+    fn wants(&self, name: &str) -> bool {
+        self.only.is_none_or(|extensions| {
+            let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
+            extensions
+                .iter()
+                .any(|wanted| extension.eq_ignore_ascii_case(wanted))
+        })
+    }
 }
 
 impl Inbox {
@@ -75,6 +88,26 @@ impl Inbox {
     }
 }
 
+/// Unpacks the files of a zip that have one of `extensions` into the existing folder
+/// `destination`, under the same safeguards as a purchase: names that would land outside it are
+/// refused before anything is written, and so are archives past `max_bytes` of wanted files or
+/// the entry limit. `progress` receives bytes written so far and the total.
+pub fn unpack(
+    zip_path: &Path,
+    destination: &Path,
+    extensions: &'static [&'static str],
+    max_bytes: u64,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<()> {
+    let limits = Limits {
+        max_bytes,
+        only: Some(extensions),
+        ..Limits::DEFAULT
+    };
+    extract_zip(zip_path, destination, limits, progress)?;
+    Ok(())
+}
+
 /// Moves the finished staging folder to its final name with one rename. An existing album
 /// folder is never touched: the new one becomes "Album (2)".
 fn place(library_dir: &Path, staging: &Path, artist: &str, album: &str) -> Result<PathBuf> {
@@ -120,7 +153,7 @@ fn extract_zip(
         let entry = archive.by_index_raw(index)?;
         let name = entry.name()?;
         let parts = safe_components(&name).ok_or_else(|| Error::UnsafeArchive(name.to_string()))?;
-        if !entry.is_dir() && !parts.is_empty() && !is_junk(&name) {
+        if !entry.is_dir() && !parts.is_empty() && !is_junk(&name) && limits.wants(&name) {
             files.push((index, parts, entry.size()));
         }
     }
@@ -415,6 +448,7 @@ mod tests {
     const ROOMY: Limits = Limits {
         max_bytes: 1024,
         max_entries: 10,
+        only: None,
     };
 
     #[test]
@@ -451,6 +485,56 @@ mod tests {
         let result = writer.write(&["bomb.bin".into()], &mut std::io::repeat(7));
         assert!(matches!(result, Err(Error::TooLarge { limit: 100 })));
         assert!(fs::metadata(dir.path().join("bomb.bin")).unwrap().len() <= 100);
+    }
+
+    #[test]
+    fn unpack_writes_only_the_wanted_kinds_and_refuses_hostile_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let (good, bad) = (dir.path().join("good.zip"), dir.path().join("bad.zip"));
+        write_zip(
+            &good,
+            &[
+                ("Export/Playlist1.json", b"{}"),
+                ("Export/Notes.TXT", b"x"),
+                ("Export/video.mp4", &[0; 600]),
+            ],
+        );
+        write_zip(
+            &bad,
+            &[("Export/Playlist1.json", b"{}"), ("../evil.json", b"x")],
+        );
+        let (into_good, into_bad) = (dir.path().join("good"), dir.path().join("bad"));
+        fs::create_dir(&into_good).unwrap();
+        fs::create_dir(&into_bad).unwrap();
+        let mut totals = Vec::new();
+
+        // The video is neither written nor counted against the limit.
+        unpack(
+            &good,
+            &into_good,
+            &["json", "csv"],
+            100,
+            &mut |done, total| totals.push((done, total)),
+        )
+        .unwrap();
+        let refused = unpack(&bad, &into_bad, &["json"], 100, &mut |_, _| {});
+
+        assert_eq!(fs::read(into_good.join("Playlist1.json")).unwrap(), b"{}");
+        assert_eq!(fs::read_dir(&into_good).unwrap().count(), 1);
+        assert_eq!(totals.last(), Some(&(2, 2)));
+        assert!(matches!(refused, Err(Error::UnsafeArchive(_))));
+        assert_eq!(fs::read_dir(&into_bad).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn unpack_refuses_wanted_files_past_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip = dir.path().join("big.zip");
+        write_zip(&zip, &[("a.json", &[b' '; 80]), ("b.json", &[b' '; 80])]);
+
+        let result = unpack(&zip, dir.path(), &["json"], 100, &mut |_, _| {});
+
+        assert!(matches!(result, Err(Error::TooLarge { limit: 100 })));
     }
 
     #[test]

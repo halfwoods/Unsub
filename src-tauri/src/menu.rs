@@ -11,6 +11,7 @@ pub const MENU_ACTION_EVENT: &str = "menu://action";
 const ADD_TO_LIBRARY: &str = "add-to-library";
 const IMPORT_MUSIC: &str = "import-music-library";
 const IMPORT_XML: &str = "import-library-xml";
+const IMPORT_ELSEWHERE: &str = "import-elsewhere";
 const CHECK_FOR_UPDATES: &str = "check-for-updates";
 const DELETE: &str = "delete";
 /// The design follows classic iTunes, so the About box makes clear Unsub isn't Apple's.
@@ -92,6 +93,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     #[cfg(target_os = "macos")]
     file.append(&MenuItem::with_id(app, IMPORT_MUSIC, "Import Music Library", true, None::<&str>)?)?;
     file.append(&MenuItem::with_id(app, IMPORT_XML, "Import Library XML…", true, None::<&str>)?)?;
+    file.append(&MenuItem::with_id(app, IMPORT_ELSEWHERE, "Import from Spotify, YouTube Music or ListenBrainz…", true, None::<&str>)?)?;
     file.append(&PredefinedMenuItem::separator(app)?)?;
     for (id, label, accelerator) in LIBRARY_ACTIONS {
         file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
@@ -163,6 +165,7 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == EQUALIZER.0
         || id == IMPORT_MUSIC
         || id == IMPORT_XML
+        || id == IMPORT_ELSEWHERE
         || id == DELETE
         || id == SHOW_VISUALIZER.0
         || id == CLEAN_UP.0

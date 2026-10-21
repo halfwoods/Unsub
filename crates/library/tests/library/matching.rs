@@ -1,7 +1,9 @@
 use std::fs;
 use std::time::Instant;
 
-use unsub_library::{ExternalTrack, Library, MatchQuality, MediaKind, Track, TrackMatch};
+use unsub_library::{
+    ExternalTrack, Library, MatchOutcome, MatchQuality, MediaKind, Track, TrackMatch,
+};
 
 use crate::common::{library_of, scanned_library, track, track_titled};
 
@@ -16,6 +18,7 @@ fn external(title: &str, artist: &str, album: &str, duration_ms: Option<u64>) ->
         track_number: None,
         disc_number: None,
         path: None,
+        heard_ms: None,
     }
 }
 
@@ -277,6 +280,147 @@ fn within_a_tier_same_album_wins_then_closest_duration_then_lowest_id() {
     assert_eq!(ask("Original Album"), Some((7, MatchQuality::Exact)));
     // No album in common: the closest duration, then the lowest id.
     assert_eq!(ask("Elsewhere"), Some((7, MatchQuality::Exact)));
+}
+
+fn strictly(library: &Library, external: ExternalTrack) -> Option<Option<(i64, MatchQuality)>> {
+    match library
+        .match_external_strict(&[external])
+        .unwrap()
+        .remove(0)
+    {
+        MatchOutcome::Found(found) => Some(Some((found.track_id, found.quality))),
+        MatchOutcome::Ambiguous => Some(None),
+        MatchOutcome::Missing => None,
+    }
+}
+
+#[test]
+fn strict_matching_will_not_choose_between_albums_that_fit_equally() {
+    let library = library_of(&[
+        track(1, "Song", "Band", "Original Album", SONG_MS),
+        track(2, "Song", "Band", "Greatest Hits", SONG_MS),
+    ]);
+    let ask = |album, duration| strictly(&library, external("Song", "Band", album, duration));
+
+    // Nothing says which release it is from.
+    assert_eq!(ask("", None), Some(None));
+    assert_eq!(ask("Elsewhere", Some(SONG_MS)), Some(None));
+    // The album does.
+    assert_eq!(
+        ask("Greatest Hits", None),
+        Some(Some((2, MatchQuality::Exact)))
+    );
+    assert_eq!(
+        ask("Greatest Hits", Some(SONG_MS)),
+        Some(Some((2, MatchQuality::Exact)))
+    );
+    // A duration only one of them has.
+    assert_eq!(ask("", Some(SONG_MS + 5_000)), Some(None));
+    // And the plain matcher still picks the lowest id, as the Music import relies on.
+    assert_eq!(
+        match_one(&library, external("Song", "Band", "", None)),
+        Some((1, MatchQuality::Close))
+    );
+}
+
+#[test]
+fn strict_matching_takes_a_better_fit_and_copies_of_one_album() {
+    let library = library_of(&[
+        track(1, "Song", "Band", "Album", SONG_MS + 1_000),
+        track(2, "Song", "Band", "Album", SONG_MS),
+        track(3, "Song", "Band", "Other", SONG_MS + 6_000),
+    ]);
+
+    // The third is only a close fit, so the exact ones decide, and both are the one album.
+    assert_eq!(
+        strictly(&library, external("Song", "Band", "", Some(SONG_MS))),
+        Some(Some((2, MatchQuality::Exact)))
+    );
+    assert_eq!(
+        strictly(&library, external("Song", "Band", "Album", None)),
+        Some(Some((1, MatchQuality::Exact)))
+    );
+    assert_eq!(
+        strictly(&library, external("Other Song", "Band", "Album", None)),
+        None
+    );
+}
+
+#[test]
+fn strict_matching_keeps_a_file_match_and_unrelated_albums_apart() {
+    let (library, _dir) = scanned_library();
+    let halo = track_titled(&library, "Halo");
+    let mut by_path = external("Not Halo", "Nobody", "", None);
+    by_path.path = Some(halo.path.clone());
+
+    assert_eq!(
+        strictly(&library, by_path),
+        Some(Some((halo.id, MatchQuality::SameFile)))
+    );
+}
+
+#[test]
+fn generic_titles_need_the_album_or_the_length_to_agree_when_matching_strictly() {
+    let library = library_of(&[track(1, "Intro", "Band", "First Album", SONG_MS)]);
+    let ask = |album, duration| strictly(&library, external("Intro", "Band", album, duration));
+
+    // Every album has an intro, so title and artist alone are no evidence: not a match, but not
+    // known to be missing either.
+    assert_eq!(ask("", None), Some(None));
+    assert_eq!(ask("Second Album", None), Some(None));
+    assert_eq!(
+        ask("First Album", None),
+        Some(Some((1, MatchQuality::Exact)))
+    );
+    assert_eq!(
+        ask("", Some(SONG_MS + 1_000)),
+        Some(Some((1, MatchQuality::Exact)))
+    );
+    assert_eq!(
+        ask("Second Album", Some(SONG_MS + 5_000)),
+        Some(Some((1, MatchQuality::Close)))
+    );
+    // The plain matcher is as it always was.
+    assert_eq!(
+        match_one(&library, external("Intro", "Band", "", None)),
+        Some((1, MatchQuality::Close))
+    );
+    // And a distinctive title is unaffected.
+    let other = library_of(&[track(1, "Halo", "Band", "First Album", SONG_MS)]);
+    assert_eq!(
+        strictly(&other, external("Halo", "Band", "", None)),
+        Some(Some((1, MatchQuality::Close)))
+    );
+}
+
+#[test]
+fn a_track_shorter_than_the_play_cannot_be_the_song_played() {
+    let library = library_of(&[
+        track(1, "Song", "Band", "Album", 60_000),
+        track(2, "Song", "Band", "Other", SONG_MS),
+    ]);
+    let heard = |ms| ExternalTrack {
+        heard_ms: Some(ms),
+        ..external("Song", "Band", "", None)
+    };
+
+    // Nobody hears 3 minutes of a one-minute track; the full length on the other album remains.
+    assert_eq!(
+        strictly(&library, heard(180_000)),
+        Some(Some((2, MatchQuality::Close)))
+    );
+    // A skipped bit is allowed for.
+    assert_eq!(strictly(&library, heard(65_000)), Some(None));
+    // With only the short track to go on, the song isn't known to be missing.
+    let only_short = library_of(&[track(1, "Song", "Band", "Album", 60_000)]);
+    assert_eq!(strictly(&only_short, heard(180_000)), Some(None));
+    assert_eq!(match_one(&only_short, heard(180_000)), None);
+    // A short listen of either says nothing.
+    assert_eq!(strictly(&library, heard(30_000)), Some(None));
+    assert_eq!(
+        strictly(&library, heard(SONG_MS + 5_000)),
+        Some(Some((2, MatchQuality::Close)))
+    );
 }
 
 #[test]

@@ -1,0 +1,55 @@
+{
+  "playlists": [
+    {
+      "name": "Road Trip",
+      "lastModifiedDate": "2024-05-01",
+      "items": [
+        {
+          "track": {"trackName": "Fixture Song", "artistName": "The Fixtures", "albumName": "Test Album", "trackUri": "spotify:track:aaa"},
+          "episode": null,
+          "localTrack": null,
+          "addedDate": "2024-04-01"
+        },
+        {
+          "track": null,
+          "episode": {"name": "Some Episode", "showName": "Some Show", "episodeUri": "spotify:episode:eee"},
+          "localTrack": null,
+          "addedDate": "2024-04-02"
+        },
+        {
+          "track": {"trackName": "Second Song", "artistName": "Sample Band", "albumName": "Second Album", "trackUri": "spotify:track:bbb"},
+          "episode": null,
+          "localTrack": null,
+          "addedDate": "2024-04-03"
+        },
+        {
+          "track": null,
+          "episode": null,
+          "localTrack": {"uri": "spotify:local:Home:Demo:Demo+Tape:100"},
+          "addedDate": "2024-04-04"
+        },
+        {
+          "track": null,
+          "episode": null,
+          "localTrack": {"uri": "spotify:local:::Untagged+Recording:0"},
+          "addedDate": "2024-04-05"
+        },
+        {
+          "track": null,
+          "episode": null,
+          "localTrack": {"uri": "spotify:local:Bj%C3%B6rk%2C+Someone:Home+Demos:Caf%C3%A9:215"},
+          "addedDate": "2024-04-06"
+        }
+      ],
+      "description": "Songs for driving",
+      "numberOfFollowers": 0
+    },
+    {
+      "name": "Empty",
+      "lastModifiedDate": "2024-05-01",
+      "items": [],
+      "description": null,
+      "numberOfFollowers": 0
+    }
+  ]
+}

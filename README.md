@@ -5,6 +5,7 @@ A music player for people who own their music, inspired by classic iTunes from b
 - Lossless playback, bit-perfect when you want it
 - Smart playlists, Party Shuffle, "more like this" mixes and an equalizer
 - Your Music or iTunes library imported with its play counts, ratings and playlists, and a **To Own** list of what you only stream
+- Leaving Spotify? Bring your playlists and listening history from Spotify, YouTube Music or ListenBrainz (and Last.fm through it); what you don't own goes on the **To Own** list
 - Libraries kept in iCloud Drive, with cloud-only songs fetched when you play them
 - Buy-to-own purchase import, CD ripping and podcasts
 - Internet radio and a visualizer that moves with the music
@@ -51,6 +52,7 @@ Drag a folder of music onto the window, use **File › Add to Library…**, or b
 | `crates/ipod/` | Classic iPods: reading and writing `iTunesDB`, artwork, checksums, sync |
 | `crates/devicesync/` | Other players: USB mass storage, Rockbox, Android over MTP |
 | `crates/cdrip/` | CD ripping with MusicBrainz lookup and AccurateRip verification |
+| `crates/elsewhere/` | Reading the playlists and plays in Spotify, YouTube Music and ListenBrainz exports |
 | `crates/podcasts/` | Podcast subscriptions, downloads and listening state |
 | `crates/purchases/` | Watching for Bandcamp, Qobuz, 7digital and HDtracks downloads |
 | `crates/subsonic/` | A Subsonic-compatible server, so phone apps can stream your library, and the secret links speakers fetch songs from |
@@ -67,3 +69,6 @@ The repo contains no Apple code, images or fonts. iTunes was used only as a meas
 ## Trademarks
 
 Unsub is not affiliated with or endorsed by Apple, Google or Sonos. iTunes, iPod, Apple Music, iCloud, AirPlay and HomePod are trademarks of Apple Inc.; Chromecast and Google Cast are trademarks of Google LLC; Sonos is a trademark of Sonos, Inc. They are named here only to say what Unsub works with.
+Unsub is not affiliated with or endorsed by Apple. iTunes, iPod, Apple Music and iCloud are trademarks of Apple Inc., named here only to say what Unsub works with.
+
+Spotify, YouTube Music, Google, ListenBrainz and Last.fm belong to their owners, and Unsub is not affiliated with them either. They are named only to say which exports it can read.

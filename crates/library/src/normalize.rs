@@ -40,8 +40,30 @@ const ANONYMOUS_ARTISTS: &[&str] = &[
     "unknown",
 ];
 
+/// Titles so common that the same title and artist is often a different song on another album,
+/// as title keys.
+pub(crate) const GENERIC_TITLES: &[&str] = &[
+    "intro",
+    "outro",
+    "interlude",
+    "skit",
+    "untitled",
+    "prelude",
+    "reprise",
+];
+
+/// Whether title and artist alone say little about which song this is.
+pub fn is_generic_title(title: &str) -> bool {
+    title_key(title).is_some_and(|key| GENERIC_TITLES.contains(&key.as_str()))
+}
+
+/// Identity of an album's name for comparing across libraries, as matching compares them.
+pub fn album_key(album: &str) -> Option<String> {
+    title_key(album)
+}
+
 /// Lowercases and strips diacritics so "Beyoncé" and "beyonce" compare equal.
-pub(crate) fn fold(text: &str) -> String {
+pub fn fold(text: &str) -> String {
     // Libraries are mostly ASCII, and this runs over every row when matching.
     if text.is_ascii() {
         return text.to_ascii_lowercase();
@@ -127,6 +149,16 @@ pub(crate) fn title_key(title: &str) -> Option<String> {
         }
     }
     alphanumeric(&rest.replace('&', " and "))
+}
+
+/// One string for "the same song" wherever it is listed: the title and primary artist keys
+/// matching uses, so "Song (Remastered)" by "Band feat. X" and "Song" by "Band" agree.
+pub fn song_key(title: &str, artist: &str) -> String {
+    format!(
+        "{}\u{1f}{}",
+        title_key(title).unwrap_or_default(),
+        artist_key(artist).unwrap_or_default()
+    )
 }
 
 /// Identity of the primary artist: everything before the first featuring or

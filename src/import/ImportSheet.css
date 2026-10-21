@@ -33,3 +33,15 @@
   color: #555555;
   line-height: 15px;
 }
+
+/* Bring Your Playlists and Plays: the service strip runs the width of the sheet, like the tabs in To Own. */
+.import-library-services {
+  margin: 0 -18px 12px;
+}
+
+.import-library-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: bold;
+}

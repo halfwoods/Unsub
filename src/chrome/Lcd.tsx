@@ -307,8 +307,19 @@ export function Lcd() {
       locating: total === null ? `Looking through the folder: ${done.toLocaleString()} files` : `Finding files: ${done.toLocaleString()} of ${total.toLocaleString()}`,
       adding: `Adding songs: ${done.toLocaleString()} of ${(total ?? 0).toLocaleString()}`,
       merging: "Merging play counts and playlists",
+      readingExport: "Reading your export",
+      matching: "Finding the songs you own",
+      applying: `Adding playlists: ${done.toLocaleString()} of ${(total ?? 0).toLocaleString()}`,
+      plays: `Adding plays: ${done.toLocaleString()} of ${(total ?? 0).toLocaleString()}`,
     }[stage];
-    return <ProgressLcd title="Importing Music Library" subtitle={subtitle} fraction={total && done > 0 ? done / total : null} />;
+    const fromElsewhere = stage === "readingExport" || stage === "matching" || stage === "applying" || stage === "plays";
+    return (
+      <ProgressLcd
+        title={fromElsewhere ? "Importing Playlists and Plays" : "Importing Music Library"}
+        subtitle={subtitle}
+        fraction={total && done > 0 ? done / total : null}
+      />
+    );
   }
 
   if (scan) return <ProgressLcd title="Adding to Library" subtitle={scan.currentPath.split(/[\\/]/).pop() ?? ""} fraction={null} />;

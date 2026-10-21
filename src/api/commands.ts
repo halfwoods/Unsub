@@ -15,6 +15,8 @@ import type {
   ComposerSummary,
   Device,
   DirectoryStation,
+  ElsewherePreview,
+  ElsewhereService,
   ArtworkChange,
   DeviceSyncStatus,
   EditReport,
@@ -218,6 +220,12 @@ export const importMusicInspect = (xml: string | null) => invoke<ImportPreview>(
 export const importMusicRun = (folder: string | null) => invoke<void>("import_music_run", { folder });
 /** Lets go of the library `importMusicInspect` read, when the sheet is dismissed. */
 export const importMusicCancel = () => invoke<void>("import_music_cancel");
+/** Reads the export at `path` (a file, folder or ZIP) from `service`, and says what importing it would find. */
+export const elsewhereInspect = (service: ElsewhereService, path: string) => invoke<ElsewherePreview>("elsewhere_inspect", { service, path });
+/** Brings in the export read by `elsewhereInspect`: its playlists, and its plays unless `addPlays` is off. */
+export const elsewhereRun = (addPlays: boolean) => invoke<void>("elsewhere_run", { addPlays });
+/** Lets go of the export `elsewhereInspect` read, when the sheet is dismissed. */
+export const elsewhereCancel = () => invoke<void>("elsewhere_cancel");
 export const onImportProgress = (handler: (progress: ImportProgress | null) => void): Promise<UnlistenFn> =>
   listen<ImportProgress | null>("import://progress", (e) => handler(e.payload));
 
@@ -225,6 +233,10 @@ export const collectionReport = () => invoke<OwnershipReport | null>("collection
 export const collectionLoadMusicApp = () => invoke<void>("collection_load_music_app");
 export const collectionLoadXml = () => invoke<void>("collection_load_xml");
 export const collectionImportOwned = () => invoke<number>("collection_import_owned");
+/** Takes one streamed song off the list; `id` is the `persistentId` of its row. */
+export const collectionRemoveStreamed = (id: string) => invoke<void>("collection_remove_streamed", { id });
+/** Takes off everything one streaming service's exports put on the list, and says how many entries went. */
+export const collectionForgetStreamed = (service: string) => invoke<number>("collection_forget_streamed", { service });
 export const collectionLocateFolder = () => invoke<void>("collection_locate_folder");
 export const collectionDownloadFromIcloud = () =>
   invoke<{ requested: number; accepted: number }>("collection_download_from_icloud");
@@ -342,6 +354,7 @@ export type MenuAction =
   | "open-stream"
   | "import-music-library"
   | "import-library-xml"
+  | "import-elsewhere"
   | "equalizer"
   | "preferences"
   | "show-visualizer"

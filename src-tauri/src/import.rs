@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use unsub_applemusic::{Located, MediaType, MusicLibrary, MusicLibraryItem, Ownership, PlaylistKind as MusicPlaylistKind};
-use unsub_library::{ExternalStats, Library, MatchQuality, MediaKind, PlaylistKind, TrackOverrides, TrackQuery};
+use unsub_library::{ExternalStats, Library, MatchQuality, MediaKind, Playlist, PlaylistKind, TrackOverrides, TrackQuery, fold};
 
 use crate::collection::external;
 use crate::error::{CommandError, CommandResult};
@@ -26,7 +26,7 @@ pub struct ImportState {
 }
 
 /// Held while Music is read or imported; dropping it lets the next one start.
-struct Busy(Arc<AtomicBool>);
+pub(crate) struct Busy(Arc<AtomicBool>);
 
 impl Drop for Busy {
     fn drop(&mut self) {
@@ -40,7 +40,7 @@ impl ImportState {
     }
 
     /// Two imports at once would duplicate each other's playlists and fight over the progress display.
-    fn begin(&self) -> CommandResult<Busy> {
+    pub(crate) fn begin(&self) -> CommandResult<Busy> {
         if self.busy.swap(true, Ordering::AcqRel) {
             return Err(CommandError::from("Another import is still running.".to_owned()));
         }
@@ -48,10 +48,26 @@ impl ImportState {
     }
 }
 
+/// What `ImportedPlaylists.json` holds for a playlist: its id. A short-lived version of the file
+/// also held a name, which is read past.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Stored {
+    Id(i64),
+    Named { id: i64 },
+}
+
+/// A playlist's name as keys compare it: case, accents and punctuation don't count, so
+/// "Mr. Brightside Mix" is `mr_brightside_mix.csv`.
+pub(crate) fn name_key(name: &str) -> String {
+    let words: Vec<String> = fold(name).split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).map(str::to_owned).collect();
+    if words.is_empty() { name.trim().to_lowercase() } else { words.join(" ") }
+}
+
 /// Which of our playlists came from which Music playlist, so importing again updates them in place.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize)]
 #[serde(transparent)]
-struct PlaylistMapping {
+pub(crate) struct PlaylistMapping {
     ids: HashMap<String, i64>,
     /// Where each playlist is recorded as soon as it's made, so a run that stops partway doesn't make
     /// them all again next time.
@@ -60,18 +76,55 @@ struct PlaylistMapping {
 }
 
 impl PlaylistMapping {
-    fn load(path: &Path) -> Self {
-        let mut mapping: Self = std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-        mapping.path = Some(path.to_owned());
-        mapping
+    pub(crate) fn load(path: &Path) -> Self {
+        let stored: HashMap<String, Stored> =
+            std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        let ids = stored
+            .into_iter()
+            .map(|(key, stored)| {
+                (
+                    key,
+                    match stored {
+                        Stored::Id(id) | Stored::Named { id } => id,
+                    },
+                )
+            })
+            .collect();
+        Self { ids, path: Some(path.to_owned()) }
     }
 
-    fn insert(&mut self, persistent_id: String, playlist: i64) -> std::io::Result<()> {
-        self.ids.insert(persistent_id, playlist);
+    pub(crate) fn id(&self, key: &str) -> Option<i64> {
+        self.ids.get(key).copied()
+    }
+
+    fn insert(&mut self, key: String, playlist: i64) -> std::io::Result<()> {
+        self.ids.insert(key, playlist);
         match &self.path {
             Some(path) => std::fs::write(path, serde_json::to_vec(self)?),
             None => Ok(()),
         }
+    }
+
+    /// The playlist (or folder) recorded under `key`, made now if there isn't one, and whether it
+    /// was. A recorded id stands for its playlist for as long as it exists, as playlist ids are
+    /// never given out again; it is passed over if it is another kind now, which only a file from
+    /// before that can have.
+    pub(crate) fn place(
+        &mut self,
+        library: &mut Library,
+        existing: &[Playlist],
+        key: String,
+        name: &str,
+        kind: PlaylistKind,
+        parent: Option<i64>,
+    ) -> unsub_library::Result<(i64, bool)> {
+        let recorded = self.id(&key).and_then(|id| existing.iter().find(|playlist| playlist.id == id));
+        if let Some(found) = recorded.filter(|found| found.kind == kind) {
+            return Ok((found.id, false));
+        }
+        let created = library.create_playlist(name, kind, parent)?;
+        self.insert(key, created.id)?;
+        Ok((created.id, true))
     }
 }
 
@@ -86,20 +139,25 @@ pub struct ImportPreview {
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
-enum ImportStage {
+pub(crate) enum ImportStage {
     Reading,
     Locating,
     Adding,
     Merging,
+    /// The stages of bringing in a streaming service's export, which the LCD titles differently.
+    ReadingExport,
+    Matching,
+    Applying,
+    Plays,
 }
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ImportProgress {
-    stage: ImportStage,
-    done: usize,
+pub(crate) struct ImportProgress {
+    pub(crate) stage: ImportStage,
+    pub(crate) done: usize,
     /// Unknown while listing the folder or reading the library.
-    total: Option<usize>,
+    pub(crate) total: Option<usize>,
 }
 
 #[derive(Default, Serialize)]
@@ -286,37 +344,27 @@ fn import(
         failed,
         ..ImportSummary::default()
     };
-    let existing: Vec<i64> = library.playlists()?.into_iter().map(|p| p.id).collect();
+    let existing = library.playlists()?;
     // Parents come before children in the export, so a folder's id is known before its contents.
     for (done, playlist) in music.playlists.iter().enumerate() {
         progress(ImportProgress { stage: ImportStage::Merging, done, total: Some(music.playlists.len()) });
         let folder = matches!(playlist.kind, MusicPlaylistKind::Folder);
         let kind = if folder { PlaylistKind::Folder } else { PlaylistKind::Regular };
-        let parent = playlist.parent_persistent_id.as_ref().and_then(|p| mapping.ids.get(p)).copied();
-        let id = match mapping.ids.get(&playlist.persistent_id).filter(|id| existing.contains(id)) {
-            Some(&id) => {
-                library.rename_playlist(id, &playlist.name)?;
-                summary.playlists_updated += 1;
-                id
-            }
-            None => {
-                let created = library.create_playlist(&playlist.name, kind, parent)?;
-                mapping.insert(playlist.persistent_id.clone(), created.id)?;
-                summary.playlists_created += 1;
-                created.id
-            }
-        };
+        let parent = playlist.parent_persistent_id.as_ref().and_then(|p| mapping.id(p));
+        let (id, created) = mapping.place(library, &existing, playlist.persistent_id.clone(), &playlist.name, kind, parent)?;
+        if created {
+            summary.playlists_created += 1;
+        } else {
+            library.rename_playlist(id, &playlist.name)?;
+            summary.playlists_updated += 1;
+        }
         if folder {
             continue;
         }
         // Smart playlists arrive as their current members; Music's rule format isn't portable.
         let members: Vec<i64> = playlist.item_ids.iter().filter_map(|pid| ours.get(pid.as_str()).copied()).collect();
         summary.entries_skipped += playlist.item_ids.len() - members.len();
-        // Every member counts here, not just music, so the whole old list is cleared.
-        let query = TrackQuery { kind: None, playlist: Some(id), ..Default::default() };
-        let current = library.tracks(&query)?.len() as u32;
-        library.remove_from_playlist(id, &(0..current).collect::<Vec<_>>())?;
-        library.add_to_playlist(id, &members, None)?;
+        library.set_playlist_items(id, &members)?;
     }
     Ok(summary)
 }
@@ -360,7 +408,7 @@ fn report(app: &AppHandle, result: Result<ImportSummary, String>) {
     let _ = app.emit(library::CHANGED_EVENT, ());
 }
 
-fn emit_progress(app: &AppHandle, progress: Option<ImportProgress>) {
+pub(crate) fn emit_progress(app: &AppHandle, progress: Option<ImportProgress>) {
     let _ = app.emit(PROGRESS_EVENT, progress);
 }
 
@@ -730,9 +778,9 @@ mod tests {
         let nine = by_title("Song 9");
         assert_eq!((nine.play_count, nine.skip_count, nine.last_played, nine.rating, nine.enabled), (10, 3, Some(900), 80, true));
 
-        let road = mapping.ids["L1"];
+        let road = mapping.id("L1").unwrap();
         let playlists = library.playlists().unwrap();
-        assert_eq!(playlists.iter().find(|p| p.id == road).unwrap().parent_id, Some(mapping.ids["F1"]));
+        assert_eq!(playlists.iter().find(|p| p.id == road).unwrap().parent_id, Some(mapping.id("F1").unwrap()));
         let mut members: Vec<i64> =
             library.tracks(&TrackQuery { playlist: Some(road), ..everything.clone() }).unwrap().iter().map(|t| t.id).collect();
         members.sort_unstable();
@@ -881,6 +929,119 @@ mod tests {
             expected.sort();
             assert_eq!(paths, expected, "media folder {media:?}");
         }
+    }
+
+    #[test]
+    fn a_deleted_playlists_id_is_not_taken_by_the_next_playlist_so_the_next_run_makes_it_again() {
+        let mut library = Library::open_in_memory().unwrap();
+        let mut mapping = PlaylistMapping::default();
+        let music = library_with_playlists(vec![
+            playlist("L1", "Road", MusicPlaylistKind::Regular, None, &[]),
+            playlist("L2", "Other", MusicPlaylistKind::Regular, None, &[]),
+        ]);
+        import(&mut library, &music, &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+        let freed = mapping.id("L2").unwrap();
+        library.delete_playlist(freed).unwrap();
+        // A playlist made now would have taken the freed id if ids were given out again.
+        let mine = library.create_playlist("Mine", PlaylistKind::Regular, None).unwrap();
+        assert!(mine.id > freed);
+
+        let again = import(&mut library, &music, &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+
+        assert_eq!((again.playlists_created, again.playlists_updated), (1, 1));
+        assert_eq!(library.playlists().unwrap().iter().filter(|p| p.name == "Mine").count(), 1);
+        assert!(library.playlists().unwrap().iter().all(|p| p.id != freed));
+        assert!(mapping.id("L2").unwrap() > mine.id);
+    }
+
+    fn names(library: &Library) -> Vec<String> {
+        let mut names: Vec<String> = library.playlists().unwrap().into_iter().map(|p| p.name).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn playlists_and_folders_renamed_in_music_are_renamed_here_not_made_again() {
+        let mut library = Library::open_in_memory().unwrap();
+        let mut mapping = PlaylistMapping::default();
+        let called = |folder: &str, road: &str, inside: &str| {
+            library_with_playlists(vec![
+                playlist("F1", folder, MusicPlaylistKind::Folder, None, &[]),
+                playlist("L1", road, MusicPlaylistKind::Regular, None, &[]),
+                playlist("L2", inside, MusicPlaylistKind::Regular, Some("F1"), &[]),
+            ])
+        };
+        let before = names(&library);
+        import(&mut library, &called("Folder", "Road", "Inside"), &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+
+        let again = import(&mut library, &called("Folders", "Roads", "Outside"), &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+
+        assert_eq!((again.playlists_created, again.playlists_updated), (0, 3));
+        let added: Vec<String> = names(&library).into_iter().filter(|name| !before.contains(name)).collect();
+        assert_eq!(added, ["Folders", "Outside", "Roads"]);
+    }
+
+    #[test]
+    fn a_playlist_renamed_here_is_renamed_back_not_made_again() {
+        let mut library = Library::open_in_memory().unwrap();
+        let mut mapping = PlaylistMapping::default();
+        let music = library_with_playlists(vec![
+            playlist("F1", "Folder", MusicPlaylistKind::Folder, None, &[]),
+            playlist("L1", "Road", MusicPlaylistKind::Regular, None, &[]),
+        ]);
+        let before = names(&library);
+        import(&mut library, &music, &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+        library.rename_playlist(mapping.id("L1").unwrap(), "Mine").unwrap();
+        library.rename_playlist(mapping.id("F1").unwrap(), "My Folder").unwrap();
+
+        let again = import(&mut library, &music, &Located::default(), &mut mapping, &mut |_| {}).unwrap();
+
+        assert_eq!((again.playlists_created, again.playlists_updated), (0, 2));
+        let added: Vec<String> = names(&library).into_iter().filter(|name| !before.contains(name)).collect();
+        assert_eq!(added, ["Folder", "Road"]);
+    }
+
+    #[test]
+    fn files_from_before_and_the_short_lived_one_with_names_are_both_read_and_written_as_ids() {
+        let saved = TempDir::new().unwrap();
+        let path = saved.path().join("ImportedPlaylists.json");
+        let mut library = Library::open_in_memory().unwrap();
+        let music = library_with_playlists(vec![
+            playlist("F1", "Folder", MusicPlaylistKind::Folder, None, &[]),
+            playlist("L1", "Road", MusicPlaylistKind::Regular, Some("F1"), &[]),
+            playlist("L2", "Top", MusicPlaylistKind::Regular, None, &[]),
+        ]);
+        let mut first = PlaylistMapping::default();
+        import(&mut library, &music, &Located::default(), &mut first, &mut |_| {}).unwrap();
+        let (folder, road, top) = (first.id("F1").unwrap(), first.id("L1").unwrap(), first.id("L2").unwrap());
+        let named = |id: i64, name: &str| serde_json::json!({"id": id, "name": name});
+        let shapes = [
+            serde_json::json!({"F1": folder, "L1": road, "L2": top}),
+            serde_json::json!({"F1": named(folder, "Folder"), "L1": named(road, "Road"), "L2": named(top, "Top")}),
+        ];
+
+        for shape in shapes {
+            std::fs::write(&path, shape.to_string()).unwrap();
+            let again = import(&mut library, &music, &Located::default(), &mut PlaylistMapping::load(&path), &mut |_| {}).unwrap();
+            assert_eq!((again.playlists_created, again.playlists_updated), (0, 3), "{shape}");
+        }
+
+        // A record of the wrong kind (a folder's id for a playlist) is passed over and replaced.
+        std::fs::write(&path, serde_json::json!({"F1": folder, "L1": road, "L2": folder}).to_string()).unwrap();
+        let replaced = import(&mut library, &music, &Located::default(), &mut PlaylistMapping::load(&path), &mut |_| {}).unwrap();
+        assert_eq!((replaced.playlists_created, replaced.playlists_updated), (1, 2));
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["F1"], folder);
+        assert_ne!(saved["L2"], folder);
+        assert!(saved["L2"].is_number());
+    }
+
+    #[test]
+    fn playlist_names_are_compared_without_case_accents_or_punctuation() {
+        assert_eq!(name_key("Mr. Brightside Mix"), name_key("mr_brightside_mix"));
+        assert_eq!(name_key("Café  Süd"), "cafe sud");
+        assert_ne!(name_key("Road Trip"), name_key("Road Trip 2"));
+        assert_eq!(name_key("!!!"), "!!!");
     }
 
     #[test]

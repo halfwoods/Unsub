@@ -5751,6 +5751,7 @@ dependencies = [
  "unsub-cast",
  "unsub-cdrip",
  "unsub-devicesync",
+ "unsub-elsewhere",
  "unsub-ipod",
  "unsub-library",
  "unsub-playback",
@@ -5760,6 +5761,7 @@ dependencies = [
  "unsub-remote",
  "unsub-subsonic",
  "unsub-visualize",
+ "zip 9.0.5",
 ]
 
 [[package]]
@@ -5824,6 +5826,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "unsub-elsewhere"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "walkdir",
 ]
 
 [[package]]
