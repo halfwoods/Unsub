@@ -22,14 +22,21 @@ jobs:
           [ -n "$KEY" ] || { echo "::error::PODCASTINDEX_API_KEY is empty"; exit 1; }
           [ -n "$SECRET" ] || { echo "::error::PODCASTINDEX_API_SECRET is empty"; exit 1; }
           # Podcast Index signs each request with sha1(key + secret + unix time), valid for minutes.
-          now=$(date +%s)
-          auth=$(printf '%s%s%s' "$KEY" "$SECRET" "$now" | sha1sum | cut -d' ' -f1)
-          code=$(curl --silent --max-time 30 --output reply.json --write-out '%{http_code}' \
-            -H "User-Agent: Unsub/key-check" -H "X-Auth-Key: $KEY" -H "X-Auth-Date: $now" \
-            -H "Authorization: $auth" \
-            "https://api.podcastindex.org/api/1.0/search/byterm?q=history&max=5")
-          echo "Podcast Index answered HTTP $code with $(jq -r '.count // 0' reply.json 2>/dev/null || echo 0) results"
-          if [ "$code" != 200 ]; then
-            echo "::error::The key and secret were refused: $(jq -r '.description // empty' reply.json 2>/dev/null)"
-            exit 1
-          fi
+          ask() {
+            now=$(date +%s)
+            auth=$(printf '%s%s%s' "$KEY" "$SECRET" "$now" | sha1sum | cut -d' ' -f1)
+            curl --silent --max-time 30 --output reply.json --write-out '%{http_code}' \
+              -H "User-Agent: Unsub/key-check" -H "X-Auth-Key: $KEY" -H "X-Auth-Date: $now" \
+              -H "Authorization: $auth" "https://api.podcastindex.org/api/1.0/$1"
+          }
+          # Each endpoint the app uses, with the shape of its first result: field names only.
+          for path in "search/byterm?q=history&max=5" "podcasts/trending?max=5&cat=Technology" "categories/list"; do
+            code=$(ask "$path")
+            echo "Podcast Index answered HTTP $code for ${path%%\?*} with $(jq -r '.count // 0' reply.json 2>/dev/null || echo 0) results"
+            if [ "$code" != 200 ]; then
+              echo "::error::The key and secret were refused: $(jq -r '.description // empty' reply.json 2>/dev/null)"
+              exit 1
+            fi
+            echo "  reply fields: $(jq -c 'keys' reply.json)"
+            echo "  first result: $(jq -c '(.feeds // [])[0] // {} | with_entries(.value |= type)' reply.json)"
+          done
