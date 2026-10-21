@@ -3,7 +3,7 @@ name: CI
 # Nothing in the build or the tests reads these paths, so a docs-only change skips the three-platform run.
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
