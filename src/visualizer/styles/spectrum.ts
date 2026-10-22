@@ -28,7 +28,7 @@ const PASSES = [-1, 0, -1, 1, 1, 0, 1, 1];
 const BACKGROUND_FS = `${VERSION}
 ${COMMON_GLSL}
 uniform vec3 uTop, uUpper, uLower, uBottom;
-uniform float uHorizon, uDark;
+uniform float uHorizon, uDark, uBeat;
 in vec2 vUv;
 out vec4 o;
 void main() {
@@ -37,7 +37,7 @@ void main() {
   vec3 upper = mix(uTop, uUpper, smoothstep(1.0, uHorizon, y));
   vec3 lower = mix(uLower, uBottom, smoothstep(uHorizon, 0.0, y));
   vec3 c = y > uHorizon ? upper : lower;
-  c += (uDark > 0.5 ? 0.03 : 0.025) * exp(-abs(y - uHorizon) * 60.0);
+  c += (uDark > 0.5 ? 0.03 : 0.025) * (1.0 + 2.0 * uBeat) * exp(-abs(y - uHorizon) * 60.0);
   vec2 q = vUv - 0.5;
   c *= 1.0 - dot(q, q) * (uDark > 0.5 ? 0.9 : 0.35);
   o = vec4(c, 1.0);
@@ -45,12 +45,13 @@ void main() {
 
 const BAR_VS = `${VERSION}
 uniform sampler2D uAudio;
-uniform float uHorizon, uMaxHeight, uMargin, uFill, uFlip, uCap, uPad;
+uniform float uHorizon, uMaxHeight, uMargin, uFill, uFlip, uCap, uPad, uPulse;
 flat out vec4 vBox;   // half width, bottom, top, level; heights are up from the baseline
 out vec2 vLocal;      // x from the bar's centre, y up from the baseline
 void main() {
   int i = gl_InstanceID;
-  float level = texelFetch(uAudio, ivec2(i, uCap > 0.5 ? 3 : 2), 0).r;
+  // The bass bars jump a little on every kick, the treble ones not at all.
+  float level = texelFetch(uAudio, ivec2(i, uCap > 0.5 ? 3 : 2), 0).r * (1.0 + 0.14 * uPulse * (1.0 - float(i) / 63.0));
   float slot = (2.0 - 2.0 * uMargin) / 64.0;
   float cx = -1.0 + uMargin + slot * (float(i) + 0.5);
   float hw = slot * 0.5 * uFill;
@@ -65,7 +66,7 @@ void main() {
 
 const BAR_FS = `${VERSION}
 uniform vec3 uInk, uInkTop;
-uniform float uFlip, uCap, uDark, uMaxHeight;
+uniform float uFlip, uCap, uDark, uMaxHeight, uSpark;
 flat in vec4 vBox;
 in vec2 vLocal;
 out vec4 o;
@@ -82,11 +83,11 @@ void main() {
   float a = smoothstep(px, -px, d);
   float h = clamp(vLocal.y / uMaxHeight, 0.0, 1.0);
   vec3 c = uCap > 0.5 ? uInkTop : mix(uInk, uInkTop, smoothstep(0.0, 0.85, h));
-  // A soft highlight down the left of each bar.
-  float shine = smoothstep(1.0, -1.0, vLocal.x / vBox.x) * 0.1;
+  // A soft highlight down the left of each bar, brighter on a sudden sound.
+  float shine = smoothstep(1.0, -1.0, vLocal.x / vBox.x) * (0.1 + 0.12 * uSpark);
   c += uDark > 0.5 ? vec3(shine * 0.5) : vec3(shine);
   if (uDark > 0.5) {
-    float halo = exp(-max(d, 0.0) * 70.0) * (0.25 + 0.45 * vBox.w);
+    float halo = exp(-max(d, 0.0) * 70.0) * (0.25 + 0.45 * vBox.w + 0.35 * uSpark);
     a = max(a, halo * (uCap > 0.5 ? 0.9 : 0.55));
   }
   if (uFlip < 0.0) {
@@ -99,7 +100,9 @@ void main() {
 
 /**
  * Sixty-four bars with peak caps that fall under gravity, standing on a line with a mirrored
- * reflection, on the cream glass of the iTunes 10 display, or a dark version of it.
+ * reflection, on the cream glass of the iTunes 10 display, or a dark version of it. The bars are
+ * the spectrum itself; on top of that the bass bars jump on each kick and the seam flares, the
+ * bars grow wider with the loudness, and sudden sounds light the bars.
  */
 export class SpectrumStyle implements StyleRenderer {
   private readonly background: Program;
@@ -117,6 +120,7 @@ export class SpectrumStyle implements StyleRenderer {
     const colors = info.palette === "dark" ? DARK : CREAM;
     const dark = info.palette === "dark" ? 1 : 0;
     const horizon = 0.4;
+    const { audio } = info;
     scene.bind();
     gl.bindVertexArray(emptyVao);
 
@@ -127,6 +131,7 @@ export class SpectrumStyle implements StyleRenderer {
     gl.uniform3fv(this.background.u("uBottom"), colors.bottom);
     gl.uniform1f(this.background.u("uHorizon"), horizon);
     gl.uniform1f(this.background.u("uDark"), dark);
+    gl.uniform1f(this.background.u("uBeat"), audio.beat);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     this.bars.use();
@@ -136,7 +141,9 @@ export class SpectrumStyle implements StyleRenderer {
     // Bars fill the height above the line, leaving room at the top.
     gl.uniform1f(this.bars.u("uMaxHeight"), (1 - horizon) * 2 * 0.86);
     gl.uniform1f(this.bars.u("uMargin"), 0.06);
-    gl.uniform1f(this.bars.u("uFill"), 0.68);
+    gl.uniform1f(this.bars.u("uFill"), 0.62 + 0.1 * audio.energy);
+    gl.uniform1f(this.bars.u("uPulse"), Math.min(1, audio.kick + 0.6 * audio.thump));
+    gl.uniform1f(this.bars.u("uSpark"), audio.spark);
     gl.uniform1f(this.bars.u("uDark"), dark);
     gl.uniform3fv(this.bars.u("uInk"), colors.ink);
     gl.uniform3fv(this.bars.u("uInkTop"), colors.inkTop);

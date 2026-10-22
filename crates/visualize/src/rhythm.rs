@@ -1,23 +1,25 @@
-//! Beat and tempo, both read from the stream of spectral-flux values the spectrum produces, one
-//! per frame.
+//! Beat and tempo, both read from the stream of accents the spectrum produces, one per frame.
 
 use crate::ring::Ring;
 
-/// A beat needs bass flux this many standard deviations above its recent mean...
-const BEAT_SIGMAS: f32 = 1.5;
-/// ...and never less than this, so a faint wobble in near-silence is not a beat.
-const BEAT_MIN_FLUX: f32 = 0.10;
-/// How much recent bass flux the threshold adapts to.
+/// A beat needs an accent this many standard deviations above its recent mean...
+const BEAT_SIGMAS: f32 = 2.0;
+/// ...and never less than this: about 3.5 dB across every band at once, which is above the
+/// flicker of even steady noise (its accents reach 0.045), and below a kick under a bass line
+/// or a snare.
+const BEAT_MIN_FLUX: f32 = 0.05;
+/// How much recent accent the threshold adapts to.
 const BEAT_HISTORY_SECONDS: f32 = 1.0;
 /// Two beats are never closer than this (a limit of about 400 BPM).
 const BEAT_MIN_GAP_SECONDS: f32 = 0.15;
 
-/// Picks beats out of the bass flux: a local peak that stands well above the average of the last
-/// second. A peak is only known once the next frame has arrived, so a beat is reported one frame
-/// after the frame it belongs to.
+/// Picks beats out of the accents: a local peak that stands well above the average of the last
+/// second. Any sudden hit counts, not only a kick: a bass line sits on a kick and hides it from
+/// the bass alone, while a hit shows across the whole spectrum. A peak is only known once the
+/// next frame has arrived, so a beat is reported one frame after the frame it belongs to.
 pub(crate) struct BeatDetector {
     history: Ring<f32>,
-    /// The flux of the last two frames, oldest first.
+    /// The accent of the last two frames, oldest first.
     last: [f32; 2],
     quiet_for: f32,
     seconds_per_frame: f32,
@@ -42,16 +44,16 @@ impl BeatDetector {
         self.quiet_for = 0.0;
     }
 
-    /// Takes the newest frame's bass flux. Returns the strength (0..1) of a beat on the frame
+    /// Takes the newest frame's accent. Returns the strength (0..1) of a beat on the frame
     /// before it, if there was one.
-    pub(crate) fn push(&mut self, flux: f32) -> Option<f32> {
+    pub(crate) fn push(&mut self, accent: f32) -> Option<f32> {
         let [before, candidate] = self.last;
-        self.last = [candidate, flux];
+        self.last = [candidate, accent];
         self.history.push(candidate);
         self.quiet_for -= self.seconds_per_frame;
 
         let threshold = self.threshold();
-        let is_peak = candidate >= before && candidate > flux;
+        let is_peak = candidate >= before && candidate > accent;
         (is_peak && candidate > threshold && self.quiet_for <= 0.0).then(|| {
             self.quiet_for = BEAT_MIN_GAP_SECONDS - self.seconds_per_frame;
             (1.0 - threshold / candidate).clamp(0.0, 1.0)
@@ -88,7 +90,7 @@ const TEMPO_HALF_PERIOD_RATIO: f32 = 0.75;
 const TEMPO_AGREEMENT: f32 = 0.025;
 const TEMPO_AGREE_COUNT: usize = 3;
 
-/// Finds the tempo by autocorrelating the flux over the last few seconds, and reports it only
+/// Finds the tempo by autocorrelating the accents over the last few seconds, and reports it only
 /// after several estimates in a row agree.
 pub(crate) struct TempoEstimator {
     flux: Ring<f32>,
@@ -120,9 +122,9 @@ impl TempoEstimator {
         self.since_estimate = 0;
     }
 
-    /// Takes the newest frame's flux; returns the tempo if it has settled.
-    pub(crate) fn push(&mut self, flux: f32) -> Option<f32> {
-        self.flux.push(flux);
+    /// Takes the newest frame's accent; returns the tempo if it has settled.
+    pub(crate) fn push(&mut self, accent: f32) -> Option<f32> {
+        self.flux.push(accent);
         self.since_estimate += 1;
         if self.since_estimate >= self.every {
             self.since_estimate = 0;
@@ -153,6 +155,11 @@ impl TempoEstimator {
     fn estimate(&mut self) -> Option<f32> {
         let count = self.flux.len();
         if (count as f32) < TEMPO_MIN_SECONDS * self.frames_per_second {
+            return None;
+        }
+        // A sound with no jump in it big enough to be a beat has no tempo, however regular the
+        // ripples in it are.
+        if self.flux.iter().all(|&flux| flux < BEAT_MIN_FLUX) {
             return None;
         }
         let mean = self.flux.iter().sum::<f32>() / count as f32;

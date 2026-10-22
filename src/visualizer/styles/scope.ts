@@ -14,8 +14,12 @@ import type { RenderInfo, ScopeMode, StyleRenderer } from "../styles";
 const MAX_WIDTH = 1920;
 /** Samples of the waveform shown across a trace: a window that starts at the trigger. */
 const TRACE_SAMPLES = 128;
-/** How long a trace takes to fade to a thousandth of itself: the screen's persistence. */
-const PERSISTENCE_S = 0.5;
+/**
+ * How long a trace takes to fade to a thousandth of itself: the screen's persistence. Long in a
+ * quiet passage, where the beam leaves a slow afterglow, and short in a loud one, which is busy.
+ */
+const CALM_PERSISTENCE_S = 0.85;
+const LOUD_PERSISTENCE_S = 0.35;
 const MODE_FADE_S = 0.35;
 
 const DECAY_FS = `${VERSION}
@@ -108,7 +112,7 @@ const PRESENT_FS = `${VERSION}
 ${COMMON_GLSL}
 uniform sampler2D uTex;
 uniform vec2 uAspect, uTexel;
-uniform float uGridGain;
+uniform float uGridGain, uHalo;
 in vec2 vUv;
 out vec4 o;
 
@@ -124,7 +128,7 @@ void main() {
     float a = float(i) * TAU / 8.0;
     halo += texture(uTex, vUv + vec2(cos(a), sin(a)) * uTexel * 5.0).rgb;
   }
-  c += halo * 0.07;
+  c += halo * uHalo;
   c = 1.0 - exp(-c * 1.5);
   vec2 p = (vUv - 0.5) * uAspect * 2.0;
   float lines = grid(p * 0.5, 8.0) * 0.5 + grid(p * 0.5, 40.0) * 0.12;
@@ -141,7 +145,8 @@ void main() {
  * An oscilloscope with a long-persistence green phosphor: the two channels as traces that wait
  * for a rising edge so they hold still, the left against the right as a Lissajous figure, or both.
  * Lines are drawn into a buffer that fades slowly instead of clearing, which is where the glow
- * and the afterimage come from.
+ * and the afterimage come from. The beam is brighter, thicker and quicker to fade the louder the
+ * music is, and bounces taller on each kick.
  */
 export class ScopeStyle implements StyleRenderer {
   private readonly decay: Program;
@@ -193,14 +198,18 @@ export class ScopeStyle implements StyleRenderer {
     bindTexture(gl, 0, screen.read.texture);
     gl.uniform1i(this.decay.u("uPrev"), 0);
     gl.uniform2f(this.decay.u("uTexel"), 1 / screen.width, 1 / screen.height);
-    gl.uniform1f(this.decay.u("uDecay"), Math.pow(0.001, dt / PERSISTENCE_S));
+    const persistence = CALM_PERSISTENCE_S + (LOUD_PERSISTENCE_S - CALM_PERSISTENCE_S) * audio.energy;
+    gl.uniform1f(this.decay.u("uDecay"), Math.pow(0.001, dt / persistence));
     gl.uniform1f(this.decay.u("uFloor"), this.host.feedbackIs8Bit ? 2 / 255 : 0.0003);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     // 2. Draw the beam.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    const loud = 0.8 + 0.5 * audio.rms;
+    const loud = 0.55 + 0.55 * audio.energy + 0.35 * audio.kick + 0.3 * audio.spark;
+    // The beam is thicker and bounces taller with the loudness and on each kick.
+    const thick = 1 + 0.5 * audio.energy + 0.8 * audio.kick;
+    const bounce = 0.85 + 0.2 * audio.kick + 0.1 * audio.thump;
     let peak = 0;
     for (let i = 0; i < WAVEFORM_LENGTH; i++) {
       peak = Math.max(peak, Math.abs(audio.waveL[i]), Math.abs(audio.waveR[i]));
@@ -212,8 +221,8 @@ export class ScopeStyle implements StyleRenderer {
       const trigger = risingEdge(audio.waveL);
       const x1 = mode === "both" ? aspect * 0.94 : aspect * 0.92;
       const x0 = mode === "both" ? 0.08 : -aspect * 0.92;
-      this.drawTrace(0, trigger, aspect, x0, x1, 0.46, 0.3 * zoom, this.green, loud * this.waveGain);
-      this.drawTrace(1, trigger, aspect, x0, x1, -0.46, 0.3 * zoom, this.green, loud * this.waveGain);
+      this.drawTrace(0, trigger, aspect, x0, x1, 0.46, 0.3 * zoom * bounce, thick, this.green, loud * this.waveGain);
+      this.drawTrace(1, trigger, aspect, x0, x1, -0.46, 0.3 * zoom * bounce, thick, this.green, loud * this.waveGain);
     }
     if (this.xyGain > 0.01) {
       this.xy.use();
@@ -222,8 +231,8 @@ export class ScopeStyle implements StyleRenderer {
       gl.uniform2f(this.xy.u("uAspect"), aspect, 1);
       const both = mode === "both";
       gl.uniform2f(this.xy.u("uCentre"), both ? -aspect * 0.46 : 0, 0);
-      gl.uniform1f(this.xy.u("uScale"), (both ? 0.78 : 0.9) * Math.min(zoom, 1.9));
-      gl.uniform1f(this.xy.u("uWidth"), 0.0042);
+      gl.uniform1f(this.xy.u("uScale"), (both ? 0.78 : 0.9) * Math.min(zoom, 1.9) * (0.95 + 0.1 * audio.kick + 0.05 * audio.thump));
+      gl.uniform1f(this.xy.u("uWidth"), 0.0035 * thick);
       gl.uniform3fv(this.xy.u("uColor"), this.cyan);
       gl.uniform1f(this.xy.u("uGain"), 0.9 * loud * this.xyGain);
       gl.uniform1f(this.xy.u("uSpeedKnee"), 0.012);
@@ -239,7 +248,8 @@ export class ScopeStyle implements StyleRenderer {
     gl.uniform1i(this.present.u("uTex"), 0);
     gl.uniform2f(this.present.u("uAspect"), aspect, 1);
     gl.uniform2f(this.present.u("uTexel"), 1 / screen.width, 1 / screen.height);
-    gl.uniform1f(this.present.u("uGridGain"), 0.6);
+    gl.uniform1f(this.present.u("uGridGain"), 0.5 + 0.35 * audio.beat);
+    gl.uniform1f(this.present.u("uHalo"), 0.05 + 0.04 * audio.energy + 0.05 * audio.spark);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -251,6 +261,7 @@ export class ScopeStyle implements StyleRenderer {
     x1: number,
     y: number,
     amp: number,
+    thick: number,
     color: Float32Array,
     gain: number,
   ): void {
@@ -265,7 +276,7 @@ export class ScopeStyle implements StyleRenderer {
     gl.uniform1f(this.trace.u("uX1"), x1);
     gl.uniform1f(this.trace.u("uY"), y);
     gl.uniform1f(this.trace.u("uAmp"), amp);
-    gl.uniform1f(this.trace.u("uWidth"), 0.0045);
+    gl.uniform1f(this.trace.u("uWidth"), 0.0038 * thick);
     gl.uniform3fv(this.trace.u("uColor"), color);
     gl.uniform1f(this.trace.u("uGain"), gain);
     gl.uniform1f(this.trace.u("uSpeedKnee"), 0);

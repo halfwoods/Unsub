@@ -16,8 +16,11 @@ import type { Palette, RenderInfo, ScopeMode, StyleRenderer, VisualizerStyle } f
 import { AlbumStyle } from "./styles/album";
 import { ClassicStyle } from "./styles/classic";
 import { LightsStyle } from "./styles/lights";
+import { LinesStyle } from "./styles/lines";
+import { PipesStyle } from "./styles/pipes";
 import { ScopeStyle } from "./styles/scope";
 import { SpectrumStyle } from "./styles/spectrum";
+import { StarfieldStyle } from "./styles/starfield";
 
 /** How long, in seconds of animation, a style that is no longer shown keeps its GPU memory. */
 const STYLE_KEPT_FOR_S = 30;
@@ -87,7 +90,7 @@ export interface EngineStats {
   luminance: number;
 }
 
-/** WebGL2 renderer for the five styles. Owns the context's resources; `dispose` releases them. */
+/** WebGL2 renderer for the styles. Owns the context's resources; `dispose` releases them. */
 export class VisualizerEngine {
   static tryCreate(canvas: HTMLCanvasElement): VisualizerEngine | null {
     const gl = canvas.getContext("webgl2", {
@@ -324,13 +327,18 @@ export class VisualizerEngine {
   }
 
   private host(): StyleHost {
-    const scene = this.scene;
-    if (!scene) throw new Error("no scene");
+    const current = (): RenderTarget => {
+      if (!this.scene) throw new Error("no scene");
+      return this.scene;
+    };
     return {
       gl: this.gl,
       emptyVao: this.emptyVao,
       audioTexture: this.audioTexture,
-      scene,
+      // The scene is made again whenever the size changes, and a style lives through that.
+      get scene() {
+        return current();
+      },
       feedbackFormat: this.feedbackFormat,
       feedbackIs8Bit: this.feedbackIs8Bit,
       artwork: this.artwork,
@@ -350,6 +358,12 @@ function createStyle(id: VisualizerStyle, host: StyleHost): StyleRenderer {
       return new ScopeStyle(host);
     case "album":
       return new AlbumStyle(host);
+    case "pipes":
+      return new PipesStyle(host);
+    case "starfield":
+      return new StarfieldStyle(host);
+    case "lines":
+      return new LinesStyle(host);
   }
 }
 

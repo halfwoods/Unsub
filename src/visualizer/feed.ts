@@ -41,6 +41,21 @@ export interface MockFeedOptions {
   bpm?: number;
   /** Frames a second. */
   fps?: number;
+  /**
+   * Plays a 24-second arrangement instead of one steady groove: a quiet start, a loud middle and a
+   * breakdown with no drums, to see the pictures calm down and pick up.
+   */
+  arranged?: boolean;
+}
+
+/** How full the arrangement is at `t` seconds: 0.2 in the quiet parts, 1 in the loud one. */
+function fullness(t: number): number {
+  const phase = t % 24;
+  const ramp = (from: number, to: number) => {
+    const x = Math.min(1, Math.max(0, (phase - from) / (to - from)));
+    return x * x * (3 - 2 * x);
+  };
+  return 0.2 + 0.8 * ramp(3, 5) * (1 - ramp(17, 19));
 }
 
 /**
@@ -51,12 +66,14 @@ export interface MockFeedOptions {
 export class MockFeed implements VisualizerFeed {
   private readonly listeners = new Set<(frame: VisualizerFrame) => void>();
   private readonly bpm: number;
+  private readonly arranged: boolean;
   private readonly interval: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private startedAt = 0;
 
   constructor(options: MockFeedOptions = {}) {
     this.bpm = options.bpm ?? 120;
+    this.arranged = options.arranged ?? false;
     this.interval = 1000 / (options.fps ?? 60);
   }
 
@@ -99,12 +116,15 @@ export class MockFeed implements VisualizerFeed {
     const phase = beats - beatIndex;
     // A beat is on the frame in which the beat counter ticks over.
     const before = Math.floor((((tMs - this.interval) / 1000) * this.bpm) / 60);
-    const isBeat = beatIndex !== before;
+    const full = this.arranged ? fullness(t) : 1;
+    // The drums come in as the arrangement fills.
+    const drums = this.arranged ? Math.min(1, Math.max(0, (full - 0.5) / 0.3)) : 1;
+    const isBeat = beatIndex !== before && drums > 0.5;
     const accent = beatIndex % 4 === 0 ? 1 : 0.7;
-    const kick = Math.exp(-phase * 5) * accent;
+    const kick = Math.exp(-phase * 5) * accent * drums;
     // Hi-hats on the off-beats.
     const offPhase = (phase + 0.5) % 1;
-    const hat = Math.exp(-offPhase * 14) * 0.6;
+    const hat = Math.exp(-offPhase * 14) * 0.6 * drums;
 
     const bands: number[] = new Array<number>(BAND_COUNT);
     const peaks: number[] = new Array<number>(BAND_COUNT);
@@ -116,7 +136,7 @@ export class MockFeed implements VisualizerFeed {
       const bass = f < 0.18 ? kick * (1 - f / 0.18) : 0;
       const air = f > 0.7 ? hat * ((f - 0.7) / 0.3) : 0;
       const grain = 0.04 * Math.sin(t * 37 + i * 12.9898);
-      const value = tilt * (0.25 + 0.45 * drift * wander) + bass * 0.65 + air * 0.5 + grain;
+      const value = tilt * (0.25 + 0.45 * drift * wander) * (0.4 + 0.6 * full) + bass * 0.65 + air * 0.5 + grain;
       bands[i] = Math.min(1, Math.max(0, value));
       peaks[i] = Math.min(1, bands[i] + 0.05 + 0.05 * drift);
     }
@@ -126,7 +146,7 @@ export class MockFeed implements VisualizerFeed {
     const cycles = note / 110;
     const left: number[] = new Array<number>(WAVEFORM_LENGTH);
     const right: number[] = new Array<number>(WAVEFORM_LENGTH);
-    const amp = 0.25 + 0.5 * (0.35 + kick * 0.65);
+    const amp = (0.25 + 0.5 * (0.35 + kick * 0.65)) * (0.4 + 0.6 * full);
     for (let k = 0; k < WAVEFORM_LENGTH; k++) {
       const x = k / WAVEFORM_LENGTH;
       const base = x * Math.PI * 2 * cycles * 4 + t * 3;
@@ -147,7 +167,7 @@ export class MockFeed implements VisualizerFeed {
       peaks,
       waveformL: left,
       waveformR: right,
-      rms: Math.min(1, 0.14 + 0.3 * kick + 0.1 * hat),
+      rms: Math.min(1, (0.14 + 0.3 * kick + 0.1 * hat) * (0.1 + 0.9 * full ** 1.5)),
       beat: isBeat,
       beatStrength: isBeat ? accent : 0,
       onset: Math.min(1, kick * 0.8 + hat * 0.5),

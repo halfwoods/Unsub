@@ -3,14 +3,19 @@
  *
  * `pnpm dev`, then open /src/visualizer/preview.html. Addresses it understands:
  *
- *   ?style=classic|lights|spectrum|scope|album   which style to start on
+ *   ?style=classic|lights|spectrum|scope|album|pipes|starfield|lines   which style to start on
  *   ?palette=cream|dark   ?scope=wave|xy|both   ?limit=0   ?info=1   ?bpm=120   ?art=0
+ *   ?arranged=1           play a 24-second arrangement (quiet start, loud middle, drumless
+ *                         breakdown) instead of one steady groove, to see calm and lively
  *   ?seconds=8            run that many seconds at once on a hand-driven clock, then hold still
  *                         (for screenshots); the page sets data-ready="true" on <body> when done
  *   ?size=2560x1440       draw at exactly this many pixels
  *   ?bench=1              time every style at the size above (default 2560x1440) and print JSON
  *   ?flashcheck=1         feed a violent strobe to every style, with the flash limiter off and on,
  *                         and count flashes in the pictures that come out; prints JSON
+ *   ?music=1              with ?flashcheck, use the mock music instead of the strobe, to see how
+ *                         much ordinary music makes the pictures flash
+ *   ?only=pipes,lines     limit ?bench, ?flashcheck and ?alloc to these styles
  *   ?alloc=1              count what drawing allocates (run Chrome with --js-flags="--expose-gc
  *                         --min-semi-space-size=128" and --enable-precise-memory-info)
  *   ?nogl=1               pretend WebGL2 is missing, to see the 2D fallback
@@ -106,6 +111,12 @@ function isStyle(value: string | null): value is VisualizerStyle {
   return VISUALIZER_STYLES.some((style) => style === value);
 }
 
+/** The styles the scripted runs go through: those named by `?only`, or all. */
+function scriptedStyles(): readonly VisualizerStyle[] {
+  const named = (params.get("only") ?? "").split(",").filter(isStyle);
+  return named.length > 0 ? named : VISUALIZER_STYLES;
+}
+
 function parseSize(value: string | null): { width: number; height: number } | undefined {
   const match = /^(\d+)x(\d+)$/.exec(value ?? "");
   return match ? { width: Number(match[1]), height: Number(match[2]) } : undefined;
@@ -159,11 +170,14 @@ function Preview() {
   const alloc = params.get("alloc") === "1";
   const manual = seconds > 0 || bench || flashCheck || alloc;
   const [strobe, setStrobe] = useState(params.get("strobe") === "1");
+  const [closed, setClosed] = useState(false);
 
   const clock = useMemo(() => (manual ? new ManualClock() : undefined), [manual]);
+  const arranged = params.get("arranged") === "1";
+  const music = params.get("music") === "1";
   const feed = useMemo<MockFeed | StrobeFeed | RepeatFeed>(
-    () => (alloc ? new RepeatFeed() : flashCheck || strobe ? new StrobeFeed() : new MockFeed({ bpm })),
-    [bpm, strobe, flashCheck, alloc],
+    () => (alloc ? new RepeatFeed() : (flashCheck && !music) || strobe ? new StrobeFeed() : new MockFeed({ bpm, arranged })),
+    [bpm, arranged, strobe, flashCheck, music, alloc],
   );
   const covers = useMemo(() => SONGS.map((_, i) => makeCover(i + 1)), []);
   const song: NowPlaying = {
@@ -207,6 +221,8 @@ function Preview() {
     }, 50);
   };
 
+  if (closed) return <p style={{ color: "#ddd", font: "14px sans-serif", margin: 16 }}>Closed with Esc. Reload to bring it back.</p>;
+
   return (
     <>
       <Visualizer
@@ -221,6 +237,7 @@ function Preview() {
         forceSize={size ?? (bench ? { width: 2560, height: 1440 } : undefined)}
         onRuntime={onRuntime}
         showInfo={params.get("info") === "1"}
+        onClose={() => setClosed(true)}
         onToggleFullscreen={() => {
           if (document.fullscreenElement) void document.exitFullscreen();
           else void document.documentElement.requestFullscreen();
@@ -264,7 +281,7 @@ function Preview() {
             <label>
               tempo {bpm} <input type="range" min={60} max={480} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
             </label>
-            <span>&larr; &rarr; style &nbsp; F full screen &nbsp; M info</span>
+            <span>&larr; &rarr; style &nbsp; F full screen &nbsp; M info &nbsp; Esc close</span>
           </div>
         </div>
       )}
@@ -333,7 +350,7 @@ async function runScripted(
     const gc = (window as unknown as { gc?: () => void }).gc;
     const memory = () => (performance as unknown as { memory: { usedJSHeapSize: number } }).memory.usedJSHeapSize;
     const results: Record<string, unknown> = { gcAvailable: typeof gc === "function" };
-    for (const id of VISUALIZER_STYLES) {
+    for (const id of scriptedStyles()) {
       for (const limit of [false, true]) {
         runtime.setOptions({ style: id, limitFlashing: limit });
         steps(200); // warm up: compile shaders, grow buffers
@@ -382,7 +399,7 @@ async function runScripted(
     const results: Record<string, unknown> = {
       note: "changes of 10% or more of relative luminance, the most in any second; 6 is three flashes",
     };
-    for (const id of VISUALIZER_STYLES) {
+    for (const id of scriptedStyles()) {
       for (const palette of id === "spectrum" ? (["cream", "dark"] as const) : (["cream"] as const)) {
         for (const limit of [false, true]) {
           runtime.setOptions({ style: id, limitFlashing: limit, palette });
@@ -415,7 +432,7 @@ async function runScripted(
     userAgent: navigator.userAgent,
   };
   const frames = 240;
-  for (const id of VISUALIZER_STYLES) {
+  for (const id of scriptedStyles()) {
     for (const limit of [false, true]) {
       runtime.setOptions({ style: id, limitFlashing: limit });
       for (let i = 0; i < 120; i++) {

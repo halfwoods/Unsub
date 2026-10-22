@@ -13,8 +13,9 @@ const COVER_SIZE = 1024;
 
 /**
  * The visualizer in the app: it covers the window's body, leaving the toolbar and LCD, and fills
- * the screen with F, Esc going back. Showing it starts the backend's analysis and hiding it stops
- * it, so the microphone is only ever open while it is on screen.
+ * the screen with F. Esc closes it, and puts the window back if F had filled the screen. Showing
+ * it starts the backend's analysis and hiding it stops it, so the microphone is only ever open
+ * while it is on screen.
  */
 export function VisualizerPane() {
   const { style, limitFlashing, microphone, microphoneDevice } = useApp((s) => s.visualizer);
@@ -61,7 +62,7 @@ export function VisualizerPane() {
     return () => void resized.then((unlisten) => unlisten());
   }, [fullscreen]);
 
-  // Hiding the visualizer puts the window back as it was.
+  // Hiding the visualizer, with Esc or the menu, puts the window back as it was.
   useEffect(
     () => () => {
       if (enteredFullscreen.current) void appWindow.setFullscreen(false);
@@ -78,16 +79,6 @@ export function VisualizerPane() {
     });
     return () => void ended.then((unlisten) => unlisten());
   }, [showNotice, setVisualizer]);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !fullscreen) return;
-      event.preventDefault();
-      void showFullscreen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [fullscreen]);
 
   // Minimized or covered, nobody sees the picture, so the analysis (and the microphone) rests.
   useEffect(() => {
@@ -117,6 +108,7 @@ export function VisualizerPane() {
         onStyleChange={(next) => !castTarget && setVisualizer({ style: next })}
         limitFlashing={limitFlashing}
         onToggleFullscreen={() => void showFullscreen(!fullscreen)}
+        onClose={() => setVisualizer({ open: false })}
       />
       {castTarget && <p className="visualizer-note">Playing on {castTarget.name}. The visualizer can’t hear it.</p>}
     </div>

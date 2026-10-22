@@ -1,6 +1,6 @@
 import type { AudioState } from "./audio";
 
-export const VISUALIZER_STYLES = ["classic", "lights", "spectrum", "scope", "album"] as const;
+export const VISUALIZER_STYLES = ["classic", "lights", "spectrum", "scope", "album", "pipes", "starfield", "lines"] as const;
 export type VisualizerStyle = (typeof VISUALIZER_STYLES)[number];
 
 export const STYLE_LABELS: Record<VisualizerStyle, string> = {
@@ -9,6 +9,9 @@ export const STYLE_LABELS: Record<VisualizerStyle, string> = {
   spectrum: "Spectrum",
   scope: "Scope",
   album: "Album",
+  pipes: "Pipes",
+  starfield: "Starfield",
+  lines: "Lines",
 };
 
 /** Spectrum's colours: the iTunes 10 LCD's cream, or a dark variant of it. */

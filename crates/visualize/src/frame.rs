@@ -32,12 +32,13 @@ pub struct Frame {
     /// sine is 0.707).
     #[serde(serialize_with = "rounded")]
     pub rms: f32,
-    /// True on the one frame a beat lands on.
+    /// True on the one frame a beat lands on: a kick, a snare or any other sudden hit that stands
+    /// out of the music around it.
     pub beat: bool,
     /// How far the beat stood out from the music around it, 0 to 1; 0 when `beat` is false.
     #[serde(serialize_with = "rounded")]
     pub beat_strength: f32,
-    /// How suddenly the spectrum changed, 0 to 1 (spectral flux).
+    /// How suddenly the spectrum changed, 0 to 1 (the accent, a spectral flux).
     #[serde(serialize_with = "rounded")]
     pub onset: f32,
     /// The tempo in beats per minute once the rhythm has held steady for a few seconds.

@@ -187,3 +187,20 @@ test("a backend that cannot start is reported, and the feed carries on", async (
   assert.deepEqual(errors, ["microphone access was denied"]);
   assert.equal(attempts, 2, "the second listener still got its start");
 });
+
+test("an arranged mock plays quiet parts without drums and a loud part with them", () => {
+  const feed = new MockFeed({ arranged: true });
+  const beatsIn = (from, to) => {
+    let count = 0;
+    for (let tMs = from * 1000; tMs < to * 1000; tMs += 1000 / 60) if (feed.frameAt(tMs).beat) count++;
+    return count;
+  };
+  assert.equal(beatsIn(0, 2), 0, "the intro has no drums");
+  assert.ok(beatsIn(6, 16) >= 18, "the loud part does");
+  assert.equal(beatsIn(20, 23), 0, "so does not the breakdown");
+  const loud = feed.frameAt(10_000);
+  const quiet = feed.frameAt(21_000);
+  assert.ok(loud.rms > 2 * quiet.rms, `${loud.rms} against ${quiet.rms}`);
+  assert.deepEqual(feed.frameAt(34_000), feed.frameAt(10_000 + 24_000));
+  assert.equal(new MockFeed().frameAt(1000).beat, new MockFeed({ arranged: false }).frameAt(1000).beat);
+});

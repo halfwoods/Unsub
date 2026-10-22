@@ -136,7 +136,7 @@ Each milestone ends with something you can run.
 17. **Visualizer** — View › Show Visualizer (⌘T), filling the window or the screen as iTunes' did, and moving with the music.
     - **Listening:**
       - The engine taps what's actually going to the speakers, after Sound Check, crossfade and the equalizer, and lined up with the output's latency so beats land on time.
-      - Every frame it publishes a log-spaced spectrum (about 64 bands), a waveform snapshot, loudness, and beat and onset detection from spectral flux.
+      - Every frame it publishes a log-spaced spectrum (about 64 bands), a waveform snapshot, loudness, and beat and onset detection from spectral flux. A beat is any sudden hit that stands out of the music around it, a kick under a bass line or a snare as much as a click, found across the whole spectrum against a running threshold, so that drums in a dense mix are caught and a swell or steady noise is not.
       - The tap is read-only, so bit-perfect output stays bit-perfect.
     - **Sound around you (optional):** "React to sound" listens through the microphone instead, so it can follow a record player, an instrument or a room. It's off until chosen, and macOS asks for microphone permission when it is. Nothing is recorded or kept.
     - **Styles (our own designs, GPU-drawn with WebGL2 at the display's refresh rate):**
@@ -145,7 +145,11 @@ Each milestone ends with something you can run.
       - **Spectrum:** analyzer bars with peak caps.
       - **Scope:** an oscilloscope, including X/Y Lissajous for stereo.
       - **Album:** the cover, pulsing and tinted by the music.
-    - **Overlay:** the now-playing title and artist fade in on each new song. Keys switch styles and toggle full screen. It pauses when hidden and idles when the music does.
+      - **Pipes:** shiny pipes growing through a grid in space, turning at right angles with a ball at each corner, a few at a time in different colours; when the space is full they fade and start again. The loudness sets how fast they grow, a beat starts a pipe or makes one turn, and their hue follows the loudest band.
+      - **Starfield:** flying forward through stars, faster the louder the music is, with a brief warp surge and streaks on each beat; each star is tinted and lit by one band of the spectrum.
+      - **Lines:** polygons whose corners drift and bounce, leaving fading trails in slowly cycling colours; the loudness sets their speed, a beat kicks the corners, and each polygon's brightness follows the bass, the middle or the treble.
+    - **Moving with the music:** every style follows the same few things: the loudness (calm when quiet, lively when loud), the bass (a pulse on each kick), and sudden sounds (flashes and sparks), so each reacts clearly without strobing.
+    - **Overlay:** the now-playing title and artist fade in on each new song. Keys switch styles and toggle full screen, and Esc closes the visualizer, putting the window back if F had filled the screen. It pauses when hidden and idles when the music does.
     - **Safety:** an option to limit flashing (no more than three bright flashes a second) for photosensitive viewers, on by default.
 18. **Speakers** — the speaker button at the bottom right of the window, as iTunes 10 had, to play on speakers around the house.
     - **Chromecast:** found over mDNS (`_googlecast._tcp`) and named as its owner named it. Driven with Google Cast's Default Media Receiver, which plays a link with no registration. The few CASTV2 messages this needs are written by hand over TLS, so there is no protobuf runtime in the build; a Cast device's certificate is from an authority in no trust store, so it is accepted unchecked.

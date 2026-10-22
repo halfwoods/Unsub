@@ -15,6 +15,8 @@ import type { RenderInfo, StyleRenderer } from "../styles";
 const MAX_FEEDBACK_WIDTH = 1280;
 const SECTOR_CHOICES = [6, 4, 8, 5, 6, 10];
 const BEATS_PER_SECTOR_CHANGE = 32;
+/** How long a beat's ring takes to cross the picture and fade. */
+const SHOCK_SECONDS = 0.6;
 
 const WARP_FS = `${VERSION}
 ${COMMON_GLSL}
@@ -142,6 +144,18 @@ void main() {
   o = vec4(uColor * g * uGain, 1.0);
 }`;
 
+const RING_FS = `${VERSION}
+uniform vec2 uAspect;
+uniform float uRadius, uWidth, uGain;
+uniform vec3 uColor;
+in vec2 vUv;
+out vec4 o;
+void main() {
+  vec2 p = (vUv - 0.5) * uAspect;
+  float d = (length(p) - uRadius) / uWidth;
+  o = vec4(uColor * exp(-d * d) * uGain, 1.0);
+}`;
+
 const PRESENT_FS = `${VERSION}
 ${COMMON_GLSL}
 uniform sampler2D uTex;
@@ -161,16 +175,22 @@ void main() {
 /**
  * Flowing, mirrored colour trails: each frame the last is zoomed, turned and folded into wedges,
  * faded a little, and drawn over with the waveform, a ring of the spectrum and a glow in the
- * middle. Colours drift slowly round the wheel and jump on a beat.
+ * middle. Colours drift slowly round the wheel and jump on a beat. How fast it flows and how much
+ * it shows follows the loudness; each beat sends a ring out from the middle and pushes the zoom,
+ * and the bass and the sudden sounds swell the glow and the ring of bands.
  */
 export class ClassicStyle implements StyleRenderer {
   private readonly warp: Program;
   private readonly ribbon: Program;
   private readonly radial: Program;
   private readonly orb: Program;
+  private readonly shock: Program;
   private readonly present: Program;
   private feedback: PingPong | null = null;
   private lastBeat = -1;
+  /** Seconds since the last beat sent a ring out, and how hard the beat was. */
+  private shockAge = Infinity;
+  private shockStrength = 0;
   private hue = Math.random();
   private hueTarget = 0;
   private hueOffset = 0;
@@ -186,6 +206,7 @@ export class ClassicStyle implements StyleRenderer {
     this.ribbon = new Program(gl, RIBBON_VS, RIBBON_FS);
     this.radial = new Program(gl, RADIAL_VS, RADIAL_FS);
     this.orb = new Program(gl, FULLSCREEN_VS, ORB_FS);
+    this.shock = new Program(gl, FULLSCREEN_VS, RING_FS);
     this.present = new Program(gl, FULLSCREEN_VS, PRESENT_FS);
   }
 
@@ -214,15 +235,18 @@ export class ClassicStyle implements StyleRenderer {
           this.sectors = SECTOR_CHOICES[(audio.beatCount / BEATS_PER_SECTOR_CHANGE) % SECTOR_CHOICES.length];
         }
       }
+      this.shockAge = 0;
+      this.shockStrength = audio.kick;
       this.lastBeat = audio.beatCount;
     }
+    this.shockAge += dt;
     this.hueOffset += (this.hueTarget - this.hueOffset) * (1 - Math.exp(-dt / 0.12));
     this.hue += dt * 0.012;
     const hue = this.hue + this.hueOffset;
     hsv(hue, 0.75, 1, this.colorA);
     hsv(hue + 0.33, 0.7, 1, this.colorB);
     hsv(hue + 0.62, 0.55, 1, this.colorC);
-    this.rotation += dt * (0.1 + 0.5 * audio.mid);
+    this.rotation += dt * (0.06 + 0.3 * audio.energy + 0.3 * audio.mid);
 
     gl.bindVertexArray(emptyVao);
 
@@ -235,12 +259,14 @@ export class ClassicStyle implements StyleRenderer {
     gl.uniform2f(this.warp.u("uTexel"), 1 / feedback.width, 1 / feedback.height);
     gl.uniform1f(this.warp.u("uTime"), time);
     const perFrame = dt * 60;
-    gl.uniform1f(this.warp.u("uZoom"), 1 - (0.0045 + 0.012 * audio.beat + 0.006 * audio.low) * perFrame);
-    gl.uniform1f(this.warp.u("uRot"), (0.002 + 0.004 * Math.sin(time * 0.17) + 0.006 * audio.mid) * perFrame);
-    gl.uniform1f(this.warp.u("uSwirl"), 0.02 + 0.05 * audio.high);
-    const fade = 0.955 + 0.03 * Math.min(1, audio.rms * 2);
+    // Quiet music drifts; loud music rushes, and every beat pushes the zoom.
+    const zoom = 0.003 + 0.008 * audio.energy + 0.01 * audio.beat + 0.008 * audio.kick + 0.006 * audio.thump;
+    gl.uniform1f(this.warp.u("uZoom"), 1 - zoom * perFrame);
+    gl.uniform1f(this.warp.u("uRot"), (0.0015 + 0.004 * Math.sin(time * 0.17) + 0.004 * audio.energy + 0.005 * audio.mid) * perFrame);
+    gl.uniform1f(this.warp.u("uSwirl"), 0.015 + 0.04 * audio.high + 0.03 * audio.spark);
+    const fade = 0.953 + 0.015 * audio.energy;
     gl.uniform1f(this.warp.u("uFade"), Math.pow(fade, perFrame));
-    gl.uniform1f(this.warp.u("uHue"), 0.012 * perFrame + audio.kick * 0.05);
+    gl.uniform1f(this.warp.u("uHue"), 0.012 * perFrame + audio.kick * 0.05 + audio.spark * 0.02);
     gl.uniform1f(this.warp.u("uSectors"), this.sectors);
     gl.uniform1f(this.warp.u("uFloor"), this.host.feedbackIs8Bit ? 1.5 / 255 : 0.0002);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -248,27 +274,40 @@ export class ClassicStyle implements StyleRenderer {
     // 2. What is playing, added on top.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
-    const wide = 0.007 + 0.012 * audio.rms + 0.01 * audio.beat;
-    this.drawRibbon(0, aspect, 0.3 + 0.2 * audio.rms, wide, 0.12, this.colorA, 0.9);
-    this.drawRibbon(1, aspect, 0.3 + 0.2 * audio.rms, wide, -0.12, this.colorB, 0.9);
+    const wide = 0.006 + 0.012 * audio.energy + 0.01 * audio.beat;
+    const lift = 0.15 + 0.35 * audio.energy + 0.1 * audio.kick;
+    const ribbonGain = 0.45 + 0.5 * audio.energy + 0.3 * audio.spark;
+    this.drawRibbon(0, aspect, lift, wide, 0.12, this.colorA, ribbonGain);
+    this.drawRibbon(1, aspect, lift, wide, -0.12, this.colorB, ribbonGain);
+
+    if (this.shockAge < SHOCK_SECONDS) {
+      const left = 1 - this.shockAge / SHOCK_SECONDS;
+      this.shock.use();
+      gl.uniform2f(this.shock.u("uAspect"), aspect, 1);
+      gl.uniform1f(this.shock.u("uRadius"), 0.1 + 0.55 * (1 - left * left));
+      gl.uniform1f(this.shock.u("uWidth"), 0.012 + 0.02 * (1 - left));
+      gl.uniform3fv(this.shock.u("uColor"), this.colorA);
+      gl.uniform1f(this.shock.u("uGain"), 0.55 * this.shockStrength * left * left);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
 
     this.radial.use();
     bindTexture(gl, 0, this.host.audioTexture);
     gl.uniform1i(this.radial.u("uAudio"), 0);
     gl.uniform2f(this.radial.u("uAspect"), aspect, 1);
-    gl.uniform1f(this.radial.u("uInner"), 0.1 + 0.05 * audio.beat);
+    gl.uniform1f(this.radial.u("uInner"), 0.09 + 0.04 * audio.beat + 0.04 * audio.thump);
     gl.uniform1f(this.radial.u("uLength"), 0.32);
     gl.uniform1f(this.radial.u("uRotation"), this.rotation);
     gl.uniform3fv(this.radial.u("uColorA"), this.colorB);
     gl.uniform3fv(this.radial.u("uColorB"), this.colorC);
-    gl.uniform1f(this.radial.u("uGain"), 0.42);
+    gl.uniform1f(this.radial.u("uGain"), 0.2 + 0.22 * audio.energy + 0.14 * audio.spark);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, (BAND_COUNT * 2 + 1) * 2);
 
     this.orb.use();
     gl.uniform2f(this.orb.u("uAspect"), aspect, 1);
-    gl.uniform1f(this.orb.u("uRadius"), 0.05 + 0.035 * audio.beat + 0.05 * audio.kick);
+    gl.uniform1f(this.orb.u("uRadius"), 0.04 + 0.025 * audio.energy + 0.035 * audio.beat + 0.05 * audio.kick + 0.03 * audio.thump);
     gl.uniform3fv(this.orb.u("uColor"), this.colorC);
-    gl.uniform1f(this.orb.u("uGain"), 0.1 + 0.28 * audio.beat);
+    gl.uniform1f(this.orb.u("uGain"), 0.05 + 0.08 * audio.energy + 0.25 * audio.beat + 0.12 * audio.spark);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     resetState(gl);
     feedback.swap();
@@ -312,6 +351,7 @@ export class ClassicStyle implements StyleRenderer {
     this.ribbon.dispose();
     this.radial.dispose();
     this.orb.dispose();
+    this.shock.dispose();
     this.present.dispose();
   }
 }

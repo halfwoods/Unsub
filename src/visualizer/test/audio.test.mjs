@@ -149,3 +149,65 @@ test("drawing from a frame allocates next to nothing", { skip: typeof globalThis
   const perStep = (process.memoryUsage().heapUsed - before) / steps;
   assert.ok(perStep < 100, `${perStep} bytes a frame`);
 });
+
+test("energy follows how loud the music is, from calm to lively", () => {
+  const audio = new AudioState();
+  const at = (rms) => () => frame({ rms });
+  let now = run(audio, 3, 0, at(0.3));
+  const loud = audio.energy;
+  now = run(audio, 3, now, at(0.1));
+  const middling = audio.energy;
+  now = run(audio, 3, now, at(0.02));
+  const quiet = audio.energy;
+  assert.ok(loud > 0.8, `loud ${loud}`);
+  assert.ok(middling > 0.35 && middling < 0.65, `middling ${middling}`);
+  assert.ok(quiet < 0.2, `quiet ${quiet}`);
+  now = run(audio, 6, now);
+  assert.ok(audio.energy > 0.05 && audio.energy < 0.2, `idle ${audio.energy}`);
+});
+
+test("energy swells in a fraction of a second and settles over a second or two", () => {
+  const audio = new AudioState();
+  let now = run(audio, 3, 0, () => frame({ rms: 0.02 }));
+  now = run(audio, 0.3, now, () => frame({ rms: 0.3 }));
+  assert.ok(audio.energy > 0.6, `swell ${audio.energy}`);
+  now = run(audio, 0.3, now, () => frame({ rms: 0.02 }));
+  assert.ok(audio.energy > 0.3, `still settling ${audio.energy}`);
+  run(audio, 3, now, () => frame({ rms: 0.02 }));
+  assert.ok(audio.energy < 0.2);
+});
+
+test("a spark is an onset that stands out of the ones around it, and is gone in a fifth of a second", () => {
+  const audio = new AudioState();
+  let now = run(audio, 2, 0, () => frame({ onset: 0.08 }));
+  assert.ok(audio.spark < 0.05, `a steady onset is not a spark: ${audio.spark}`);
+  audio.receive(frame({ onset: 0.7 }), now);
+  audio.update(STEP, (now += STEP * 1000));
+  assert.ok(audio.spark > 0.7, `spark ${audio.spark}`);
+  now = run(audio, 0.3, now, () => frame({ onset: 0.08 }));
+  assert.ok(audio.spark < 0.05, `gone: ${audio.spark}`);
+});
+
+test("a spark is not lost when two frames arrive between two draws", () => {
+  const audio = new AudioState();
+  let now = run(audio, 2, 0, () => frame({ onset: 0.08 }));
+  audio.receive(frame({ onset: 0.9 }), now);
+  audio.receive(frame({ onset: 0.08 }), now + 8);
+  audio.update(STEP, (now += STEP * 1000));
+  assert.ok(audio.spark > 0.8, `spark ${audio.spark}`);
+});
+
+test("a thump is the bass standing above its own average, whatever the song's level", () => {
+  const audio = new AudioState();
+  const bass = (level) => {
+    const bands = new Array(BAND_COUNT).fill(0.2);
+    for (let i = 0; i < 8; i++) bands[i] = level;
+    return frame({ bands });
+  };
+  let now = run(audio, 4, 0, () => bass(0.7));
+  assert.ok(audio.thump < 0.05, `steady bass is not a thump: ${audio.thump}`);
+  now = run(audio, 0.1, now, () => bass(0.95));
+  assert.ok(audio.thump > 0.5, `thump ${audio.thump}`);
+  now = run(audio, 5, now, () => bass(0.95));
+  assert.ok(audio.thump < 0.05, `a thump that does not stop is the new level: ${audio.thump}`);
+});

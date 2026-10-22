@@ -17,6 +17,29 @@ const PEAK_GRAVITY = 2.4;
 const BEAT_DECAY_S = 0.24;
 const KICK_DECAY_S = 0.075;
 
+/**
+ * Loudness is read on a decibel scale and then squared, so a quiet verse and a loud chorus are far
+ * apart: a track's rms of 0.3 gives 0.9, 0.1 gives 0.5 and 0.03 gives 0.25. It swells quickly and
+ * settles slowly, as loudness is heard.
+ */
+const ENERGY_FLOOR_DB = -52;
+const ENERGY_CEIL_DB = -8;
+const ENERGY_ATTACK_S = 0.09;
+const ENERGY_RELEASE_S = 0.5;
+/** The picture idles at this energy: calm, but not asleep. */
+const IDLE_ENERGY = 0.12;
+/** The bass is a thump when it stands this far (times the gain) above its average of the last second or so. */
+const THUMP_AVERAGE_S = 1.2;
+const THUMP_GAIN = 5;
+/**
+ * An onset is a spark when it stands out of the onsets around it: dense music has a steady onset
+ * level of 0.05 to 0.1 and its hits reach 0.3 to 0.9.
+ */
+const SPARK_AVERAGE_S = 1.5;
+const SPARK_DEAD_ZONE = 0.05;
+const SPARK_GAIN = 2.2;
+const SPARK_DECAY_S = 0.1;
+
 /** Rows of the audio texture: waveform L, waveform R, bands, peaks. */
 export const AUDIO_TEXTURE_ROWS = 4;
 
@@ -44,6 +67,15 @@ export class AudioState {
   /** Beats seen so far, to key things that change on a beat. */
   beatCount = 0;
   onset = 0;
+  /**
+   * How loud the music is, 0..1 and perceptual: near 0 for a whisper, 0.5 for a quiet verse, near
+   * 0.9 for a loud chorus. What speed and brightness follow, so quiet is calm and loud is lively.
+   */
+  energy = 0;
+  /** A kick or a bass note: the lowest bands standing above their recent average, 0..1. Follows the sound itself, so it works when no beat was detected. */
+  thump = 0;
+  /** A sudden change anywhere in the sound (a snare, a strum), 1 when it lands and gone within a fifth of a second. */
+  spark = 0;
   tempoBpm = 0;
   /** Mean of the lowest, middle and highest bands. */
   low = 0;
@@ -55,6 +87,10 @@ export class AudioState {
   time = 0;
 
   private lastFrame: VisualizerFrame | null = null;
+  /** The biggest onset received since the last update, so a frame between two draws is not lost. */
+  private pendingOnset = 0;
+  private slowLow = 0;
+  private onsetAverage = 0;
   private lastFrameAtMs = -Infinity;
   private readonly holdLeft = new Float32Array(BAND_COUNT);
   private readonly fall = new Float32Array(BAND_COUNT);
@@ -79,6 +115,7 @@ export class AudioState {
   receive(frame: VisualizerFrame, nowMs: number): void {
     this.lastFrame = frame;
     this.lastFrameAtMs = nowMs;
+    this.pendingOnset = Math.max(this.pendingOnset, clamp01(frame.onset));
     if (frame.beat) {
       this.beatCount += 1;
       const strength = Math.min(1, Math.max(0.35, frame.beatStrength));
@@ -141,6 +178,9 @@ export class AudioState {
     this.low = low / 8;
     this.mid = mid / 24;
     this.high = high / 32;
+    // A song starting is not a thump: until the music is fully in, the average is the bass itself.
+    this.slowLow = live < 0.9 ? this.low : this.slowLow + (this.low - this.slowLow) * (1 - Math.exp(-dt / THUMP_AVERAGE_S));
+    this.thump = clamp01((this.low - this.slowLow) * THUMP_GAIN);
 
     const waveRate = 1 - Math.exp(-dt / 0.014);
     for (let i = 0; i < WAVEFORM_LENGTH; i++) {
@@ -166,6 +206,16 @@ export class AudioState {
     const heardOnset = heard !== null ? clamp01(heard.onset) * live : 0;
     this.onset += (heardOnset - this.onset) * (heardOnset > this.onset ? attack : release);
     this.tempoBpm = frame?.tempoBpm ?? 0;
+
+    const loudness = heardRms > 0 ? (20 * Math.log10(heardRms) - ENERGY_FLOOR_DB) / (ENERGY_CEIL_DB - ENERGY_FLOOR_DB) : 0;
+    const heardEnergy = clamp01(loudness) ** 2;
+    const energyTarget = heardEnergy * live + IDLE_ENERGY * idleShare;
+    this.energy += (energyTarget - this.energy) * (1 - Math.exp(-dt / (energyTarget > this.energy ? ENERGY_ATTACK_S : ENERGY_RELEASE_S)));
+
+    const spark = clamp01((this.pendingOnset * live - this.onsetAverage - SPARK_DEAD_ZONE) * SPARK_GAIN);
+    this.pendingOnset = 0;
+    this.spark = Math.max(this.spark * Math.exp(-dt / SPARK_DECAY_S), spark);
+    this.onsetAverage += (heardOnset - this.onsetAverage) * (1 - Math.exp(-dt / SPARK_AVERAGE_S));
 
     this.beat *= Math.exp(-dt / BEAT_DECAY_S);
     this.kick *= Math.exp(-dt / KICK_DECAY_S);

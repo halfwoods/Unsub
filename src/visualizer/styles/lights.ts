@@ -14,7 +14,7 @@ const UPDATE_VS = `${VERSION}
 ${COMMON_GLSL}
 layout(location = 0) in vec4 aPosVel;
 layout(location = 1) in vec2 aLife;
-uniform float uDt, uTime, uKick, uBeat, uAspect;
+uniform float uDt, uTime, uKick, uBeat, uAspect, uEnergy, uSpark, uThump;
 uniform vec3 uEmit[${EMITTERS}];
 out vec4 vPosVel;
 out vec2 vLife;
@@ -26,7 +26,8 @@ void main() {
   float seed = aLife.y;
   int e = int(floor(hash11(seed * 91.7) * float(${EMITTERS})));
   vec3 em = uEmit[e];
-  life -= uDt * mix(0.22, 0.55, hash11(seed * 7.13));
+  // Loud music burns the points through faster.
+  life -= uDt * mix(0.22, 0.55, hash11(seed * 7.13)) * (0.7 + 0.6 * uEnergy);
   if (life <= 0.0) {
     // Born at an emitter, thrown outward harder on a beat.
     seed = hash21(vec2(seed, uTime));
@@ -36,7 +37,7 @@ void main() {
     float a = h.x * TAU;
     float r = sqrt(h.y) * 0.05;
     pos = born.xy + vec2(cos(a), sin(a)) * r;
-    float speed = (0.05 + 0.4 * hash11(seed * 3.3)) * (0.5 + 1.8 * uBeat + 0.6 * born.z);
+    float speed = (0.05 + 0.4 * hash11(seed * 3.3)) * (0.35 + 0.8 * uEnergy + 1.8 * uBeat + 0.6 * born.z);
     float b = hash11(seed * 5.9) * TAU;
     vel = vec2(cos(b), sin(b)) * speed;
     life = 0.6 + 0.4 * hash11(seed * 17.0);
@@ -44,10 +45,12 @@ void main() {
     vec2 d = em.xy - pos;
     float r2 = dot(d, d) + 0.02;
     // Pulled towards the emitter and swirled around it; the pull is what the music strengthens.
-    vec2 acc = d / r2 * (0.07 + 0.2 * em.z) + vec2(-d.y, d.x) / r2 * (0.06 + 0.12 * em.z);
-    // A push outward when the beat lands.
+    float stir = 0.6 + 0.8 * uEnergy;
+    vec2 acc = (d / r2 * (0.07 + 0.2 * em.z) + vec2(-d.y, d.x) / r2 * (0.06 + 0.12 * em.z)) * stir;
+    // A push outward when the beat lands, a smaller one for every thump of the bass and every
+    // sudden sound.
     vec2 out_ = pos - em.xy;
-    acc += out_ / (length(out_) + 0.05) * uKick * 7.0;
+    acc += out_ / (length(out_) + 0.05) * (uKick * 7.0 + uThump * 2.5 + uSpark * 3.0);
     vel += acc * uDt;
     vel *= exp(-uDt * 0.9);
     pos += vel * uDt;
@@ -68,7 +71,7 @@ const DRAW_VS = `${VERSION}
 ${COMMON_GLSL}
 layout(location = 0) in vec4 aPosVel;
 layout(location = 1) in vec2 aLife;
-uniform float uAspect, uSize, uGlow, uHue, uBeat, uRms;
+uniform float uAspect, uSize, uGlow, uHue, uBeat, uEnergy, uSpark;
 out vec2 vCorner;
 out vec3 vColor;
 out float vAlpha;
@@ -82,7 +85,7 @@ void main() {
   vec2 dir = speed > 1e-4 ? vel / speed : vec2(1.0, 0.0);
   float born = smoothstep(1.0, 0.9, life);
   float dying = smoothstep(0.0, 0.3, life);
-  float size = uSize * (0.55 + 0.9 * hash11(seed * 13.1)) * (0.4 + 0.6 * life) * (1.0 + 0.7 * uBeat);
+  float size = uSize * (0.55 + 0.9 * hash11(seed * 13.1)) * (0.4 + 0.6 * life) * (1.0 + 0.7 * uBeat + 0.5 * uSpark);
   size *= uGlow > 0.5 ? 7.0 : 1.0;
   float stretch = 1.0 + (uGlow > 0.5 ? 0.3 : 2.5) * min(speed * 2.5, 2.0);
   vec2 offset = (dir * corner.x * stretch + vec2(-dir.y, dir.x) * corner.y) * size;
@@ -90,7 +93,7 @@ void main() {
   gl_Position = vec4(world.x / uAspect, world.y, 0.0, 1.0);
   float hue = fract(uHue + hash11(seed * 3.7) * 0.28 + float(int(floor(hash11(seed * 91.7) * float(${EMITTERS})))) * 0.11);
   vColor = hsv2rgb(vec3(hue, mix(0.85, 0.35, hash11(seed * 9.1) * 0.5), 1.0));
-  vAlpha = born * dying * (uGlow > 0.5 ? 0.075 : 1.0) * (0.75 + 0.6 * uRms + 0.5 * uBeat);
+  vAlpha = born * dying * (uGlow > 0.5 ? 0.075 : 1.0) * (0.5 + 0.55 * uEnergy + 0.5 * uBeat + 0.6 * uSpark);
   vCorner = corner;
 }`;
 
@@ -112,7 +115,7 @@ ${COMMON_GLSL}
 uniform vec2 uAspect;
 uniform vec3 uEmit[${EMITTERS}];
 uniform vec3 uColors[${EMITTERS}];
-uniform float uBeat, uTime;
+uniform float uBeat, uTime, uEnergy;
 in vec2 vUv;
 out vec4 o;
 void main() {
@@ -122,14 +125,15 @@ void main() {
   for (int k = 0; k < ${EMITTERS}; k++) {
     vec2 d = p - uEmit[k].xy;
     float g = exp(-dot(d, d) * (6.0 + 3.0 * float(k % 2)));
-    c += uColors[k] * g * (0.05 + 0.4 * uEmit[k].z * (0.4 + uBeat));
+    c += uColors[k] * g * (0.04 + 0.4 * uEmit[k].z * (0.3 + 0.3 * uEnergy + uBeat));
   }
   o = vec4(c, 1.0);
 }`;
 
 /**
  * Thousands of points of light, kept in orbit round a few emitters that wander the screen and
- * pulse with the music. A beat throws the points outward; between beats they curl back in. The
+ * pulse with the music. A beat throws the points outward; between beats they curl back in, faster
+ * and brighter the louder the music is; the bass thumps and sudden sounds push and flare them. The
  * whole simulation runs on the GPU: positions are advanced by a vertex shader that writes its
  * results back to a buffer (transform feedback), and then drawn as instanced, stretched, glowing
  * quads.
@@ -191,7 +195,7 @@ export class LightsStyle implements StyleRenderer {
     }
     this.hue += dt * 0.01 + (this.hueKick > 0 ? Math.min(this.hueKick, dt * 0.6) : 0);
     this.hueKick = Math.max(0, this.hueKick - dt * 0.6);
-    this.placeEmitters(audio.bands, audio.beat, time, aspect);
+    this.placeEmitters(audio.bands, audio.beat + 0.6 * audio.thump, time, aspect);
 
     // Advance the particles: read one buffer, write the other.
     const destination = 1 - this.source;
@@ -200,6 +204,9 @@ export class LightsStyle implements StyleRenderer {
     gl.uniform1f(this.update.u("uTime"), time);
     gl.uniform1f(this.update.u("uKick"), audio.kick);
     gl.uniform1f(this.update.u("uBeat"), audio.beat);
+    gl.uniform1f(this.update.u("uEnergy"), audio.energy);
+    gl.uniform1f(this.update.u("uSpark"), audio.spark);
+    gl.uniform1f(this.update.u("uThump"), audio.thump);
     gl.uniform1f(this.update.u("uAspect"), aspect);
     gl.uniform3fv(this.update.u("uEmit"), this.emitters);
     gl.bindVertexArray(this.updateVaos[this.source]);
@@ -222,6 +229,7 @@ export class LightsStyle implements StyleRenderer {
     gl.uniform3fv(this.backdrop.u("uEmit"), this.emitters);
     gl.uniform3fv(this.backdrop.u("uColors"), this.colors);
     gl.uniform1f(this.backdrop.u("uBeat"), audio.beat);
+    gl.uniform1f(this.backdrop.u("uEnergy"), audio.energy);
     gl.uniform1f(this.backdrop.u("uTime"), time);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -233,7 +241,8 @@ export class LightsStyle implements StyleRenderer {
     gl.uniform1f(this.draw.u("uSize"), 0.0085);
     gl.uniform1f(this.draw.u("uHue"), this.hue);
     gl.uniform1f(this.draw.u("uBeat"), audio.beat);
-    gl.uniform1f(this.draw.u("uRms"), audio.rms);
+    gl.uniform1f(this.draw.u("uEnergy"), audio.energy);
+    gl.uniform1f(this.draw.u("uSpark"), audio.spark);
     gl.uniform1f(this.draw.u("uGlow"), 1);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, PARTICLES / GLOW_SHARE);
     gl.uniform1f(this.draw.u("uGlow"), 0);

@@ -18,11 +18,11 @@ const MIN_SAMPLE_RATE: u32 = 8_000;
 const HISTORY_SECONDS: f64 = 1.0;
 /// A frame is stamped this long after the centre of its window: 0.4 of the window's length less
 /// 14 ms, but never earlier than 3 ms before the centre. A hit is recognised once the window has
-/// filled with it enough for the bass to rise above its average, which happens a little before the
-/// window's centre reaches it, by an amount that grows with the window's length. These numbers are
-/// a fit to where beats landed on click and kick tracks at rates from 16 to 192 kHz; they put
-/// every beat within about 10 ms of its hit at 32 kHz and up. The bands and rms of the frame are
-/// those of the window, so they lead the stamp by this much (4.6 ms at 44.1 kHz).
+/// filled with it enough for the spectrum to rise above its average, which happens a little
+/// before the window's centre reaches it, by an amount that grows with the window's length. These
+/// numbers are a fit to where beats landed on click and kick tracks at rates from 16 to 192 kHz;
+/// they put every beat within about 10 ms of its hit at 32 kHz and up. The bands and rms of the
+/// frame are those of the window, so they lead the stamp by this much (4.6 ms at 44.1 kHz).
 const STAMP_WINDOW_FRACTION: f64 = 0.4;
 const STAMP_LATENCY_SECONDS: f64 = 0.014;
 const STAMP_EARLIEST_SECONDS: f64 = -0.003;
@@ -31,7 +31,7 @@ const STAMP_EARLIEST_SECONDS: f64 = -0.003;
 const RESYNC_SECONDS: f64 = 0.025;
 /// `frame_at` has nothing to say about a time this far from every frame.
 const STALE_SECONDS: f64 = 0.1;
-/// Flux of this much in the 0..1 display scale (say every band rising 14 dB) is onset 1.
+/// An accent of this much in the 0..1 display scale (say every band rising 14 dB) is onset 1.
 const ONSET_GAIN: f32 = 5.0;
 
 #[derive(Clone)]
@@ -277,9 +277,9 @@ impl Analyzer {
         let stamp = centre.saturating_add_signed(self.stamp_offset);
         let mut frame = Frame::silent();
 
-        let flux = self
-            .spectrum
-            .analyze(&self.signal, centre, &mut frame.bands, &mut frame.peaks);
+        let accent =
+            self.spectrum
+                .analyze(&self.signal, centre, &mut frame.bands, &mut frame.peaks);
         self.scope.capture(
             &self.signal,
             stamp,
@@ -291,16 +291,16 @@ impl Analyzer {
             .mean_square(centre - (FFT_SIZE / 2) as u64, FFT_SIZE)
             .sqrt()
             .min(1.0);
-        frame.onset = (flux.overall * ONSET_GAIN).min(1.0);
+        frame.onset = (accent * ONSET_GAIN).min(1.0);
 
         // A beat is known a frame late, so it is marked on the frame before this one.
-        if let Some(strength) = self.beats.push(flux.bass)
+        if let Some(strength) = self.beats.push(accent)
             && let Some(previous) = self.frames.recent_mut(0)
         {
             previous.frame.beat = true;
             previous.frame.beat_strength = strength;
         }
-        if let Some(bpm) = self.tempo.push(flux.overall) {
+        if let Some(bpm) = self.tempo.push(accent) {
             self.tempo_bpm = Some(bpm);
         } else {
             self.tempo_bpm = None;

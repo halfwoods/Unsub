@@ -6,8 +6,6 @@ const LOW_HZ: f64 = 30.0;
 const HIGH_HZ: f64 = 16_000.0;
 /// Levels at or below this many dB (relative to a full-scale sine) show as 0.
 pub(crate) const FLOOR_DB: f32 = -70.0;
-/// The beat detector listens to the bass between the bottom of the bands and this.
-const BEAT_HZ: f64 = 160.0;
 /// How much of the A-weighting curve is applied. All of it would bury the bass, which music
 /// puts most of its energy in and which the visuals most need to show, under the mids.
 const WEIGHTING: f64 = 0.5;
@@ -25,8 +23,6 @@ pub(crate) struct BandLayout {
     picks: [Pick; BANDS],
     /// What the weighting adds to each band's level, in dB.
     weight_db: [f32; BANDS],
-    /// The bins the beat detector listens to, first to last.
-    bass: (usize, usize),
 }
 
 impl BandLayout {
@@ -58,25 +54,7 @@ impl BandLayout {
             };
             *weight = (WEIGHTING * a_weighting_db((low * high).sqrt())) as f32;
         }
-        Self {
-            picks,
-            weight_db,
-            bass: {
-                let first = ((LOW_HZ / bin_hz).ceil() as usize).max(1);
-                let last = ((BEAT_HZ / bin_hz).ceil() as usize)
-                    .saturating_sub(1)
-                    .min(top_bin);
-                (first, last.max(first))
-            },
-        }
-    }
-
-    /// The level in dB, relative to a full-scale sine, of all the bass together. Summing the bins
-    /// averages out the random flicker of any one of them, which a beat detector would otherwise
-    /// mistake for hits.
-    pub(crate) fn bass_decibels(&self, power: &[f32]) -> f32 {
-        let (first, last) = self.bass;
-        10.0 * power[first..=last].iter().sum::<f32>().max(1e-12).log10()
+        Self { picks, weight_db }
     }
 
     /// The level of each band in dB relative to a full-scale sine, from the bins' power.
@@ -143,7 +121,6 @@ mod tests {
                 assert!(start >= last_start, "bands run low to high at {rate}");
                 last_start = start;
             }
-            assert!(layout.bass.0 >= 1 && layout.bass.0 <= layout.bass.1 && layout.bass.1 <= 1024);
         }
     }
 }

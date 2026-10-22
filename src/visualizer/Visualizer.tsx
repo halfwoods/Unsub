@@ -25,6 +25,8 @@ export interface VisualizerProps {
   limitFlashing?: boolean;
   /** Called for the F key. The app does the real full screen. */
   onToggleFullscreen?: () => void;
+  /** Called for Esc, unless a sheet or menu is open above the picture. The app hides the visualizer. */
+  onClose?: () => void;
   /** Spectrum's colours: the LCD's cream (the default) or a dark variant. */
   palette?: Palette;
   /** What Scope draws; both channels' traces beside the stereo figure by default. */
@@ -40,7 +42,7 @@ export interface VisualizerProps {
 
 /**
  * The visualizer. It fills its container, draws at the display's refresh rate, and listens for
- * the left and right arrow keys (change style), F (full screen) and M (an info corner).
+ * the left and right arrow keys (change style), F (full screen), M (an info corner) and Esc (close).
  */
 export function Visualizer({
   feed,
@@ -49,6 +51,7 @@ export function Visualizer({
   onStyleChange,
   limitFlashing = true,
   onToggleFullscreen,
+  onClose,
   palette = "cream",
   scopeMode = "both",
   clock,
@@ -63,8 +66,8 @@ export function Visualizer({
   const [info, setInfo] = useState(showInfo);
 
   // The key handler is attached once and reads the latest of these.
-  const latest = useRef({ style, onStyleChange, onToggleFullscreen });
-  latest.current = { style, onStyleChange, onToggleFullscreen };
+  const latest = useRef({ style, onStyleChange, onToggleFullscreen, onClose });
+  latest.current = { style, onStyleChange, onToggleFullscreen, onClose };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -98,7 +101,7 @@ export function Visualizer({
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
       if (isTyping(event.target)) return;
-      const { style: current, onStyleChange: change, onToggleFullscreen: fullscreen } = latest.current;
+      const { style: current, onStyleChange: change, onToggleFullscreen: fullscreen, onClose: close } = latest.current;
       switch (event.key) {
         case "ArrowLeft":
           change(nextStyle(current, -1));
@@ -113,6 +116,10 @@ export function Visualizer({
         case "m":
         case "M":
           setInfo((shown) => !shown);
+          break;
+        case "Escape":
+          if (!close || isOverlayOpen()) return;
+          close();
           break;
         default:
           return;
@@ -172,6 +179,11 @@ function describe(style: VisualizerStyle, stats: RuntimeStats): string {
     lines.push(`flash limit  gain ${stats.limiterGain.toFixed(2)}  veil ${stats.limiterVeil.toFixed(2)}`);
   }
   return lines.join("\n");
+}
+
+/** A sheet, panel or menu is open over the picture, and Esc is for it: it dismisses itself, or is read by the system. */
+function isOverlayOpen(): boolean {
+  return document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') !== null;
 }
 
 function isTyping(target: EventTarget | null): boolean {

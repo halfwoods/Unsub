@@ -6,7 +6,7 @@ ${COMMON_GLSL}
 uniform sampler2D uArt;
 uniform vec2 uRes;
 uniform vec3 uTint;
-uniform float uTime, uRms, uBeat, uKick, uLow, uAppear;
+uniform float uTime, uPhase, uEnergy, uBeat, uKick, uThump, uSpark, uAppear;
 in vec2 vUv;
 out vec4 o;
 
@@ -28,12 +28,12 @@ void main() {
   bg = mix(bg, uTint * 0.45, 0.3);
   vec2 toCover = p - vec2(0.0, 0.04);
   float halo = exp(-dot(toCover, toCover) * 5.5);
-  bg += uTint * halo * (0.12 + 0.55 * uBeat + 0.3 * uLow);
+  bg += uTint * halo * (0.1 + 0.3 * uEnergy + 0.55 * uBeat + 0.35 * uThump);
   bg *= 1.0 - 0.7 * smoothstep(0.35, 1.1, length(p * vec2(0.8, 1.0)));
 
   // The cover: it breathes with the loudness and jumps out on a beat.
   float pop = mix(0.94, 1.0, uAppear);
-  float half_ = 0.3 * pop * (1.0 + 0.05 * uRms + 0.065 * uKick + 0.015 * uBeat);
+  float half_ = 0.3 * pop * (1.0 + 0.025 * uEnergy + 0.085 * uKick + 0.025 * uBeat + 0.02 * uThump);
   vec2 c = toCover;
   float d = roundedBox(c, vec2(half_), 0.014);
 
@@ -55,22 +55,24 @@ void main() {
   vec2 uv = c / (2.0 * half_) + 0.5;
   vec3 art = texture(uArt, clamp(uv, 0.0, 1.0)).rgb;
   // A band of light sweeping across the cover now and then.
-  float sweep = fract(uTime * 0.07 + (uv.x + uv.y) * 0.35);
-  art += vec3(0.08) * smoothstep(0.0, 0.05, sweep) * smoothstep(0.12, 0.05, sweep);
-  art += uTint * 0.06 * uKick;
+  float sweep = fract(uPhase + (uv.x + uv.y) * 0.35);
+  art += vec3(0.08 + 0.1 * uSpark) * smoothstep(0.0, 0.05, sweep) * smoothstep(0.12, 0.05, sweep);
+  art += uTint * 0.08 * uKick;
   float a = smoothstep(fwidth(d) * 1.2, -fwidth(d) * 1.2, d) * uAppear;
   // A fine light edge.
-  float rim = smoothstep(0.004, 0.0, abs(d + 0.002)) * 0.25;
+  float rim = smoothstep(0.004, 0.0, abs(d + 0.002)) * (0.2 + 0.35 * uSpark);
   col = mix(col, art + rim, a);
   o = vec4(col, 1.0);
 }`;
 
 /**
  * The cover, large, on a backdrop of itself blurred: breathing with the loudness, jumping out on
- * each beat, lit from behind in a colour taken from the cover, and reflected on glossy ground.
+ * each beat, lit from behind in a colour taken from the cover, and reflected on glossy ground. A
+ * band of light sweeps across it, quicker the louder the music is, and sudden sounds catch its edge.
  */
 export class AlbumStyle implements StyleRenderer {
   private readonly program: Program;
+  private sweep = 0;
 
   constructor(private readonly host: StyleHost) {
     this.program = new Program(host.gl, FULLSCREEN_VS, FS);
@@ -82,6 +84,7 @@ export class AlbumStyle implements StyleRenderer {
     const { gl, emptyVao, scene, artwork } = this.host;
     if (!artwork.texture) return;
     const { audio } = info;
+    this.sweep += info.dt * (0.04 + 0.3 * audio.energy);
     scene.bind();
     gl.bindVertexArray(emptyVao);
     this.program.use();
@@ -90,10 +93,12 @@ export class AlbumStyle implements StyleRenderer {
     gl.uniform2f(this.program.u("uRes"), info.width, info.height);
     gl.uniform3fv(this.program.u("uTint"), artwork.tint);
     gl.uniform1f(this.program.u("uTime"), info.time);
-    gl.uniform1f(this.program.u("uRms"), audio.rms);
+    gl.uniform1f(this.program.u("uPhase"), this.sweep);
+    gl.uniform1f(this.program.u("uEnergy"), audio.energy);
     gl.uniform1f(this.program.u("uBeat"), audio.beat);
     gl.uniform1f(this.program.u("uKick"), audio.kick);
-    gl.uniform1f(this.program.u("uLow"), audio.low);
+    gl.uniform1f(this.program.u("uThump"), audio.thump);
+    gl.uniform1f(this.program.u("uSpark"), audio.spark);
     const fade = Math.min(1, artwork.age / 0.8);
     gl.uniform1f(this.program.u("uAppear"), fade * fade * (3 - 2 * fade));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
