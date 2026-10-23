@@ -46,3 +46,33 @@
   position: fixed;
   z-index: 20;
 }
+
+/* A native file drag can arrive over any pane or sheet. This never intercepts pointer input. */
+.file-drop-target {
+  position: absolute;
+  inset: 6px;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  border: 3px solid var(--select-bottom);
+  border-radius: 5px;
+  background: rgba(241, 245, 250, 0.92);
+  pointer-events: none;
+}
+
+.file-drop-message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  color: #294d75;
+}
+
+.file-drop-message strong {
+  font-size: 16px;
+}
+
+.file-drop-message span {
+  font-size: 12px;
+}

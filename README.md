@@ -79,11 +79,13 @@ Click an entry to open it. Menu paths use `›`. `Cmd` on a Mac is `Ctrl` on Win
 <details>
 <summary><b>Add your music</b></summary>
 
-1. Drag a folder (or files) onto the window. `.pls` and `.m3u` files go to Radio instead.
-2. Or choose **File › Add to Library…** (`Cmd+O`). It picks a folder, not individual files.
+1. Click **Add Music Folder…** in the sidebar or empty Music library, then choose the folder your music lives in. You can add more folders later.
+2. Or use **File › Add Music Folder…** (`Cmd+O`), **File › Add Music Files…** (`Shift+Cmd+O`), or drag folders and files onto the window. A drop target appears while you drag. `.pls` and `.m3u` files go to Radio instead.
 3. Progress shows in the display at the top. When it's done you'll get a notice if nothing was found or some files couldn't be added.
 
-On a first launch with an empty library, the welcome sheet offers the same thing: **Add “Music” Folder**, **Add iCloud Drive › Music** (Mac only) and **Choose Folder…**. The first two appear only if the folder exists. Reopen the sheet any time from **Help › Welcome to Unsub…**.
+On a first launch with an empty library, **Choose Folder…** in the welcome sheet lets you pick any folder. Suggested Music folders show their full paths and are added only when you click their Add button. You can also drop music onto the welcome sheet. Reopen it any time from **Help › Welcome to Unsub…**.
+
+Unsub does not scan a music source automatically at startup. It creates a default media destination and reopens your saved library, including a library from an older Unsub installation.
 
 **iCloud Drive.** Unsub spots songs that aren't on this computer without opening them, so scanning downloads nothing. Until it knows better, it names those songs from their file and folder names. **Advanced › Get Song Details from iCloud…** (Mac and Windows) later downloads each one in turn to read its tags and cover, then gives it back. Press play on an iCloud-only song and it downloads first.
 
@@ -422,6 +424,7 @@ pnpm install
 pnpm tauri dev                                 # run the app
 cargo test --workspace                         # Rust tests
 pnpm exec tsc --noEmit                         # typecheck the UI
+node --test src/import/test/*.test.mjs         # folder selection and file drops
 node --test src/visualizer/test/*.test.mjs     # visualizer tests
 ```
 

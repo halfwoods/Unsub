@@ -1,0 +1,62 @@
+import { open } from "@tauri-apps/plugin-dialog";
+import { libraryAddPaths, welcomeDone, welcomeDue } from "../api/commands";
+import { useApp } from "../state/store";
+
+let welcomeAnswers = 0;
+
+/** Dialogs can return one path or several; cancellation must never start an import. */
+export function normalizePickedPaths(picked: string | string[] | null): string[] {
+  return typeof picked === "string" ? [picked] : (picked ?? []);
+}
+
+/** Queues only the paths the user chose, reporting a failed request instead of silently losing it. */
+export async function addMusicPaths(paths: string[]): Promise<boolean> {
+  if (paths.length === 0) return false;
+  try {
+    await libraryAddPaths(paths);
+    return true;
+  } catch (e) {
+    useApp.getState().showNotice(`Couldn't add music: ${String(e)}`);
+    return false;
+  }
+}
+
+/** The startup query can still be pending when a native menu or drop answers Welcome. */
+export function watchWelcomeDue(): () => void {
+  let active = true;
+  const answers = welcomeAnswers;
+  void welcomeDue().then(
+    (due) => {
+      if (active && answers === welcomeAnswers && due) useApp.setState({ welcoming: true });
+    },
+    (error: unknown) => {
+      if (active && answers === welcomeAnswers) useApp.getState().showNotice(`Couldn't check the welcome choice: ${String(error)}`);
+    },
+  );
+  return () => { active = false; };
+}
+
+/** An accepted music import is a first-run choice, including from the native menu or a file drop. */
+export async function completeMusicWelcome(startsImport = true): Promise<void> {
+  welcomeAnswers += 1;
+  useApp.setState((state) => ({ welcoming: false, welcomeTipPending: state.welcomeTipPending || (startsImport && state.welcoming) }));
+  try {
+    await welcomeDone();
+  } catch (e) {
+    useApp.getState().showNotice(`Couldn't save the welcome choice: ${String(e)}`);
+  }
+}
+
+export async function pickMusicFolders(): Promise<string[]> {
+  try {
+    return normalizePickedPaths(await open({ title: "Add Music Folder", directory: true, multiple: true }));
+  } catch (e) {
+    useApp.getState().showNotice(`Couldn't open the folder chooser: ${String(e)}`);
+    return [];
+  }
+}
+
+/** The same folder action is available from the sidebar and the empty library. */
+export async function chooseMusicFolders(): Promise<boolean> {
+  return addMusicPaths(await pickMusicFolders());
+}

@@ -310,7 +310,7 @@ interface AppState {
    */
   deleteSelection: (fromLibrary?: boolean) => Promise<void>;
   /** Reads the Music app (or the exported library at `xml`), then opens the import sheet. */
-  openImportSheet: (xml: string | null) => Promise<void>;
+  openImportSheet: (xml: string | null) => Promise<boolean>;
   showDuplicates: (exact: boolean) => Promise<void>;
   showAllSongs: () => void;
   toggleDevice: (deviceId: string) => void;
@@ -601,8 +601,10 @@ export const useApp = create<AppState>((set, get) => ({
   openImportSheet: async (xml) => {
     try {
       set({ importSheet: await api.importMusicInspect(xml) });
+      return true;
     } catch (e) {
       get().showNotice(String(e));
+      return false;
     }
   },
 

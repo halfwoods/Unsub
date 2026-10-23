@@ -26,6 +26,10 @@
   color: #6b6b6b;
 }
 
+.placard-add-music {
+  margin-top: 16px;
+}
+
 .content-with-bar {
   flex: 1;
   min-width: 0;

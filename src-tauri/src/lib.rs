@@ -344,6 +344,57 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_library_with_committed_wal_data_reopens_with_its_songs_and_history() {
+        use unsub_library::{Library, PlaylistKind, TrackQuery};
+
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("snapshot source");
+        let old = root.path().join(OLD_IDENTIFIER);
+        let new = root.path().join("new");
+        let database = source.join("Library.sqlite");
+        let music = root.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let original = music.join("saved.mp3");
+        let audio = include_bytes!("../../crates/library/tests/fixtures/halo.mp3");
+        std::fs::write(&original, audio).unwrap();
+        // Checkpoint the schema first; the later song and its history will live in the WAL.
+        drop(Library::open(&database).unwrap());
+        let mut library = Library::open(&database).unwrap();
+        library.add_paths(std::slice::from_ref(&music), |_| {}).unwrap();
+        let id = library.tracks(&TrackQuery::default()).unwrap()[0].id;
+        library.set_rating(id, 100).unwrap();
+        library.record_play(id, 1_700_000_000).unwrap();
+        let playlist = library.create_playlist("Legacy favorites", PlaylistKind::Regular, None).unwrap();
+        library.add_to_playlist(playlist.id, &[id], None).unwrap();
+        let tracks = library.tracks(&TrackQuery::default()).unwrap();
+        let playlists = library.playlists().unwrap();
+
+        // Snapshot a quiescent open connection to model a previous process leaving a committed WAL.
+        // Closing that connection before copying would checkpoint it and make this a DB-only test.
+        assert!(std::fs::metadata(source.join("Library.sqlite-wal")).unwrap().len() > 32);
+        std::fs::create_dir(&old).unwrap();
+        for name in FILES {
+            std::fs::copy(source.join(name), old.join(name)).unwrap();
+        }
+        let without_wal = root.path().join("without-wal.sqlite");
+        std::fs::copy(&database, &without_wal).unwrap();
+        assert_eq!(Library::open(&without_wal).unwrap().stats(&TrackQuery::default()).unwrap().count, 0);
+        drop(library);
+
+        migrate_data_dir(&old, &new);
+
+        assert!(!old.exists());
+        let state = LibraryState::open(new.join("Library.sqlite"), root.path().join("Artwork")).unwrap();
+        state.media_folder(&root.path().join("Music/Unsub")).unwrap();
+        let mut restored = state.queries();
+        assert_eq!(restored.tracks(&TrackQuery::default()).unwrap(), tracks);
+        assert_eq!(restored.playlists().unwrap(), playlists);
+        assert_eq!(restored.tracks(&TrackQuery { playlist: Some(playlist.id), ..TrackQuery::default() }).unwrap(), tracks);
+        assert!(!restored.welcome_due().unwrap());
+        assert_eq!(std::fs::read(original).unwrap(), audio);
+    }
+
+    #[test]
     fn both_folders_are_left_alone_when_the_new_one_exists() {
         let root = tempfile::tempdir().unwrap();
         let (old, new) = (root.path().join(OLD_IDENTIFIER), root.path().join("new"));

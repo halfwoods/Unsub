@@ -7,8 +7,11 @@ use crate::{library, updates, window};
 /// Playlist and Controls items are handled by the UI, which owns the selection and "what Play means".
 /// So are the imports, whose sheet asks where the music files are now.
 pub const MENU_ACTION_EVENT: &str = "menu://action";
+/// A native file/folder picker was accepted; cancellation and unrelated library changes never send this.
+pub const MUSIC_ADD_ACCEPTED_EVENT: &str = "menu://music-add-accepted";
 
 const ADD_TO_LIBRARY: &str = "add-to-library";
+const ADD_MUSIC_FILES: &str = "add-music-files";
 const IMPORT_MUSIC: &str = "import-music-library";
 const IMPORT_XML: &str = "import-library-xml";
 const IMPORT_ELSEWHERE: &str = "import-elsewhere";
@@ -121,7 +124,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         file.append(&MenuItem::with_id(app, id, label, true, accelerator)?)?;
     }
     file.append(&PredefinedMenuItem::separator(app)?)?;
-    file.append(&MenuItem::with_id(app, ADD_TO_LIBRARY, "Add to Library…", true, Some("CmdOrCtrl+O"))?)?;
+    file.append(&MenuItem::with_id(app, ADD_TO_LIBRARY, "Add Music Folder…", true, Some("CmdOrCtrl+O"))?)?;
+    file.append(&MenuItem::with_id(app, ADD_MUSIC_FILES, "Add Music Files…", true, Some("Shift+CmdOrCtrl+O"))?)?;
     #[cfg(target_os = "macos")]
     file.append(&MenuItem::with_id(app, IMPORT_MUSIC, "Import Music Library", true, None::<&str>)?)?;
     file.append(&MenuItem::with_id(app, IMPORT_XML, "Import Library XML…", true, None::<&str>)?)?;
@@ -232,9 +236,19 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
     }
     if id == ADD_TO_LIBRARY {
         let handle = app.clone();
-        app.dialog().file().set_title("Add to Library").pick_folders(move |folders| {
+        app.dialog().file().set_title("Add Music Folder").pick_folders(move |folders| {
             let paths: Vec<_> = folders.unwrap_or_default().into_iter().filter_map(|f| f.into_path().ok()).collect();
             if !paths.is_empty() {
+                let _ = handle.emit(MUSIC_ADD_ACCEPTED_EVENT, ());
+                library::add_paths(&handle, paths);
+            }
+        });
+    } else if id == ADD_MUSIC_FILES {
+        let handle = app.clone();
+        app.dialog().file().set_title("Add Music Files").pick_files(move |files| {
+            let paths: Vec<_> = files.unwrap_or_default().into_iter().filter_map(|f| f.into_path().ok()).collect();
+            if !paths.is_empty() {
+                let _ = handle.emit(MUSIC_ADD_ACCEPTED_EVENT, ());
                 library::add_paths(&handle, paths);
             }
         });
