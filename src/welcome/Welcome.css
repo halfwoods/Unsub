@@ -72,6 +72,38 @@
   margin-top: 8px;
 }
 
+.welcome-drag-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: #555555;
+  line-height: 15px;
+}
+
+.welcome-folder-shortcuts {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.welcome-folder-shortcuts > p {
+  margin: 0 0 6px;
+  color: #555555;
+}
+
+.welcome-folder-shortcut + .welcome-folder-shortcut {
+  margin-top: 6px;
+}
+
+.welcome-folder-path {
+  display: block;
+  margin: 3px 0 0;
+  color: #666666;
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .welcome-hint {
   margin: 8px 2px 0;
   color: #555555;

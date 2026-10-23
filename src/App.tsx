@@ -1,7 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   onCastTarget,
   onCdChanged,
@@ -18,6 +18,7 @@ import {
   onImportProgress,
   onLibraryChanged,
   onMenuAction,
+  onMenuMusicAccepted,
   onPlayerEvent,
   onRadioLink,
   onRadioNowPlaying,
@@ -41,6 +42,8 @@ import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { ImportElsewhere } from "./import/ImportElsewhere";
 import { ImportSheet } from "./import/ImportSheet";
+import { completeMusicWelcome } from "./import/addMusic";
+import { watchFileDrops } from "./import/fileDrop";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { addDropped } from "./radio/importStations";
 import { OpenStream } from "./radio/OpenStream";
@@ -185,6 +188,7 @@ function useBackendEvents() {
       onPlayerEvent(applyPlayerEvent),
       onCastTarget((castTarget) => useApp.setState({ castTarget })),
       onMenuAction(runMenuAction),
+      onMenuMusicAccepted(() => void completeMusicWelcome()),
       // Tuning in a different station is the listener's choice, which an episode waiting to play must not cut off. The same
       // one again (renamed, or tuned back in after a pause) or none (removed) is not a choice.
       onRadioStation((liveStation) =>
@@ -220,9 +224,6 @@ function useBackendEvents() {
       }),
       getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
       getCurrentWindow().onResized(() => void getCurrentWindow().isFullscreen().then(setWindowFullscreen)),
-      getCurrentWebview().onDragDropEvent(({ payload }) => {
-        if (payload.type === "drop" && payload.paths.length > 0) addDropped(payload.paths);
-      }),
     ];
     void refresh();
     void refreshDevices();
@@ -238,6 +239,22 @@ function useBackendEvents() {
     if (crossfade !== null) void playerSetCrossfade(crossfade);
     return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
   }, []);
+}
+
+/** Give an OS file drag a visible destination, including over the first-run welcome. */
+function useFileDrop() {
+  const [dragging, setDragging] = useState(false);
+  useEffect(
+    () =>
+      watchFileDrops(
+        (handler) => getCurrentWebview().onDragDropEvent(({ payload }) => handler(payload)),
+        setDragging,
+        addDropped,
+        (error) => useApp.getState().showNotice(`Couldn't add dropped files: ${String(error)}`),
+      ),
+    [],
+  );
+  return dragging;
 }
 
 /** The webview's own menu (Reload, Inspect) has no place in the app. Text fields keep Cut, Copy and Paste, and a surface with a menu of its own shows that. */
@@ -280,6 +297,7 @@ export default function App() {
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
+  const fileDragging = useFileDrop();
   useBackendEvents();
   useGlobalKeys();
   useNoDefaultContextMenu();
@@ -311,6 +329,14 @@ export default function App() {
       {welcoming && <Welcome />}
       <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
+      {fileDragging && (
+        <div className="file-drop-target" role="status">
+          <div className="file-drop-message">
+            <strong>Drop music files or folders to add them</strong>
+            <span>Folders are scanned for music files.</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

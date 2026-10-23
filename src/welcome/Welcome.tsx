@@ -1,7 +1,5 @@
-import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  libraryAddPaths,
   libraryMediaSettings,
   librarySetMediaSettings,
   libraryStats,
@@ -12,6 +10,7 @@ import {
 } from "../api/commands";
 import type { MediaSettings, UpdatesStatus, WelcomeFolder } from "../api/types";
 import { SourceIcon, type SourceIconName } from "../sidebar/icons";
+import { addMusicPaths, pickMusicFolders } from "../import/addMusic";
 import { deviceSource, useApp } from "../state/store";
 import { IS_MAC } from "../util/platform";
 import "./Welcome.css";
@@ -79,17 +78,18 @@ export function Welcome() {
   const [updates, setUpdates] = useState<UpdatesStatus | null>(null);
   const [organize, setOrganize] = useState(false);
   const [autoCheck, setAutoCheck] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void welcomeFolders().then(setFolders);
+    void welcomeFolders().then(setFolders, (e: unknown) => showNotice(String(e)));
     void libraryMediaSettings().then((settings) => {
       setMedia(settings);
       setOrganize(settings.organize);
-    });
+    }, (e: unknown) => showNotice(String(e)));
     void updatesStatus().then((status) => {
       setUpdates(status);
       setAutoCheck(status.autoCheck);
-    });
+    }, (e: unknown) => showNotice(String(e)));
   }, []);
 
   const remember = async () => {
@@ -105,32 +105,44 @@ export function Welcome() {
     useApp.setState({ welcoming: false });
   };
 
-  /** Applies the Options, remembers the welcome was answered, then carries out what was picked. */
-  const answer = async (next?: () => void, startsImport = false) => {
+  /** A failed folder import leaves the welcome open so another folder can be chosen. */
+  const answer = async (next?: () => void | boolean | Promise<void | boolean>, startsImport = false) => {
+    setBusy(true);
     try {
       // Only a change is written, so leaving the box alone never touches the media folder.
       if (media?.folder && organize !== media.organize) await librarySetMediaSettings(media.folder, organize, media.copyOnAdd);
       if (updates?.configured && autoCheck !== updates.autoCheck) await updatesSetAutoCheck(autoCheck);
+      if (next && (await next()) === false) return;
+      await remember();
+      useApp.setState((s) => ({ welcoming: false, welcomeTipPending: s.welcomeTipPending || startsImport }));
     } catch (e) {
       showNotice(String(e));
+    } finally {
+      setBusy(false);
     }
-    await remember();
-    useApp.setState((s) => ({ welcoming: false, welcomeTipPending: s.welcomeTipPending || startsImport }));
-    next?.();
   };
 
-  const addFolders = (paths: string[]) => void answer(() => void libraryAddPaths(paths), true);
+  const addFolders = async (paths: string[]) => {
+    await answer(() => addMusicPaths(paths), true);
+    // A small folder can finish scanning before its enqueue request returns.
+    if (!useApp.getState().welcoming) void showWelcomeTips().catch((e: unknown) => showNotice(String(e)));
+  };
 
   const chooseFolder = async () => {
-    const picked = await open({ title: "Add to Library", directory: true, multiple: true });
-    if (Array.isArray(picked) && picked.length > 0) addFolders(picked);
+    setBusy(true);
+    try {
+      const picked = await pickMusicFolders();
+      if (picked.length > 0) await addFolders(picked);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && void skip()}>
-      <div className="sheet welcome" role="dialog" aria-label="Welcome to Unsub">
+    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && void skip()}>
+      <div className="sheet welcome" role="dialog" aria-label="Welcome to Unsub" aria-busy={busy}>
         <h2 className="welcome-title">Welcome to Unsub</h2>
-        <p className="welcome-subtitle">Let's find your music. It stays where it is unless you say otherwise.</p>
+        <p className="welcome-subtitle">Choose where to add music from. Nothing is added until you choose, and your files stay where they are unless you say otherwise.</p>
         <ul className="welcome-options">
           {IS_MAC && (
             <WelcomeOption
@@ -139,7 +151,7 @@ export function Welcome() {
               text="Brings in the songs you own as files, with their play counts, ratings and playlists."
               hint="Songs you only stream from Apple Music can't play outside Apple's app. They go on your To Own list, so you can see what you'd lose."
             >
-              <button className="push-button" onClick={() => void answer(() => void openImportSheet(null), true)}>
+              <button className="push-button" disabled={busy} onClick={() => void answer(() => openImportSheet(null), true)}>
                 Import…
               </button>
             </WelcomeOption>
@@ -147,29 +159,38 @@ export function Welcome() {
           <WelcomeOption
             icon="folder"
             title="Add a music folder"
-            text={folders.length > 0 ? "Add the folder your music lives in. We found these:" : "Pick the folder your music lives in."}
+            text="Choose any folder on your computer or an external drive. You can add more folders later."
           >
-            {folders.map(({ path, label }) => (
-              <button key={path} className="push-button" title={path} onClick={() => addFolders([path])}>
-                Add {label}
-              </button>
-            ))}
-            <button className="push-button" onClick={() => void chooseFolder()}>
+            <button className="push-button push-button--default" autoFocus disabled={busy} onClick={() => void chooseFolder()}>
               Choose Folder…
             </button>
+            <p className="welcome-drag-hint">Or drag music files and folders onto this window.</p>
+            {folders.length > 0 && (
+              <div className="welcome-folder-shortcuts">
+                <p>Or add one of these folders:</p>
+                {folders.map(({ path, label }) => (
+                  <div key={path} className="welcome-folder-shortcut">
+                    <button className="push-button" disabled={busy} onClick={() => void addFolders([path])}>
+                      Add {label}
+                    </button>
+                    <span className="welcome-folder-path">{path}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </WelcomeOption>
           <WelcomeOption
             icon="playlist"
             title="Bring your Spotify playlists"
             text="Rebuild your playlists and listening history from Spotify, YouTube Music or ListenBrainz."
           >
-            <button className="push-button" onClick={() => void answer(() => useApp.setState({ importingElsewhere: true }), true)}>
+            <button className="push-button" disabled={busy} onClick={() => void answer(() => useApp.setState({ importingElsewhere: true }), true)}>
               Import…
             </button>
           </WelcomeOption>
           {devices.map((device) => (
             <WelcomeOption key={device.id} icon="ipod" title={`Use ${device.name}`} text="It's plugged in. Its page shows what's on it and syncs it.">
-              <button className="push-button" onClick={() => void answer(() => setSource(deviceSource(device.id)))}>
+              <button className="push-button" disabled={busy} onClick={() => void answer(() => setSource(deviceSource(device.id)))}>
                 Open iPod
               </button>
             </WelcomeOption>
@@ -178,7 +199,7 @@ export function Welcome() {
         {devices.length === 0 && <p className="welcome-hint">Plug in an iPod any time; it shows up under Devices.</p>}
         <div className="welcome-heading">Options</div>
         <label className="prefs-check">
-          <input type="checkbox" checked={organize} onChange={(e) => setOrganize(e.target.checked)} />
+          <input type="checkbox" checked={organize} disabled={busy} onChange={(e) => setOrganize(e.target.checked)} />
           Keep my media folder organized
         </label>
         <p className="prefs-note">
@@ -186,15 +207,15 @@ export function Welcome() {
         </p>
         {updates?.configured && (
           <label className="prefs-check">
-            <input type="checkbox" checked={autoCheck} onChange={(e) => setAutoCheck(e.target.checked)} />
+            <input type="checkbox" checked={autoCheck} disabled={busy} onChange={(e) => setAutoCheck(e.target.checked)} />
             Check for updates automatically
           </label>
         )}
         <div className="sheet-buttons">
-          <button className="push-button" title="Fine, we'll be over here." onClick={() => void skip()}>
+          <button className="push-button" title="Fine, we'll be over here." disabled={busy} onClick={() => void skip()}>
             Skip
           </button>
-          <button className="push-button push-button--default" autoFocus onClick={() => void answer()}>
+          <button className="push-button" disabled={busy} onClick={() => void answer()}>
             Done
           </button>
         </div>

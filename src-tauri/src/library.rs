@@ -482,6 +482,10 @@ pub async fn library_delete(app: AppHandle, track_ids: Vec<i64>, move_files_to_t
 /// What a finished import tells the user. One that simply added songs says nothing, as in iTunes.
 fn scan_notice(result: &Result<ScanSummary, impl std::fmt::Display>) -> Option<String> {
     match result {
+        Ok(summary) if summary.scanned == 0 && !summary.failed.is_empty() => {
+            let (path, error) = &summary.failed[0];
+            Some(format!("Couldn't read {path}: {error}"))
+        }
         Ok(summary) if !summary.failed.is_empty() => {
             let count = summary.failed.len();
             Some(format!("{count} {} couldn't be added", if count == 1 { "file" } else { "files" }))
@@ -518,6 +522,49 @@ pub fn add_paths(app: &AppHandle, paths: Vec<PathBuf>) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn startup_does_not_import_the_media_folder_and_only_a_chosen_folder_is_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let media = dir.path().join("Music/Unsub");
+        let chosen = dir.path().join("My Albums");
+        for folder in [&media, &chosen] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("song.mp3"), include_bytes!("../../crates/library/tests/fixtures/halo.mp3")).unwrap();
+        }
+        let state = LibraryState::open(dir.path().join("data/Library.sqlite"), dir.path().join("Artwork")).unwrap();
+
+        // This is the startup setup: the media destination is a setting, never an import source.
+        state.media_folder(&media).unwrap();
+        assert_eq!(state.queries().stats(&TrackQuery::default()).unwrap().count, 0);
+        assert!(state.queries().welcome_due().unwrap());
+
+        state.with_writer(|library| library.add_paths(std::slice::from_ref(&chosen), |_| {})).unwrap();
+
+        let tracks = state.queries().tracks(&TrackQuery::default()).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert!(Path::new(&tracks[0].path).starts_with(std::fs::canonicalize(&chosen).unwrap()));
+        assert!(media.join("song.mp3").exists());
+        assert!(chosen.join("song.mp3").exists(), "adding music leaves the original file in place by default");
+    }
+
+    #[test]
+    fn startup_keeps_a_previously_chosen_media_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("data/Library.sqlite");
+        let artwork = dir.path().join("Artwork");
+        let chosen = dir.path().join("My Media");
+        let default = dir.path().join("Music/Unsub");
+        {
+            let state = LibraryState::open(database.clone(), artwork.clone()).unwrap();
+            state.with_writer(|library| library.set_media_folder(&chosen)).unwrap();
+        }
+
+        let state = LibraryState::open(database, artwork).unwrap();
+        assert_eq!(state.media_folder(&default).unwrap(), std::fs::canonicalize(&chosen).unwrap());
+        assert!(!default.exists(), "an existing choice must not create or reset the default folder");
+        assert_eq!(state.queries().stats(&TrackQuery::default()).unwrap().count, 0);
+    }
+
     fn summary(scanned: u64, failed: usize) -> ScanSummary {
         ScanSummary { scanned, failed: vec![(String::new(), String::new()); failed], ..ScanSummary::default() }
     }
@@ -536,6 +583,12 @@ mod tests {
     fn files_that_could_not_be_read_are_counted() {
         assert_eq!(scan_notice(&Ok::<_, String>(summary(5, 1))).as_deref(), Some("1 file couldn't be added"));
         assert_eq!(scan_notice(&Ok::<_, String>(summary(5, 3))).as_deref(), Some("3 files couldn't be added"));
+    }
+
+    #[test]
+    fn an_unreadable_chosen_folder_says_why_it_could_not_be_added() {
+        let summary = ScanSummary { failed: vec![("/My Albums".into(), "Permission denied".into())], ..ScanSummary::default() };
+        assert_eq!(scan_notice(&Ok::<_, String>(summary)).as_deref(), Some("Couldn't read /My Albums: Permission denied"));
     }
 
     #[test]

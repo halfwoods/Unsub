@@ -1,4 +1,5 @@
 import { OwnershipView } from "../collection/OwnershipView";
+import { chooseMusicFolders } from "../import/addMusic";
 import { DeviceSummary, PlayerSummary } from "../devices/DeviceSummary";
 import { MixesView } from "../mixes/MixesView";
 import { PartyShuffleView } from "../party/PartyShuffleView";
@@ -17,7 +18,7 @@ import "./Content.css";
 const PLACARDS: Partial<Record<string, { title: string; body: string }>> = {
   music: {
     title: "Music",
-    body: "Your music library is empty. Drag folders of music onto this window, or choose File › Add to Library…",
+    body: "Choose the folder your music lives in, or drag music files and folders onto this window.",
   },
   audiobooks: {
     title: "Audiobooks",
@@ -111,6 +112,11 @@ export function Content() {
         <div className="placard-card">
           <h1>{placard.title}</h1>
           <p>{placard.body}</p>
+          {source === "music" && (
+            <button className="push-button push-button--default placard-add-music" onClick={() => void chooseMusicFolders()}>
+              Add Music Folder…
+            </button>
+          )}
         </div>
       )}
     </div>

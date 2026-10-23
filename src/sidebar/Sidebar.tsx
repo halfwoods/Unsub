@@ -4,6 +4,7 @@ import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
 import { SourceIcon, type SourceIconName } from "./icons";
 import { copySongsToLibrary } from "../devices/CopyToLibrary";
+import { chooseMusicFolders } from "../import/addMusic";
 import { IS_MAC } from "../util/platform";
 import { DEVICE_TRACKS_MIME, PlaylistRows, TRACKS_MIME, type DeviceDrag } from "./PlaylistRows";
 import { showCdMenu, showDeviceMenu, showPlayerMenu, showPodcastsMenu, showSharedMenu, useRowMenu } from "./sidebarMenu";
@@ -129,13 +130,14 @@ function Row({
   );
 }
 
-function Section({ heading, children }: { heading: string; children: ReactNode }) {
+function Section({ heading, children, footer }: { heading: string; children: ReactNode; footer?: ReactNode }) {
   return (
     <section className="sidebar-section">
       <h2 className="sidebar-heading">{heading}</h2>
       <ul role="listbox" aria-label={heading}>
         {children}
       </ul>
+      {footer}
     </section>
   );
 }
@@ -235,7 +237,17 @@ export function Sidebar() {
     <nav className="sidebar">
       <div className="sidebar-scroll">
         {[library, purchases].map((section) => (
-          <Section key={section.heading} heading={section.heading}>
+          <Section
+            key={section.heading}
+            heading={section.heading}
+            footer={section === library && (
+              <div className="sidebar-library-actions">
+                <button className="push-button" onClick={() => void chooseMusicFolders()}>
+                  Add Music Folder…
+                </button>
+              </div>
+            )}
+          >
             {section.items.map((item) => (
               <Row
                 key={item.id}

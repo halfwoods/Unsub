@@ -406,3 +406,6 @@ export type MenuAction =
   | `visualizer-${VisualizerStyle}`;
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));
+/** Nonempty selections from File › Add Music Folder/Files; native imports also work with the window hidden. */
+export const onMenuMusicAccepted = (handler: () => void): Promise<UnlistenFn> =>
+  listen("menu://music-add-accepted", () => handler());

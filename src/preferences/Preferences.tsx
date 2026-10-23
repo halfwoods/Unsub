@@ -76,6 +76,9 @@ function AdvancedTab() {
             Reset
           </button>
         </div>
+        <p className="prefs-note">
+          The destination for CD rips and files you choose to copy. To add music you already have, use Add Music Folder… in the sidebar or File menu.
+        </p>
       </div>
       <label className="prefs-check">
         <input type="checkbox" checked={settings.organize} onChange={(e) => save({ ...settings, organize: e.target.checked })} />
