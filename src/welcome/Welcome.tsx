@@ -5,12 +5,11 @@ import {
   libraryStats,
   updatesSetAutoCheck,
   updatesStatus,
-  welcomeDone,
   welcomeFolders,
 } from "../api/commands";
 import type { MediaSettings, UpdatesStatus, WelcomeFolder } from "../api/types";
 import { SourceIcon, type SourceIconName } from "../sidebar/icons";
-import { addMusicPaths, pickMusicFolders } from "../import/addMusic";
+import { addMusicPaths, completeMusicWelcome, pickMusicFolders } from "../import/addMusic";
 import { deviceSource, useApp } from "../state/store";
 import { IS_MAC } from "../util/platform";
 import "./Welcome.css";
@@ -92,18 +91,7 @@ export function Welcome() {
     }, (e: unknown) => showNotice(String(e)));
   }, []);
 
-  const remember = async () => {
-    try {
-      await welcomeDone();
-    } catch (e) {
-      showNotice(String(e));
-    }
-  };
-
-  const skip = async () => {
-    await remember();
-    useApp.setState({ welcoming: false });
-  };
+  const skip = () => completeMusicWelcome(false);
 
   /** A failed folder import leaves the welcome open so another folder can be chosen. */
   const answer = async (next?: () => void | boolean | Promise<void | boolean>, startsImport = false) => {
@@ -113,8 +101,7 @@ export function Welcome() {
       if (media?.folder && organize !== media.organize) await librarySetMediaSettings(media.folder, organize, media.copyOnAdd);
       if (updates?.configured && autoCheck !== updates.autoCheck) await updatesSetAutoCheck(autoCheck);
       if (next && (await next()) === false) return;
-      await remember();
-      useApp.setState((s) => ({ welcoming: false, welcomeTipPending: s.welcomeTipPending || startsImport }));
+      await completeMusicWelcome(startsImport);
     } catch (e) {
       showNotice(String(e));
     } finally {

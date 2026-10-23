@@ -8,6 +8,7 @@ const modules = {
   "../api/commands": `
     export const libraryAddPaths = (paths) => globalThis.__unsubFolderTest.add(paths);
     export const welcomeDone = () => globalThis.__unsubFolderTest.completeWelcome();
+    export const welcomeDue = () => globalThis.__unsubFolderTest.welcomeDue();
   `,
   "../state/store": `
     export const useApp = {
@@ -33,7 +34,9 @@ registerHooks({
   },
 });
 
-const { addMusicPaths, chooseMusicFolders, completeMusicWelcome } = await import(helperUrl);
+const { addMusicPaths, chooseMusicFolders, completeMusicWelcome, watchWelcomeDue } = await import(helperUrl);
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   globalThis.__unsubFolderTest = {
@@ -42,6 +45,7 @@ beforeEach(() => {
     picked: null,
     app: { welcoming: true, welcomeTipPending: false },
     welcomed: 0,
+    welcomeDue: async () => true,
     completeWelcome: async () => { globalThis.__unsubFolderTest.welcomed += 1; },
     open: async (options) => {
       const state = globalThis.__unsubFolderTest;
@@ -108,7 +112,7 @@ test("empty path lists never submit an add request", async () => {
   assert.deepEqual(state.calls, []);
 });
 
-test("an accepted native music choice reveals the library before its preference write finishes", async () => {
+test("an accepted music choice reveals the library before its preference write finishes", async () => {
   const state = globalThis.__unsubFolderTest;
   let finish;
   state.completeWelcome = () => new Promise((resolve) => { finish = resolve; });
@@ -116,6 +120,18 @@ test("an accepted native music choice reveals the library before its preference 
   const completing = completeMusicWelcome();
   assert.equal(state.app.welcoming, false);
   assert.equal(state.app.welcomeTipPending, true);
+  finish();
+  await completing;
+});
+
+test("Skip and Done dismiss immediately without scheduling import tips", async () => {
+  const state = globalThis.__unsubFolderTest;
+  let finish;
+  state.completeWelcome = () => new Promise((resolve) => { finish = resolve; });
+
+  const completing = completeMusicWelcome(false);
+  assert.equal(state.app.welcoming, false);
+  assert.equal(state.app.welcomeTipPending, false);
   finish();
   await completing;
 });
@@ -129,4 +145,46 @@ test("a welcome preference failure does not hide an accepted native import", asy
   assert.equal(state.app.welcoming, false);
   assert.equal(state.app.welcomeTipPending, true);
   assert.match(state.notices[0], /welcome choice.*disk full/);
+});
+
+test("a startup response cannot reopen Welcome after an accepted music import", async () => {
+  const state = globalThis.__unsubFolderTest;
+  let finishStartup;
+  state.app.welcoming = false;
+  state.welcomeDue = () => new Promise((resolve) => { finishStartup = resolve; });
+  const stop = watchWelcomeDue();
+
+  await completeMusicWelcome();
+  finishStartup(true);
+  await settle();
+  assert.equal(state.app.welcoming, false);
+  stop();
+});
+
+test("a disposed startup check cannot reopen Welcome during a remount", async () => {
+  const state = globalThis.__unsubFolderTest;
+  let finishStartup;
+  state.app.welcoming = false;
+  state.welcomeDue = () => new Promise((resolve) => { finishStartup = resolve; });
+  const stop = watchWelcomeDue();
+
+  stop();
+  finishStartup(true);
+  await settle();
+  assert.equal(state.app.welcoming, false);
+});
+
+test("startup opens Welcome when due, and reports query errors without an unhandled rejection", async () => {
+  const state = globalThis.__unsubFolderTest;
+  state.app.welcoming = false;
+  const stop = watchWelcomeDue();
+  await settle();
+  assert.equal(state.app.welcoming, true);
+  stop();
+
+  state.welcomeDue = async () => { throw new Error("library unavailable"); };
+  const stopFailed = watchWelcomeDue();
+  await settle();
+  assert.match(state.notices[0], /welcome choice.*library unavailable/);
+  stopFailed();
 });

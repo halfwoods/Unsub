@@ -1,6 +1,8 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { libraryAddPaths, welcomeDone } from "../api/commands";
+import { libraryAddPaths, welcomeDone, welcomeDue } from "../api/commands";
 import { useApp } from "../state/store";
+
+let welcomeAnswers = 0;
 
 /** Dialogs can return one path or several; cancellation must never start an import. */
 export function normalizePickedPaths(picked: string | string[] | null): string[] {
@@ -19,9 +21,25 @@ export async function addMusicPaths(paths: string[]): Promise<boolean> {
   }
 }
 
+/** The startup query can still be pending when a native menu or drop answers Welcome. */
+export function watchWelcomeDue(): () => void {
+  let active = true;
+  const answers = welcomeAnswers;
+  void welcomeDue().then(
+    (due) => {
+      if (active && answers === welcomeAnswers && due) useApp.setState({ welcoming: true });
+    },
+    (error: unknown) => {
+      if (active && answers === welcomeAnswers) useApp.getState().showNotice(`Couldn't check the welcome choice: ${String(error)}`);
+    },
+  );
+  return () => { active = false; };
+}
+
 /** An accepted music import is a first-run choice, including from the native menu or a file drop. */
-export async function completeMusicWelcome(): Promise<void> {
-  useApp.setState((state) => ({ welcoming: false, welcomeTipPending: state.welcomeTipPending || state.welcoming }));
+export async function completeMusicWelcome(startsImport = true): Promise<void> {
+  welcomeAnswers += 1;
+  useApp.setState((state) => ({ welcoming: false, welcomeTipPending: state.welcomeTipPending || (startsImport && state.welcoming) }));
   try {
     await welcomeDone();
   } catch (e) {

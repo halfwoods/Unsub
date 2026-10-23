@@ -565,6 +565,55 @@ mod tests {
         assert_eq!(state.queries().stats(&TrackQuery::default()).unwrap().count, 0);
     }
 
+    #[test]
+    fn startup_restores_saved_tracks_and_preferences_without_rescanning_their_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("data/Library.sqlite");
+        let artwork = dir.path().join("Artwork");
+        let source = dir.path().join("My Albums");
+        let media = dir.path().join("My Media");
+        let default = dir.path().join("Music/Unsub");
+        let audio = include_bytes!("../../crates/library/tests/fixtures/halo.mp3");
+        std::fs::create_dir_all(&source).unwrap();
+        let original = source.join("saved.mp3");
+        std::fs::write(&original, audio).unwrap();
+        let (tracks, playlists, settings, playlist_id) = {
+            let state = LibraryState::open(database.clone(), artwork.clone()).unwrap();
+            state
+                .with_writer(|library| {
+                    library.set_media_folder(&media)?;
+                    library.add_paths(std::slice::from_ref(&source), |_| {})?;
+                    let id = library.tracks(&TrackQuery::default())?[0].id;
+                    library.set_rating(id, 80)?;
+                    library.record_play(id, 1_700_000_000)?;
+                    let playlist = library.create_playlist("Saved favorites", PlaylistKind::Regular, None)?;
+                    library.add_to_playlist(playlist.id, &[id], None)?;
+                    library.set_organize(true)?;
+                    library.set_copy_on_add(true)?;
+                    Ok((library.tracks(&TrackQuery::default())?, library.playlists()?, library.media_settings()?, playlist.id))
+                })
+                .unwrap()
+        };
+        // A later file in either a source or the destination must not turn reopening into a rescan.
+        let later = source.join("not chosen yet.mp3");
+        let destination_only = media.join("not imported.mp3");
+        std::fs::write(&later, audio).unwrap();
+        std::fs::write(&destination_only, audio).unwrap();
+
+        let state = LibraryState::open(database, artwork).unwrap();
+        assert_eq!(state.media_folder(&default).unwrap(), settings.folder.clone().unwrap());
+        let mut library = state.queries();
+        assert_eq!(library.tracks(&TrackQuery::default()).unwrap(), tracks);
+        assert_eq!(library.playlists().unwrap(), playlists);
+        assert_eq!(library.tracks(&TrackQuery { playlist: Some(playlist_id), ..TrackQuery::default() }).unwrap(), tracks);
+        assert_eq!(library.media_settings().unwrap(), settings);
+        assert!(!library.welcome_due().unwrap(), "a saved library must not appear as a fresh installation");
+        assert!(!default.exists());
+        for file in [original, later, destination_only] {
+            assert_eq!(std::fs::read(file).unwrap(), audio, "startup leaves the original music bytes in place");
+        }
+    }
+
     fn summary(scanned: u64, failed: usize) -> ScanSummary {
         ScanSummary { scanned, failed: vec![(String::new(), String::new()); failed], ..ScanSummary::default() }
     }

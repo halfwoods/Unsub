@@ -30,7 +30,6 @@ import {
   playerSetCrossfade,
   playerSetSoundCheck,
   playerStatus,
-  welcomeDue,
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
@@ -42,7 +41,7 @@ import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { ImportElsewhere } from "./import/ImportElsewhere";
 import { ImportSheet } from "./import/ImportSheet";
-import { completeMusicWelcome } from "./import/addMusic";
+import { completeMusicWelcome, watchWelcomeDue } from "./import/addMusic";
 import { watchFileDrops } from "./import/fileDrop";
 import { LibrarySheets } from "./info/LibrarySheets";
 import { addDropped } from "./radio/importStations";
@@ -231,13 +230,16 @@ function useBackendEvents() {
     void refreshShared();
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
-    void welcomeDue().then((due) => due && useApp.setState({ welcoming: true }));
+    const stopWelcome = watchWelcomeDue();
     if (loadBitPerfect()) void playerSetBitPerfect(true);
     if (loadSoundCheck()) void playerSetSoundCheck(true);
     applyEqualizer(loadEqualizer());
     const crossfade = loadCrossfade();
     if (crossfade !== null) void playerSetCrossfade(crossfade);
-    return () => subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
+    return () => {
+      stopWelcome();
+      subscriptions.forEach((s) => void s.then((unlisten) => unlisten()));
+    };
   }, []);
 }
 
