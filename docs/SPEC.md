@@ -141,6 +141,7 @@ Each milestone ends with something you can run.
     - **Sound around you (optional):** "React to sound" listens through the microphone instead, so it can follow a record player, an instrument or a room. It's off until chosen, and macOS asks for microphone permission when it is. Nothing is recorded or kept.
     - **Styles (our own designs, GPU-drawn with WebGL2 at the display's refresh rate):**
       - **Classic:** flowing, mirrored colour trails with feedback, in the spirit of the early iTunes visualizer.
+      - **Gaslight:** original mirrored spectrum ridges, glowing plumes, fine history trails and a center band inspired by GasLight's published appearance. Ember, Aurora and Inverted palettes, adjustable trails/glow/height and slow autopilot; settings persist in Playback preferences. A bounded shared pixel model supports both WebGL2 and Canvas2D, including flashing limits. No original plug-in code or assets are included.
       - **Lights:** a particle field that blooms on beats, in the spirit of iTunes 8's.
       - **Spectrum:** analyzer bars with peak caps.
       - **Scope:** an oscilloscope, including X/Y Lissajous for stereo.

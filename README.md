@@ -364,6 +364,13 @@ A new library comes with a few: 90’s Music, Classical Music, My Top Rated, Rec
 In **Preferences › Playback**, **Limit flashing** keeps it to three bright flashes a second or fewer (on by default). **React to sound around you (microphone)** is off by default. Nothing is recorded or kept.
 
 Limits: it can't hear a Chromecast or Sonos speaker, and shows the Album style with a note instead.
+
+**In the next version:** **Gaslight** adds mirrored spectrum ridges, glowing plumes and fading
+trails inspired by Jonathan del Strother's [GasLight](https://steelskies.com/gaslight/).
+Choose it under **View › Visualizer**, then use **Preferences › Playback** to select Ember,
+Aurora or Inverted colors and adjust trails, glow and height. Autopilot varies the shape slowly;
+Reset Gaslight restores its defaults. It is an original built-in renderer and also works without
+WebGL2. The original iTunes plug-in is not required.
 </details>
 
 <details>
@@ -426,6 +433,12 @@ Yes. GPL-3.0-or-later: you can read it, change it and share it.
 **Linux?**
 It builds and passes its tests on Linux, but isn't packaged yet. Pull requests welcome.
 
+**High Sierra?**
+The published 0.5.0 release requires macOS 11. An Intel compatibility build is in development for
+High Sierra 10.13.6 with Safari 13.1.2 installed. Actual testing on High Sierra is still required;
+see the [compatibility plan and validation record](docs/HIGH_SIERRA_GASLIGHT_PLAN.md). Apple Silicon
+continues to require macOS 11 or later.
+
 **Will you add NFTs?**
 No.
 
@@ -442,6 +455,8 @@ pnpm exec tsc --noEmit                         # typecheck the UI
 node --test src/import/test/*.test.mjs         # folder selection and file drops
 node --test src/browser/test/*.test.mjs        # layouts, metadata, exact scope and navigation
 node --test src/visualizer/test/*.test.mjs     # visualizer tests
+node --test src/compat/test/*.test.mjs         # Safari compatibility
+python3 -m unittest discover -s scripts/test  # macOS binary-audit regressions
 ```
 
 See [docs/SPEC.md](docs/SPEC.md) for decisions, the measured window anatomy and milestones, and [scripts/UPDATES.md](scripts/UPDATES.md) for releases.
