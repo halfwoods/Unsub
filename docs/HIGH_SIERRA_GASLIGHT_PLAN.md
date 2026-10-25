@@ -1,6 +1,6 @@
 # High Sierra compatibility and Gaslight visualizer
 
-Status: implementation in progress. Base `origin/main` pulled before edits at `9b2eb5f`; branch `mac-mini/high-sierra-gaslight`. The checkout was clean. User requested both features on 2026-10-25 and authorized routine implementation decisions and agent delegation. Repository instructions authorize small commits, push and PR; publishing another release is outside this task.
+Status: implementation complete; final CI/package verification in progress. Actual High Sierra runtime remains an external release gate. Base `origin/main` pulled before edits at `9b2eb5f`; branch `mac-mini/high-sierra-gaslight`. The checkout was clean. User requested both features on 2026-10-25 and authorized routine implementation decisions and agent delegation. Repository instructions authorize small commits, push and PR; publishing another release is outside this task.
 
 ## Outcomes and decisions
 
@@ -25,7 +25,7 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 
 ### Native and dependency compatibility
 
-- Keep the normal Intel app/update archive usable on 10.13; set deployment targets explicitly per architecture in release configuration and CI. Apple Silicon uses 11.0.
+- Keep the normal Intel app/update archive usable on 10.13; set deployment targets explicitly per architecture (Intel 10.13.6, matching the documented OS baseline) in release configuration and CI. Apple Silicon uses 11.0.
 - Guard APIs by OS availability before messaging classes/selectors. On pre-10.14 macOS, microphone use follows the older OS permission model; later systems keep the current explicit permission flow.
 - Select iTunes for pre-10.15 media download requests and Music on later systems.
 - Resolve optional process-tap functions dynamically and refuse the optional modern loopback path below its supported OS. Normal input/output devices must not acquire a hard dependency on 14.2 symbols/classes.
@@ -58,16 +58,16 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 
 | Item | Owner / primary files | Acceptance | Status |
 | --- | --- | --- | --- |
-| Native API availability and old iTunes integration | Native agent: `src-tauri/src/visualizer.rs`, `collection.rs` | No unavailable selector call on 10.13; later OS behavior retained | In progress |
-| Audio/TLS dependency compatibility | Native agent: Cargo manifests/lock, narrowly scoped vendor patches if needed | No required 14.2 audio import; pre-10.14 trust evaluation remains secure | In progress |
-| Safari 13.1 frontend output and layout | Web agent: `vite.config.ts`, compatibility bootstrap/styles/tests, targeted component CSS | Production bundle targets 13.1; missing capabilities retain functional layout/focus | In progress |
-| Shared Gaslight rendering and adapters | Visualizer agent: `src/visualizer/` | Three reference-informed looks on GPU and software paths; bounded/time-correct rendering | In progress |
-| Preferences, menu and runtime integration | Visualizer agent: visualizer files, playback preferences, Preferences.tsx, menu.rs | Saved settings, migration, keyboard/fullscreen, clear fallback and safe flashing | In progress |
-| Deployment targets, cache and binary audits | Root: `.github/`, `scripts/` | Intel 10.13/ARM 11 artifacts audited; cache keys include deployment target | Pending |
-| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Pending |
-| Live UI and compatibility evidence | Root | Native/preview rendering, software fallback, palettes/settings, resize/keyboard/idle inspected | Pending |
+| Native API availability and old iTunes integration | Native agent: `src-tauri/src/visualizer.rs`, `collection.rs` | No unavailable selector call on 10.13; later OS behavior retained | Implemented; focused tests passed |
+| Audio/TLS dependency compatibility | Native agent: Cargo manifests/lock, narrowly scoped vendor patches if needed | No required 14.2 audio import; pre-10.14 trust evaluation remains secure | Implemented; isolated TLS/audio tests and rebuilt-symbol check passed |
+| Safari 13.1 frontend output and layout | Web agent: `vite.config.ts`, compatibility bootstrap/styles/tests, targeted component CSS | Production bundle targets 13.1; missing capabilities retain functional layout/focus | Implemented; production build, 55 browser/compat tests and live forced fallback checks passed |
+| Shared Gaslight rendering and adapters | Visualizer agent: `src/visualizer/` | Three reference-informed looks on GPU and software paths; bounded/time-correct rendering | Implemented; model regressions and live GPU/software checks passed |
+| Preferences, menu and runtime integration | Visualizer agent: visualizer files, playback preferences, Preferences.tsx, menu.rs | Saved settings, migration, keyboard/fullscreen, clear fallback and safe flashing | Implemented; native keyboard, reset, restart persistence and fullscreen focus regression verified |
+| Deployment targets, cache and binary audits | Root: `.github/`, `scripts/` | Intel 10.13.6/ARM 11 artifacts audited; cache keys include deployment target | Implemented; 12 binary fixtures and fresh ARM executable audit passed; Intel CI pending |
+| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Local frontend 150 passed/1 existing skip; Rust workspace 2,601 passed/7 ignored; CI pending |
+| Live UI and compatibility evidence | Root | Native/preview rendering, software fallback, palettes/settings, resize/keyboard/idle inspected | Native generated-file playback, idle, settings, keyboard and 823×423 window verified; preview policy block documented |
 | Actual High Sierra runtime | Requires 10.13 Intel environment | Launch, import/playback, library UI, TLS/update check and new visualizer work | Environment unavailable here; user asked |
-| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Pending |
+| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Committed and pushed; draft PR #4 open; final evidence update pending |
 
 ## Verification
 
@@ -84,3 +84,15 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 - Preserve modern appearance and source/playback behaviors established in 0.5.0.
 - Do not publish a new version or overwrite release assets as part of this implementation request.
 - Any plan adjustment must preserve the two requested outcomes and update this ledger with evidence.
+
+## Current validation record
+
+- Local host: Apple M1, macOS 15.8.1, Node 26.11.1, Rust 1.99.1. Full frontend production build passed with the existing main-chunk size warning. Final frontend suites: 150 passed, one existing optional allocation skip. Rust workspace: 2,601 passed, seven existing ignores; format check passed. The pinned Rust 1.93.1 CI remains authoritative for strict Clippy; the newer local compiler reports existing unrelated lints.
+- Fifteen focused native/dependency tests cover permission guards, old iTunes integration, old/new certificate evaluation, hostname/root/date failures and optional process-tap availability. The certificate fixtures are synthetic, network fetching is disabled and no keychain is changed.
+- Twelve binary-audit tests cover thin/universal binaries, minimum versions, architectures, strong versus weak imports, stripped symbol tables, dyld bind streams and chained imports. Known unsupported import encodings fail closed. The parser also inspected all fourteen Mach-O files from existing Intel/ARM 0.5.0 archives. The freshly rebuilt ARM executable passed its minimum/architecture/import audit.
+- Browser checks completed before a later saved-origin-policy denial: all three Gaslight palettes across GPU/software paths; software strobe fixture; forced legacy layout at 958px and 398px with visible keyboard focus. After the denial, all localhost browser access stopped. These are modern Chrome checks, not High Sierra execution.
+- Native bundled application, loading its packaged files without the blocked preview server: imported and played only `/tmp/unsub-gaslight-qa/gaslight.flac`, a generated tone/sweep fixture. Gaslight reacted to playback and settled to its idle line when paused. The native menu and Cmd+T opened Gaslight. Arrow keys changed styles.
+- Native preferences: Aurora and a keyboard-adjusted 51% trail value survived a full quit/relaunch. Autopilot toggled by keyboard, and Reset Gaslight restored Ember/70% trails/65% glow/70% height/autopilot off. Limit flashing stayed enabled and microphone stayed disabled. At approximately 823×423 logical pixels, Playback preferences scrolled to every control while OK stayed visible.
+- Live fullscreen testing discovered a first-responder loss after native fullscreen transitions. Added guarded webview/content focus restoration and five async regressions. Rebuilt native app then passed F → Right → Left → Escape without clicking the canvas; Escape closed the visualizer and restored the window. Open editors/dialogs and inactive applications are excluded from focus restoration.
+- CPU field benchmark on this M1: roughly 1.16–1.22 ms median and 1.35–1.60 ms p95 per 384×256 frame. This excludes compositing/limiting/GPU work and is not an old-Intel performance claim.
+- Draft [PR #4](https://github.com/halfwoods/Unsub/pull/4) is open. Initial CI found a Windows-only path-separator assumption in the audit test; the assertion now uses the platform-native relative path. Final CI results and the Intel candidate link will be recorded after completion.

@@ -40,6 +40,12 @@ Array.flat/flatMap and the current Intl number/date formatting options.
 Special cases:
 
 - Tauri channel error handling calls `queueMicrotask`; bootstrap covers it.
+  The installed Tauri 2.12.4 `init.js`, `core.js`, `ipc.js`, Wry initialization
+  scripts and installed plug-in initialization scripts contain no such call.
+  The optional global Tauri bundle only uses it inside a channel callback error
+  handler, not during module initialization; `withGlobalTauri` is disabled here.
+  Thus the required callsites run after the frontend bootstrap. Re-audit injected
+  initialization code when upgrading Tauri, since Vite does not transform it.
 - Tauri's optional `Resource[Symbol.asyncDispose]` method becomes an unused
   `undefined` property without that symbol. Unsub explicitly calls normal APIs
   and does not use `await using`; no disposal polyfill is needed for current code.

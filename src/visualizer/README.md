@@ -8,7 +8,7 @@ The View → Visualizer menu and Playback preferences share the `gaslight` style
 
 ## Validation recorded 2026-10-25
 
-- `node --test src/visualizer/test/*.test.mjs`: 67 passed, one existing optional allocation test skipped. Ten new regressions cover migration/reload, malformed settings/audio, frequency placement, height, mirrored pixels, palette contrast, trail decay, frame-rate independence, keyboard style cycling and software limiting.
+- `node --test src/visualizer/test/*.test.mjs`: 72 passed, one existing optional allocation test skipped. Ten new regressions cover migration/reload, malformed settings/audio, frequency placement, height, mirrored pixels, palette contrast, trail decay, frame-rate independence, keyboard style cycling and software limiting.
 - `pnpm build`: passed. The existing main-chunk size warning remains. The rendering implementation stays in the lazy visualizer chunk; settings are a separate small module.
 - Live Chrome inspection, completed before browser access was subsequently blocked by the computer's saved origin policy: Ember through WebGL2; Aurora and Inverted through forced Canvas2D. Mirroring, trails, palette contrast and accurate software labels were visible. Dark backgrounds used light song text; Inverted used dark text.
 - The software preview's 8 Hz strobe stress run reported zero qualifying whole-picture luminance changes per second for each palette, with limiting enabled. This is evidence for that fixture, not a guarantee about every region or input. A separate GPU stress result could not be reliably distinguished and is not claimed.
@@ -29,4 +29,4 @@ The reused output is 393,216 bytes. These timings measure only the CPU field; th
 
 ## Remaining verification
 
-The visualizer-agent pass did not complete a live GPU benchmark, short-window preferences interaction, fullscreen/Escape, interactive style cycling, or restart persistence. Keyboard handlers and cleanup were inspected; cycling and persistence have automated coverage. The native application pass and actual Intel High Sierra launch/playback tests are recorded separately in the [implementation plan](../../docs/HIGH_SIERRA_GASLIGHT_PLAN.md). No further localhost browser access was attempted after the origin-policy block.
+The root native pass subsequently verified short-window preferences, keyboard controls, reset, restart persistence, playback/idle behavior and fullscreen/Escape. It found and fixed a fullscreen focus regression, with five additional async tests. A live GPU benchmark and actual High Sierra runtime remain unavailable. The native application pass and actual Intel High Sierra launch/playback tests are recorded separately in the [implementation plan](../../docs/HIGH_SIERRA_GASLIGHT_PLAN.md). No further localhost browser access was attempted after the origin-policy block.
