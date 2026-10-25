@@ -208,16 +208,17 @@ class MachOAuditTests(unittest.TestCase):
             (contents / "Info.plist").write_bytes(plistlib.dumps({
                 "CFBundleExecutable": "Test", "LSMinimumSystemVersion": "10.13",
             }))
-            (contents / "MacOS/Test").write_bytes(binary())
+            executable = contents / "MacOS" / "Test"
+            executable.write_bytes(binary())
             (framework / "Example").write_bytes(binary())
             report, errors = audit.audit_bundle(app, "10.13", "x86_64")
             self.assertEqual(len(report), 2)
             self.assertEqual(errors, [])
-            (contents / "MacOS/Test").write_bytes(binary(minimum=(11, 0, 0)))
+            executable.write_bytes(binary(minimum=(11, 0, 0)))
             (framework / "Example").write_bytes(binary(symbols=[("_SecTrustEvaluateWithError", False)]))
             _, errors = audit.audit_bundle(app, "10.13", "x86_64")
             self.assertEqual(len(errors), 2)
-            self.assertTrue(any("MacOS/Test" in error and "11.0.0" in error for error in errors))
+            self.assertTrue(any(str(executable.relative_to(app)) in error and "11.0.0" in error for error in errors))
             self.assertTrue(any("Example.framework" in error and "SecTrust" in error for error in errors))
             self.assertIn("Info.plist", audit.audit_bundle(app, "11.0")[1][0])
 
