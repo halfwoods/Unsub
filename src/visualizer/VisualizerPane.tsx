@@ -18,7 +18,7 @@ const COVER_SIZE = 1024;
  * while it is on screen.
  */
 export function VisualizerPane() {
-  const { style, limitFlashing, microphone, microphoneDevice } = useApp((s) => s.visualizer);
+  const { style, limitFlashing, microphone, microphoneDevice, gaslight } = useApp((s) => s.visualizer);
   const setVisualizer = useApp((s) => s.setVisualizer);
   const showNotice = useApp((s) => s.showNotice);
   const nowPlaying = useApp((s) => s.nowPlaying);
@@ -107,6 +107,7 @@ export function VisualizerPane() {
         style={castTarget ? "album" : style}
         onStyleChange={(next) => !castTarget && setVisualizer({ style: next })}
         limitFlashing={limitFlashing}
+        gaslight={gaslight}
         onToggleFullscreen={() => void showFullscreen(!fullscreen)}
         onClose={() => setVisualizer({ open: false })}
       />

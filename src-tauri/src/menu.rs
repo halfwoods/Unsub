@@ -42,8 +42,9 @@ const ZOOM_WINDOW: (&str, &str, Option<&str>) = ("zoom-window", "Zoom", None);
 /// A way back to the window besides the Dock icon, since closing it only hides it.
 #[cfg(target_os = "macos")]
 const SHOW_WINDOW: (&str, &str, Option<&str>) = ("show-window", "Unsub", None);
-const VISUALIZER_STYLES: [(&str, &str, Option<&str>); 8] = [
+const VISUALIZER_STYLES: [(&str, &str, Option<&str>); 9] = [
     ("visualizer-classic", "Classic", None),
+    ("visualizer-gaslight", "Gaslight", None),
     ("visualizer-lights", "Lights", None),
     ("visualizer-spectrum", "Spectrum", None),
     ("visualizer-scope", "Scope", None),

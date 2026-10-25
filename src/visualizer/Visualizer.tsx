@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Clock } from "./clock";
 import type { VisualizerFeed } from "./feed";
+import { DEFAULT_GASLIGHT, type GaslightSettings } from "./gaslightSettings";
 import { VisualizerRuntime, type RenderMode, type RuntimeStats } from "./runtime";
 import { STYLE_LABELS, nextStyle, type Palette, type ScopeMode, type VisualizerStyle } from "./styles";
 import "./Visualizer.css";
@@ -31,6 +32,7 @@ export interface VisualizerProps {
   palette?: Palette;
   /** What Scope draws; both channels' traces beside the stereo figure by default. */
   scopeMode?: ScopeMode;
+  gaslight?: GaslightSettings;
   /** For tests and benchmarks: supply the clock and force a size. */
   clock?: Clock;
   forceSize?: { width: number; height: number };
@@ -54,6 +56,7 @@ export function Visualizer({
   onClose,
   palette = "cream",
   scopeMode = "both",
+  gaslight = DEFAULT_GASLIGHT,
   clock,
   forceSize,
   onRuntime,
@@ -64,6 +67,7 @@ export function Visualizer({
   const [runtime, setRuntime] = useState<VisualizerRuntime | null>(null);
   const [mode, setMode] = useState<RenderMode>("webgl2");
   const [info, setInfo] = useState(showInfo);
+  const [fallbackStyle, setFallbackStyle] = useState<VisualizerStyle | null>(null);
 
   // The key handler is attached once and reads the latest of these.
   const latest = useRef({ style, onStyleChange, onToggleFullscreen, onClose });
@@ -89,9 +93,21 @@ export function Visualizer({
 
   useEffect(() => runtime?.setFeed(feed), [runtime, feed]);
   useEffect(
-    () => runtime?.setOptions({ style, palette, scopeMode, limitFlashing }),
-    [runtime, style, palette, scopeMode, limitFlashing],
+    () => runtime?.setOptions({ style, palette, scopeMode, limitFlashing, gaslight }),
+    [runtime, style, palette, scopeMode, limitFlashing, gaslight],
   );
+
+  // Shader fallback can happen after context setup. Keep labels honest without React work
+  // on every animation frame. Software rendering resolves immediately from the chosen style.
+  useEffect(() => {
+    setFallbackStyle(null);
+    if (!runtime) return;
+    const timer = setInterval(() => {
+      const actual = runtime.stats.actualStyle;
+      setFallbackStyle(actual === style ? null : actual);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [runtime, style]);
 
   const songKey = nowPlaying ? `${nowPlaying.title}\u0000${nowPlaying.artist}` : "";
   const artworkUrl = nowPlaying?.artworkUrl ?? null;
@@ -130,47 +146,48 @@ export function Visualizer({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const onLight = style === "spectrum" && palette === "cream";
   const plainCanvas = mode === "canvas2d";
-  const label = useMemo(() => `Music visualizer, ${STYLE_LABELS[style]}`, [style]);
+  const actualStyle = plainCanvas ? (style === "gaslight" ? "gaslight" : "spectrum") : fallbackStyle ?? style;
+  const onLight = (actualStyle === "spectrum" && palette === "cream") || (actualStyle === "gaslight" && gaslight.palette === "inverted");
+  const label = `Music visualizer, ${STYLE_LABELS[actualStyle]}`;
 
   return (
     <div ref={hostRef} className="visualizer" role="img" aria-label={label}>
       <canvas ref={canvasRef} className="visualizer-canvas" />
       {nowPlaying ? (
-        <div key={songKey} className={`visualizer-overlay${onLight || plainCanvas ? " is-on-light" : ""}`}>
+        <div key={songKey} className={`visualizer-overlay${onLight ? " is-on-light" : ""}`}>
           <div className="visualizer-overlay-title">{nowPlaying.title}</div>
           {nowPlaying.artist ? <div className="visualizer-overlay-artist">{nowPlaying.artist}</div> : null}
         </div>
       ) : null}
-      {plainCanvas ? (
+      {mode !== "lost" && actualStyle !== style ? (
         <div className="visualizer-note">
-          This display can&rsquo;t draw the full visualizer, so it is showing Spectrum.
+          This display can&rsquo;t draw {STYLE_LABELS[style]}, so it is showing {STYLE_LABELS[actualStyle]}.
         </div>
       ) : null}
       {mode === "lost" ? (
         <div className="visualizer-note">The graphics were interrupted. Waiting for them to come back&hellip;</div>
       ) : null}
-      {info && runtime ? <InfoCorner runtime={runtime} style={style} /> : null}
+      {info && runtime ? <InfoCorner runtime={runtime} /> : null}
     </div>
   );
 }
 
 /** Style, frame rate and the like, refreshed twice a second. */
-function InfoCorner({ runtime, style }: { runtime: VisualizerRuntime; style: VisualizerStyle }) {
+function InfoCorner({ runtime }: { runtime: VisualizerRuntime }) {
   const [text, setText] = useState("");
   useEffect(() => {
-    const update = () => setText(describe(style, runtime.stats));
+    const update = () => setText(describe(runtime.stats));
     update();
     const timer = setInterval(update, 500);
     return () => clearInterval(timer);
-  }, [runtime, style]);
+  }, [runtime]);
   return <div className="visualizer-info">{text}</div>;
 }
 
-function describe(style: VisualizerStyle, stats: RuntimeStats): string {
+function describe(stats: RuntimeStats): string {
   const lines = [
-    `${STYLE_LABELS[style]}${stats.mode === "canvas2d" ? " (2D fallback)" : ""}`,
+    `${STYLE_LABELS[stats.actualStyle]}${stats.mode === "canvas2d" ? " (software)" : ""}`,
     `${stats.fps.toFixed(0)} fps${stats.idle ? " (idle)" : ""}   feed ${stats.feedHz.toFixed(0)} Hz`,
     `${stats.width} × ${stats.height}`,
   ];

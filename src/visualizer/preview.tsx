@@ -3,8 +3,9 @@
  *
  * `pnpm dev`, then open /src/visualizer/preview.html. Addresses it understands:
  *
- *   ?style=classic|lights|spectrum|scope|album|pipes|starfield|lines   which style to start on
+ *   ?style=classic|gaslight|lights|spectrum|scope|album|pipes|starfield|lines   which style to start on
  *   ?palette=cream|dark   ?scope=wave|xy|both   ?limit=0   ?info=1   ?bpm=120   ?art=0
+ *   ?gaslight=ember|aurora|inverted  ?trails=0.7  ?glow=0.65  ?height=0.7  ?autopilot=1
  *   ?arranged=1           play a 24-second arrangement (quiet start, loud middle, drumless
  *                         breakdown) instead of one steady groove, to see calm and lively
  *   ?seconds=8            run that many seconds at once on a hand-driven clock, then hold still
@@ -27,6 +28,7 @@ import "../theme/tokens.css";
 import { ManualClock } from "./clock";
 import { BAND_COUNT, MockFeed, WAVEFORM_LENGTH, type VisualizerFeed, type VisualizerFrame } from "./feed";
 import { worstChangesPerWindow } from "./flash";
+import { DEFAULT_GASLIGHT, GASLIGHT_PALETTES, normalizeGaslight, type GaslightPalette } from "./gaslightSettings";
 import type { VisualizerRuntime } from "./runtime";
 import { VISUALIZER_STYLES, STYLE_LABELS, type Palette, type ScopeMode, type VisualizerStyle } from "./styles";
 import { Visualizer, type NowPlaying } from "./Visualizer";
@@ -159,6 +161,13 @@ function Preview() {
   const [scopeMode, setScopeMode] = useState<ScopeMode>(
     ["wave", "xy", "both"].includes(params.get("scope") ?? "") ? (params.get("scope") as ScopeMode) : "both",
   );
+  const [gaslight, setGaslight] = useState(() => normalizeGaslight({
+    palette: params.get("gaslight"),
+    trails: params.has("trails") ? Number(params.get("trails")) : undefined,
+    glow: params.has("glow") ? Number(params.get("glow")) : undefined,
+    height: params.has("height") ? Number(params.get("height")) : undefined,
+    autopilot: params.get("autopilot") === "1",
+  }));
   const [limit, setLimit] = useState(params.get("limit") !== "0");
   const [playing, setPlaying] = useState(true);
   const [songIndex, setSongIndex] = useState(0);
@@ -233,6 +242,7 @@ function Preview() {
         limitFlashing={limit}
         palette={palette}
         scopeMode={scopeMode}
+        gaslight={gaslight}
         clock={clock}
         forceSize={size ?? (bench ? { width: 2560, height: 1440 } : undefined)}
         onRuntime={onRuntime}
@@ -278,6 +288,11 @@ function Preview() {
                 <option value="xy">X/Y</option>
               </select>
             </label>
+            {style === "gaslight" && <label>
+              Gaslight colors <select aria-label="Gaslight colors" value={gaslight.palette} onChange={(e) => setGaslight({ ...gaslight, palette: e.target.value as GaslightPalette })}>
+                {GASLIGHT_PALETTES.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+            </label>}
             <label>
               tempo {bpm} <input type="range" min={60} max={480} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
             </label>
@@ -397,19 +412,22 @@ async function runScripted(
       return sum / (pixels.length / 4);
     };
     const results: Record<string, unknown> = {
+      mode: runtime.stats.mode,
+      renderer: runtime.renderer,
       note: "changes of 10% or more of relative luminance, the most in any second; 6 is three flashes",
     };
     for (const id of scriptedStyles()) {
-      for (const palette of id === "spectrum" ? (["cream", "dark"] as const) : (["cream"] as const)) {
+      for (const variant of id === "gaslight" ? GASLIGHT_PALETTES : id === "spectrum" ? (["cream", "dark"] as const) : (["cream"] as const)) {
         for (const limit of [false, true]) {
-          runtime.setOptions({ style: id, limitFlashing: limit, palette });
+          runtime.setOptions({ style: id, limitFlashing: limit, palette: variant === "dark" ? "dark" : "cream",
+            gaslight: normalizeGaslight({ ...DEFAULT_GASLIGHT, palette: variant }) });
           steps(90);
           const samples: number[] = [];
           for (let i = 0; i < 360; i++) {
             steps(1);
             samples.push(luminance());
           }
-          const label = `${id}${id === "spectrum" ? ` (${palette})` : ""}${limit ? " + limiter" : ""}`;
+          const label = `${id}${id === "spectrum" || id === "gaslight" ? ` (${variant})` : ""}${limit ? " + limiter" : ""}`;
           results[label] = {
             changesPerSecond: worstChangesPerWindow(samples, FRAME_MS),
             luminanceRange: [Math.min(...samples), Math.max(...samples)].map((v) => round(v * 1000) / 1000),
@@ -454,6 +472,7 @@ async function runScripted(
         gpuMs: round(gpu[frames >> 1]),
         gpuMsP95: round(gpu[Math.floor(frames * 0.95)]),
         cpuMs: round(cpu[frames >> 1]),
+        cpuMsP95: round(cpu[Math.floor(frames * 0.95)]),
       };
       results.gpuTiming = runtime.stats.gpuTiming;
     }
