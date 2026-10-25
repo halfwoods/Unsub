@@ -7,7 +7,7 @@ export function ArtistArtwork({ name, trackIds, size }: { name: string; trackIds
   const [failed, setFailed] = useState<ReadonlySet<number>>(new Set());
   const covers = trackIds.filter((id) => !failed.has(id)).slice(0, 4);
   return (
-    <div className={`album-tile-art artist-mosaic${covers.length > 1 ? " artist-mosaic--multiple" : ""}`}
+    <div className={`album-tile-art artist-mosaic${covers.length > 1 ? " artist-mosaic--multiple" : ""}${covers.length === 2 ? " artist-mosaic--two" : ""}`}
       style={{ width: size, height: size }} aria-hidden="true">
       {covers.length === 0 ? <span className="artist-mosaic-initials">{artistInitials(name)}</span> : covers.map((id) => (
         <img key={id} src={artworkUrl(id, { type: "library" }, covers.length > 1 ? size / 2 : size)}

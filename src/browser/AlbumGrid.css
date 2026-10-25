@@ -45,7 +45,7 @@
 .album-tile:focus-visible { outline: 2px solid #5d94d6; outline-offset: 5px; }
 .artist-mosaic { display: grid; overflow: hidden; color: #fff; background: linear-gradient(to bottom, #b6bec9, #8994a3); }
 .artist-mosaic--multiple { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-.artist-mosaic--multiple:has(> img:nth-child(2):last-child) { grid-template-rows: 1fr; }
+.artist-mosaic--two { grid-template-rows: 1fr; }
 .artist-mosaic img { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
 .artist-mosaic-initials { display: grid; place-items: center; font-weight: bold; font-size: 38px; }
 .artist-mosaic--multiple .artist-mosaic-initials { font-size: 24px; }
@@ -53,7 +53,7 @@
   .album-grid-bar { justify-content: flex-start; padding-left: 7px; height: auto; min-height: 28px; flex-wrap: wrap; gap: 5px; }
   .album-grid-groups { gap: 0; }
   .album-grid-size { position: static; width: 70px; margin: 3px 8px 3px auto; }
-  .album-grid-actions { padding-inline: 7px; gap: 4px; flex-wrap: wrap; }
+  .album-grid-actions { padding-left: 7px; padding-right: 7px; gap: 4px; flex-wrap: wrap; }
 }
 
 .album-grid-row {

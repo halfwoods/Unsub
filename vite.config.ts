@@ -7,6 +7,9 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react()],
+  // High Sierra's final WebKit comes with Safari 13.1.2. This also transforms
+  // dependency syntax; API/layout fallbacks live in src/compat and theme/compat.css.
+  build: { target: "safari13.1", cssTarget: "safari13.1" },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
