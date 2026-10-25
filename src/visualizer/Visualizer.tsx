@@ -116,7 +116,9 @@ export function Visualizer({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-      if (isTyping(event.target)) return;
+      // A sheet or menu owns all its keys, including arrows on non-input controls.
+      // Do not change the saved style or fullscreen state behind Preferences.
+      if (isOverlayOpen() || isTyping(event.target)) return;
       const { style: current, onStyleChange: change, onToggleFullscreen: fullscreen, onClose: close } = latest.current;
       switch (event.key) {
         case "ArrowLeft":
@@ -134,7 +136,7 @@ export function Visualizer({
           setInfo((shown) => !shown);
           break;
         case "Escape":
-          if (!close || isOverlayOpen()) return;
+          if (!close) return;
           close();
           break;
         default:
