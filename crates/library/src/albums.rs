@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{Row, params_from_iter};
 
 use crate::error::Result;
@@ -98,6 +100,25 @@ impl Library {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Album order retaining search, playlist occurrences and every other query filter.
+    pub fn album_tracks_scoped(&self, key: &str, query: &TrackQuery) -> Result<Vec<Track>> {
+        let mut query = query.clone();
+        if query.album_key.as_deref().is_some_and(|held| held != key) {
+            return Ok(Vec::new());
+        }
+        query.album_key = Some(key.to_owned());
+        let selection = selection(&self.conn, &query, true)?;
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} FROM {} {} ORDER BY disc_number ASC NULLS LAST,
+             track_number ASC NULLS LAST, key_title ASC NULLS LAST, id ASC",
+            selection.from,
+            selection.where_sql()
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map(params_from_iter(selection.params), track_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn artists(&self, query: &TrackQuery) -> Result<Vec<ArtistSummary>> {
         let selection = selection(&self.conn, query, false)?;
         let sql = format!(
@@ -117,9 +138,41 @@ impl Library {
                 name: row.get(1)?,
                 album_count: row.get(2)?,
                 track_count: row.get(3)?,
+                artwork_track_ids: Vec::new(),
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut artists: Vec<ArtistSummary> = rows.collect::<rusqlite::Result<_>>()?;
+        let indices: HashMap<String, usize> = artists
+            .iter()
+            .enumerate()
+            .map(|(index, artist)| (artist.key.clone(), index))
+            .collect();
+        // One batch for all mosaics, bounded to four distinct albums per artist.
+        let scope = crate::query::selection(&self.conn, query, false)?;
+        let sql = format!(
+            "WITH scoped_albums AS (
+                SELECT artist_group, album_group, MIN(id) AS artwork_id,
+                       MIN(year) AS year, MIN(key_album) AS album_sort
+                FROM {} {} GROUP BY artist_group, album_group
+             ), ranked AS (
+                SELECT artist_group, artwork_id,
+                       ROW_NUMBER() OVER (PARTITION BY artist_group
+                         ORDER BY year ASC NULLS LAST, album_sort ASC NULLS LAST, album_group) AS rank
+                FROM scoped_albums
+             ) SELECT artist_group, artwork_id FROM ranked WHERE rank <= 4 ORDER BY artist_group, rank",
+            scope.from, scope.where_sql()
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let artwork = stmt.query_map(params_from_iter(scope.params), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in artwork {
+            let (key, id) = row?;
+            if let Some(index) = indices.get(&key) {
+                artists[*index].artwork_track_ids.push(id);
+            }
+        }
+        Ok(artists)
     }
 
     /// Oldest first, as iTunes lists an artist's albums.
@@ -135,12 +188,33 @@ impl Library {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Oldest first within the caller's search, media kind, playlist and browser scope.
+    pub fn artist_albums_scoped(&self, key: &str, query: &TrackQuery) -> Result<Vec<AlbumSummary>> {
+        let mut query = query.clone();
+        if query.artist_key.as_deref().is_some_and(|held| held != key) {
+            return Ok(Vec::new());
+        }
+        query.artist_key = Some(key.to_owned());
+        let selection = selection(&self.conn, &query, false)?;
+        let sql = format!(
+            "SELECT {} FROM {} {} GROUP BY album_group
+             ORDER BY MIN(year) ASC NULLS LAST, {} ASC NULLS LAST, album_group",
+            album_columns(),
+            selection.from,
+            selection.where_sql(),
+            album_sort()
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map(params_from_iter(selection.params), album_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Songs without a genre are left out: a blank entry is no use as a tab.
     pub fn genres(&self, query: &TrackQuery) -> Result<Vec<GenreSummary>> {
         let mut selection = selection(&self.conn, query, false)?;
         selection.require("key_genre IS NOT NULL");
         let sql = format!(
-            "SELECT MIN(genre), COUNT(DISTINCT album_group), COUNT(*) FROM {} {}
+            "SELECT MIN(genre), COUNT(DISTINCT album_group), COUNT(*), key_genre FROM {} {}
              GROUP BY key_genre ORDER BY key_genre {}",
             selection.from,
             selection.where_sql(),
@@ -149,6 +223,7 @@ impl Library {
         let mut stmt = self.conn.prepare_cached(&sql)?;
         let rows = stmt.query_map(params_from_iter(selection.params), |row| {
             Ok(GenreSummary {
+                key: row.get(3)?,
                 name: row.get(0)?,
                 album_count: row.get(1)?,
                 track_count: row.get(2)?,

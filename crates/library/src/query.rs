@@ -219,6 +219,27 @@ pub(crate) fn selection(
         let values: Vec<Value> = ids.iter().copied().map(Value::Integer).collect();
         selection.params.push(Box::new(Rc::new(values)));
     }
+    for (column, value) in [
+        ("artist_group", &query.artist_key),
+        ("album_group", &query.album_key),
+    ] {
+        if let Some(value) = value {
+            selection.clauses.push(format!("{column} = ?"));
+            selection.params.push(Box::new(value.clone()));
+        }
+    }
+    if let Some(genre) = &query.genre {
+        selection
+            .clauses
+            .push("COALESCE(key_genre, '') = ?".to_owned());
+        selection
+            .params
+            .push(Box::new(fold(genre).trim().to_owned()));
+    }
+    if let Some(composer) = &query.composer {
+        selection.clauses.push("fold(composer) = ?".to_owned());
+        selection.params.push(Box::new(fold(composer)));
+    }
     Ok(selection)
 }
 
@@ -243,11 +264,15 @@ fn order_by(sort: SortKey, descending: bool, lists_items: bool) -> String {
             &["key_album", "disc_number", "track_number"],
         ),
         SortKey::Genre => ("key_genre", BY_ARTIST),
+        SortKey::Composer => ("NULLIF(fold(composer), '')", BY_ARTIST),
         SortKey::Name => ("key_title", BY_ARTIST),
         SortKey::Time => ("duration_ms", BY_ARTIST),
         SortKey::Year => ("year", BY_ARTIST),
+        SortKey::TrackNumber => ("track_number", BY_ARTIST),
+        SortKey::DiscNumber => ("disc_number", &["track_number", "key_artist", "key_album"]),
         SortKey::Rating => ("rating", BY_ARTIST),
         SortKey::Plays => ("play_count", BY_ARTIST),
+        SortKey::SkipCount => ("skip_count", BY_ARTIST),
         SortKey::LastPlayed => ("last_played", BY_ARTIST),
         SortKey::DateAdded => ("date_added", BY_ARTIST),
         SortKey::Kind => ("codec COLLATE NOCASE", BY_ARTIST),

@@ -1,6 +1,7 @@
 mod albums;
 mod artwork;
 mod bookmarks;
+mod browsing;
 mod chapters;
 mod cleanup;
 mod cloud;

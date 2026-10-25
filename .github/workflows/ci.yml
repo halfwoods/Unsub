@@ -59,6 +59,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
       - run: node --test src/import/test/*.test.mjs
+      - run: node --test src/browser/test/*.test.mjs
       # tauri-build refuses to compile src-tauri without the frontend's dist folder.
       - run: pnpm exec vite build
 

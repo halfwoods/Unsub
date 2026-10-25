@@ -8,10 +8,14 @@ export type SortKey =
   | "artist"
   | "album"
   | "albumArtist"
+  | "composer"
   | "genre"
   | "year"
+  | "trackNumber"
+  | "discNumber"
   | "rating"
   | "plays"
+  | "skipCount"
   | "lastPlayed"
   | "dateAdded"
   | "kind"
@@ -29,6 +33,12 @@ export interface TrackQuery {
   playlist?: number | null;
   /** Restricts the list to these songs, e.g. Display Duplicates' finds. */
   ids?: number[] | null;
+  /** Exact library grouping keys. These never replace the text search. */
+  artistKey?: string | null;
+  albumKey?: string | null;
+  /** Exact case/diacritic-insensitive browsing filters. */
+  genre?: string | null;
+  composer?: string | null;
 }
 
 export interface Track {
@@ -582,6 +592,7 @@ export interface AlbumSummary {
 }
 
 export interface GenreSummary {
+  key: string;
   name: string;
   albumCount: number;
   trackCount: number;
@@ -597,6 +608,7 @@ export interface ArtistSummary {
   name: string;
   albumCount: number;
   trackCount: number;
+  artworkTrackIds: number[];
 }
 
 export type PlaylistKind = "regular" | "smart" | "folder";

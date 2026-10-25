@@ -64,10 +64,14 @@ pub enum SortKey {
     Artist,
     Album,
     AlbumArtist,
+    Composer,
     Genre,
     Year,
+    TrackNumber,
+    DiscNumber,
     Rating,
     Plays,
+    SkipCount,
     LastPlayed,
     DateAdded,
     Kind,
@@ -91,6 +95,12 @@ pub struct TrackQuery {
     pub ids: Option<Vec<i64>>,
     /// Restricts the list to one playlist's contents. Combines with the other filters.
     pub playlist: Option<i64>,
+    /// Opaque grouping keys returned by artist and album summaries, not search text.
+    pub artist_key: Option<String>,
+    pub album_key: Option<String>,
+    /// Exact, case/diacritic-insensitive browser filters. Combine with all other scope.
+    pub genre: Option<String>,
+    pub composer: Option<String>,
 }
 
 impl Default for TrackQuery {
@@ -102,6 +112,10 @@ impl Default for TrackQuery {
             descending: false,
             ids: None,
             playlist: None,
+            artist_key: None,
+            album_key: None,
+            genre: None,
+            composer: None,
         }
     }
 }
@@ -320,11 +334,14 @@ pub struct ArtistSummary {
     pub name: String,
     pub album_count: u32,
     pub track_count: u32,
+    /// Up to four distinct albums within this query's scope, for local cover mosaics.
+    pub artwork_track_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenreSummary {
+    pub key: String,
     pub name: String,
     pub album_count: u32,
     pub track_count: u32,

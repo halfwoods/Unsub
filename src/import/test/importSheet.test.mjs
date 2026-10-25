@@ -6,6 +6,8 @@ const storeUrl = new URL("../../state/store.ts", import.meta.url).href;
 const modules = {
   "../api/commands": "export const importMusicInspect = (xml) => globalThis.__unsubImportSheetTest.inspect(xml);",
   "../preferences/playbackPrefs": "export const loadVisualizerPrefs = () => ({}); export const saveVisualizerPrefs = () => {};",
+  "../preferences/libraryViews": "export const layoutFor = () => ({sort: 'artist', descending: false}); export const isLayoutSource = () => true;",
+  "../preferences/libraryViewStore": "export const useLibraryViews = { getState: () => ({prefs: {browsing: {viewMode: 'list', gridGroup: 'albums', browserVisible: false}}}), subscribe: () => () => {} };",
   "../preferences/textSizes": `
     export const loadTextSizes = () => ({});
     export const listRowHeight = () => 20;
@@ -17,6 +19,9 @@ const modules = {
 // Keep the real Zustand actions and substitute only native inspection and local preferences.
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (context.parentURL === storeUrl && specifier === "../browser/browseScope") {
+      return { url: new URL("../../browser/browseScope.ts", import.meta.url).href, shortCircuit: true };
+    }
     if (context.parentURL === storeUrl && modules[specifier]) {
       return { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true };
     }

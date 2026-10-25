@@ -83,7 +83,8 @@ import type {
 export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tracks", { query });
 export const libraryAlbums = (query: TrackQuery) => invoke<AlbumSummary[]>("library_albums", { query });
 export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("library_artists", { query });
-export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
+export const libraryArtistAlbums = (key: string, query: TrackQuery) => invoke<AlbumSummary[]>("library_artist_albums", { key, query });
+export const libraryAlbumTracks = (key: string, query?: TrackQuery) => invoke<Track[]>("library_album_tracks", { key, query });
 export const libraryGenres = (query: TrackQuery) => invoke<GenreSummary[]>("library_genres", { query });
 export const libraryComposers = (query: TrackQuery) => invoke<ComposerSummary[]>("library_composers", { query });
 export const libraryMixes = () => invoke<Mix[]>("library_mixes");
@@ -403,6 +404,9 @@ export type MenuAction =
   | "preferences"
   | "welcome"
   | "show-visualizer"
+  | "show-view-options"
+  | "toggle-column-browser"
+  | "go-to-current-song"
   | `visualizer-${VisualizerStyle}`;
 export const onMenuAction = (handler: (action: MenuAction) => void): Promise<UnlistenFn> =>
   listen<MenuAction>("menu://action", (e) => handler(e.payload));

@@ -155,6 +155,11 @@ pub fn library_artists(state: State<'_, LibraryState>, query: TrackQuery) -> Com
 }
 
 #[tauri::command]
+pub fn library_artist_albums(state: State<'_, LibraryState>, key: String, query: TrackQuery) -> CommandResult<Vec<AlbumSummary>> {
+    Ok(state.queries().artist_albums_scoped(&key, &query)?)
+}
+
+#[tauri::command]
 pub fn library_genres(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<GenreSummary>> {
     Ok(state.queries().genres(&query)?)
 }
@@ -170,8 +175,12 @@ pub fn library_set_enabled(state: State<'_, LibraryState>, track_ids: Vec<i64>, 
 }
 
 #[tauri::command]
-pub fn library_album_tracks(state: State<'_, LibraryState>, key: String) -> CommandResult<Vec<Track>> {
-    Ok(state.queries().album_tracks(&key)?)
+pub fn library_album_tracks(state: State<'_, LibraryState>, key: String, query: Option<TrackQuery>) -> CommandResult<Vec<Track>> {
+    let library = state.queries();
+    Ok(match query {
+        Some(query) => library.album_tracks_scoped(&key, &query)?,
+        None => library.album_tracks(&key)?,
+    })
 }
 
 #[tauri::command]

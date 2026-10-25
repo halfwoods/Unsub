@@ -1,0 +1,10 @@
+.browse-navigation { flex: none; display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 30px; padding: 3px 8px; border-bottom: 1px solid #bcbcbc; background: linear-gradient(to bottom, #fafafa, #e8e8e8); }
+.browse-back { min-width: 26px; padding: 0 8px; font-size: 20px; }
+.browse-breadcrumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.browse-breadcrumbs > button { flex: none; }
+.browse-crumb { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.browse-breadcrumbs button { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.browse-breadcrumbs button[aria-current="page"] { font-weight: bold; }
+.browse-play-actions { display: flex; flex: none; gap: 5px; }
+.browse-play-actions .push-button { min-width: 0; padding: 0 10px; }
+@media (max-width: 620px) { .browse-navigation { flex-wrap: wrap; } .browse-breadcrumbs { flex-basis: calc(100% - 40px); } .browse-play-actions { margin-left: auto; } }
