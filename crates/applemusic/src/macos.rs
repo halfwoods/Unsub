@@ -17,7 +17,11 @@ use crate::item::{MediaType, MusicLibrary, MusicLibraryItem, MusicPlaylist, Play
 #[link(name = "iTunesLibrary", kind = "framework")]
 unsafe extern "C" {}
 
-const API_VERSION: &str = "1.1";
+fn api_version(has_mojave_library: bool) -> &'static str {
+    // The SDK's baseline API is 1.0. High Sierra's iTunesLibrary predates Mojave's API
+    // additions; all metadata selectors used here are part of that original contract.
+    if has_mojave_library { "1.1" } else { "1.0" }
+}
 
 // Raw values of ITLibMediaItemMediaKind and ITLibMediaItemLocationType in ITLibMediaItem.h.
 const MEDIA_KIND_SONG: usize = 2;
@@ -227,7 +231,8 @@ pub fn read_system_music_library() -> Result<MusicLibrary> {
     // The framework hands back autoreleased objects, and this may run on a thread with no pool of
     // its own, so drain them here instead of leaking them until the thread exits.
     autoreleasepool(|_| {
-        let library = ITLibrary::with_api_version(&NSString::from_str(API_VERSION))
+        let version = api_version(objc2::available!(macos = 10.14));
+        let library = ITLibrary::with_api_version(&NSString::from_str(version))
             .map_err(|error| Error::Unavailable(error.localizedDescription().to_string()))?;
         let items = library
             .all_media_items()
@@ -346,5 +351,16 @@ fn present<T: TryFrom<usize>>(value: usize) -> Option<T> {
         None
     } else {
         T::try_from(value).ok()
+    }
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::api_version;
+
+    #[test]
+    fn high_sierra_uses_original_itunes_library_api() {
+        assert_eq!(api_version(false), "1.0");
+        assert_eq!(api_version(true), "1.1");
     }
 }
