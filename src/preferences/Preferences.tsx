@@ -15,6 +15,8 @@ import {
 import type { MediaSettings, MicDevice, SharingSettings, SharingStatus } from "../api/types";
 import { useApp } from "../state/store";
 import { AutoUpdateSetting } from "../updates/UpdateSheet";
+import { DEFAULT_GASLIGHT, GASLIGHT_PALETTES, type GaslightPalette } from "../visualizer/gaslightSettings";
+import { STYLE_LABELS, VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles";
 import { loadBitPerfect, loadCrossfade, loadSoundCheck, saveBitPerfect, saveCrossfade, saveSoundCheck } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
 import "./Preferences.css";
@@ -118,9 +120,9 @@ function GeneralTab() {
   );
 }
 
-/** The visualizer's two choices; the style is picked from the View menu. */
+/** The View menu and these preferences share the same persisted style and settings. */
 function VisualizerSettings() {
-  const { limitFlashing, microphone, microphoneDevice } = useApp((s) => s.visualizer);
+  const { style, limitFlashing, microphone, microphoneDevice, gaslight } = useApp((s) => s.visualizer);
   const setVisualizer = useApp((s) => s.setVisualizer);
   const showNotice = useApp((s) => s.showNotice);
   const [devices, setDevices] = useState<MicDevice[]>([]);
@@ -131,6 +133,30 @@ function VisualizerSettings() {
   return (
     <div className="prefs-box prefs-visualizer">
       <div className="prefs-box-title">Visualizer</div>
+      <div className="prefs-grid" style={{ marginTop: 0, marginBottom: 10 }}>
+        <label className="prefs-label" htmlFor="visualizer-style">Style:</label>
+        <select id="visualizer-style" className="smart-popup" value={style} onChange={(e) => setVisualizer({ style: e.target.value as VisualizerStyle })}>
+          {VISUALIZER_STYLES.map((id) => <option key={id} value={id}>{STYLE_LABELS[id]}</option>)}
+        </select>
+        {style === "gaslight" && <>
+          <label className="prefs-label" htmlFor="gaslight-palette">Colors:</label>
+          <select id="gaslight-palette" className="smart-popup" value={gaslight.palette} onChange={(e) => setVisualizer({ gaslight: { ...gaslight, palette: e.target.value as GaslightPalette } })}>
+            {GASLIGHT_PALETTES.map((id) => <option key={id} value={id}>{id === "ember" ? "Ember" : id === "aurora" ? "Aurora" : "Inverted"}</option>)}
+          </select>
+          {(["trails", "glow", "height"] as const).map((key) => <GaslightSlider
+            key={key} name={key} value={gaslight[key]}
+            onChange={(value) => setVisualizer({ gaslight: { ...gaslight, [key]: value } })}
+          />)}
+        </>}
+      </div>
+      {style === "gaslight" && <>
+        <label className="prefs-check">
+          <input type="checkbox" checked={gaslight.autopilot} onChange={(e) => setVisualizer({ gaslight: { ...gaslight, autopilot: e.target.checked } })} />
+          Gaslight autopilot
+        </label>
+        <p className="prefs-note">Slowly varies the spectrum height and glow within your chosen colors.</p>
+        <button className="push-button prefs-apply" style={{ marginBottom: 10 }} onClick={() => setVisualizer({ gaslight: { ...DEFAULT_GASLIGHT } })}>Reset Gaslight</button>
+      </>}
       <label className="prefs-check">
         <input type="checkbox" checked={limitFlashing} onChange={(e) => setVisualizer({ limitFlashing: e.target.checked })} />
         Limit flashing
@@ -162,6 +188,18 @@ function VisualizerSettings() {
       </p>
     </div>
   );
+}
+
+function GaslightSlider({ name, value, onChange }: { name: "trails" | "glow" | "height"; value: number; onChange: (value: number) => void }) {
+  const label = name === "trails" ? "Trails" : name === "glow" ? "Glow" : "Spectrum Height";
+  return <>
+    <label className="prefs-label" htmlFor={`gaslight-${name}`}>{label}:</label>
+    <div className="prefs-inline" style={{ minWidth: 0, alignItems: "center" }}>
+      <input id={`gaslight-${name}`} type="range" min={0} max={100} step={1} value={Math.round(value * 100)}
+        aria-valuetext={`${Math.round(value * 100)} percent`} style={{ flex: 1, minWidth: 0 }} onChange={(e) => onChange(Number(e.target.value) / 100)} />
+      <output htmlFor={`gaslight-${name}`} style={{ width: 34, textAlign: "right" }}>{Math.round(value * 100)}%</output>
+    </div>
+  </>;
 }
 
 function PlaybackTab() {

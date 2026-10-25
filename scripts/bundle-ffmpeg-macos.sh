@@ -25,7 +25,7 @@ log() { echo "==> $*"; }
 APP=${1%/}
 [ -d "$APP/Contents/MacOS" ] || die "$APP is not an application bundle"
 APP=$(cd "$APP" && pwd -P)
-for tool in otool install_name_tool codesign lipo /usr/libexec/PlistBuddy; do
+for tool in otool install_name_tool codesign lipo python3 /usr/libexec/PlistBuddy; do
   command -v "$tool" >/dev/null 2>&1 || [ -x "$tool" ] || die "missing tool: $tool"
 done
 
@@ -47,7 +47,13 @@ mkdir -p "$WORK/origin" "$WORK/stage"
 # --- Mach-O helpers -------------------------------------------------------------------------
 
 is_system() {
-  case "$1" in /System/*|/usr/lib/*) return 0 ;; *) return 1 ;; esac
+  # Apple's SDK selects this legacy iTunesLibrary install name for macOS <= 10.13.
+  # Newer systems resolve it through Apple's framework redirect/dyld cache. Do not
+  # copy Apple's framework or exempt unrelated third-party /Library frameworks.
+  case "$1" in
+    /System/*|/usr/lib/*|/Library/Frameworks/iTunesLibrary.framework/iTunesLibrary) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # References of a Mach-O file, without the dylib's own install name.
@@ -127,6 +133,12 @@ real_path() {
 # fail to load on exactly the systems between the two, so none may be newer.
 APP_MIN=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" 2>/dev/null || true)
 [ -n "$APP_MIN" ] || APP_MIN=$(min_macos "$MAIN")
+[ -n "$APP_MIN" ] || die "no declared minimum macOS version"
+MAIN_MIN=$(min_macos "$MAIN")
+[ -n "$MAIN_MIN" ] || die "the main executable has no macOS deployment target"
+if version_gt "$MAIN_MIN" "$APP_MIN"; then
+  die "the main executable needs macOS $MAIN_MIN but Info.plist claims $APP_MIN; rebuild for the declared target"
+fi
 
 # Libraries whose licence would turn the app's FFmpeg into a GPL (or unredistributable) build.
 # Homebrew's ffmpeg links most of them; none is used for audio.
@@ -166,6 +178,7 @@ while [ -s "$WORK/queue" ]; do
         die "two different libraries are both named $name: $(cat "$WORK/origin/$name") and $found"
     else
       lib_min=$(min_macos "$found")
+      [ -n "$lib_min" ] || die "$found has no macOS deployment target"
       if version_gt "$lib_min" "$APP_MIN"; then
         die "$name (from $found) needs macOS $lib_min or newer, but the app claims $APP_MIN (LSMinimumSystemVersion). Build it with MACOSX_DEPLOYMENT_TARGET=$APP_MIN or older; scripts/build-ffmpeg-macos.sh does."
       fi
@@ -257,6 +270,9 @@ for lib in "$FRAMEWORKS"/*.dylib; do
 done
 rewrite "$MAIN" main
 
+# Check every embedded executable, not just dylibs, and known newer hard imports before signing.
+python3 "$(dirname "$0")/check-macos-compat.py" "$APP" --minimum "$APP_MIN"
+
 # --- Sign ----------------------------------------------------------------------------------------
 
 sign_flags=(--force --sign "$IDENTITY")
@@ -293,12 +309,10 @@ for file in "$MAIN" "$FRAMEWORKS"/*.dylib; do
       *) echo "build-machine path remains: $ref (in $file)" >&2; problems=1 ;;
     esac
   done
-  if [ "$file" != "$MAIN" ]; then
-    lib_min=$(min_macos "$file")
-    printf '    %-26s minos %s\n' "$(basename "$file")" "${lib_min:-?}"
-    if version_gt "$lib_min" "$APP_MIN"; then
-      echo "$(basename "$file") needs macOS $lib_min, newer than the app's $APP_MIN" >&2; problems=1
-    fi
+  lib_min=$(min_macos "$file")
+  printf '    %-26s minos %s\n' "$(basename "$file")" "${lib_min:-?}"
+  if [ -z "$lib_min" ] || version_gt "$lib_min" "$APP_MIN"; then
+    echo "$(basename "$file") has an absent or incompatible deployment target ($lib_min; app $APP_MIN)" >&2; problems=1
   fi
   if otool -l "$file" | grep -q "/opt/homebrew\|/usr/local/"; then
     echo "build-machine path remains in load commands of $file:" >&2

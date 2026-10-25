@@ -1,0 +1,142 @@
+/* High Sierra WebKit understands grid gap, but not flex gap. browser.ts measures
+   the latter; these rules never affect a browser with working flex gap. Keep
+   margins on the trailing side so existing margin-left:auto alignment survives.
+   The regression audit covers every flex-gap rule, including sheets/devices. */
+.no-flex-gap .rating > :not(:last-child) { margin-right: 2px; }
+.no-flex-gap .album-grid-groups > :not(:last-child),
+.no-flex-gap .song-list-header-cell > :not(:last-child),
+.no-flex-gap .song-heading-sort > :not(:last-child),
+.no-flex-gap .volume > :not(:last-child),
+.no-flex-gap .ownership-stores > :not(:last-child),
+.no-flex-gap .eq-sliders > :not(:last-child),
+.no-flex-gap .smart-row-buttons > :not(:last-child),
+.no-flex-gap .pill-tabs > :not(:last-child) { margin-right: 4px; }
+.no-flex-gap .browse-play-actions > :not(:last-child),
+.no-flex-gap .transport > :not(:last-child),
+.no-flex-gap .view-options-column > :not(:last-child) { margin-right: 5px; }
+.no-flex-gap .album-grid-actions > :not(:last-child),
+.no-flex-gap .browse-breadcrumbs > :not(:last-child),
+.no-flex-gap .browse-crumb > :not(:last-child),
+.no-flex-gap .browser-control-bar > :not(:last-child),
+.no-flex-gap .view-options-copy label > :not(:last-child),
+.no-flex-gap .bottom-left > :not(:last-child),
+.no-flex-gap .bottom-right > :not(:last-child),
+.no-flex-gap .lcd-timeline > :not(:last-child),
+.no-flex-gap .lcd-chapters button > :not(:last-child),
+.no-flex-gap .cleanup-row > :not(:last-child),
+.no-flex-gap .info-field > :not(:last-child),
+.no-flex-gap .info-facts > div > :not(:last-child),
+.no-flex-gap .podcast-row > .podcast-title > :not(:last-child),
+.no-flex-gap .prefs-toolbar > :not(:last-child),
+.no-flex-gap .smart-row > :not(:last-child),
+.no-flex-gap .welcome-actions > :not(:last-child) { margin-right: 6px; }
+.no-flex-gap .browse-navigation > :not(:last-child) { margin-right: 7px; }
+.no-flex-gap .browser-choice > :not(:last-child),
+.no-flex-gap .view-options-presets > :not(:last-child),
+.no-flex-gap .view-options-save > :not(:last-child),
+.no-flex-gap .view-options-actions > :not(:last-child),
+.no-flex-gap .ownership-actions > :not(:last-child),
+.no-flex-gap .ownership-album > :not(:last-child),
+.no-flex-gap .ownership-track > :not(:last-child),
+.no-flex-gap .import-library-folder > :not(:last-child),
+.no-flex-gap .cleanup-field > :not(:last-child),
+.no-flex-gap .info-artwork-buttons > :not(:last-child),
+.no-flex-gap .podcast-description > :not(:last-child),
+.no-flex-gap .podcasts-bar-start > :not(:last-child),
+.no-flex-gap .find-controls > :not(:last-child),
+.no-flex-gap .prefs-inline > :not(:last-child),
+.no-flex-gap .prefs-folder > :not(:last-child) { margin-right: 8px; }
+.no-flex-gap .ownership-intro-actions > :not(:last-child),
+.no-flex-gap .podcasts-empty-buttons > :not(:last-child),
+.no-flex-gap .find-row > :not(:last-child),
+.no-flex-gap .prefs-crossfade > :not(:last-child),
+.no-flex-gap .sheet-buttons > :not(:last-child),
+.no-flex-gap .update-progress > :not(:last-child) { margin-right: 10px; }
+.no-flex-gap .device-rescue > :not(:last-child),
+.no-flex-gap .info-header > :not(:last-child),
+.no-flex-gap .purchase-row > :not(:last-child),
+.no-flex-gap .welcome-option > :not(:last-child) { margin-right: 12px; }
+.no-flex-gap .toolbar-right > :not(:last-child),
+.no-flex-gap .ownership-legend > :not(:last-child) { margin-right: 14px; }
+.no-flex-gap .ownership-header > :not(:last-child),
+.no-flex-gap .device-footer > :not(:last-child),
+.no-flex-gap .capacity-legend > :not(:last-child),
+.no-flex-gap .party-bar > :not(:last-child) { margin-right: 18px; }
+.no-flex-gap .device-box-content > :not(:last-child) { margin-right: 28px; }
+
+/* Anonymous text is a flex item too. Space the input or select explicitly for
+   labels whose other item is text rather than an element. */
+.no-flex-gap .prefs-check > input,
+.no-flex-gap .device-options .prefs-check > input,
+.no-flex-gap .copy-to-library-options .prefs-check > input,
+.no-flex-gap .device-choices label > *,
+.no-flex-gap .device-playlists label > *,
+.no-flex-gap .import-library-check > input,
+.no-flex-gap .view-options-column > label > input { margin-right: 6px; }
+.no-flex-gap .party-bar label > select,
+.no-flex-gap .info-field--pair > input:last-child { margin-left: 6px; }
+.no-flex-gap .device-include > select { margin-left: 8px; }
+.no-flex-gap .view-options-presets label > select { margin-left: 10px; }
+.no-flex-gap .view-options-search > input { margin-left: 12px; }
+
+.no-flex-gap .info-heading > :not(:last-child) { margin-bottom: 1px; }
+.no-flex-gap .find-text > :not(:last-child) { margin-bottom: 2px; }
+.no-flex-gap .traffic-lights > :not(:last-child) { margin-bottom: 4px; }
+.no-flex-gap .device-choices > :not(:last-child),
+.no-flex-gap .copy-to-library-options > :not(:last-child),
+.no-flex-gap .info-lyrics > :not(:last-child) { margin-bottom: 6px; }
+.no-flex-gap .cleanup-rows > :not(:last-child) { margin-bottom: 7px; }
+.no-flex-gap .file-drop-message > :not(:last-child) { margin-bottom: 8px; }
+.no-flex-gap .device-options > :not(:last-child) { margin-right: 0; margin-bottom: 8px; }
+.no-flex-gap .mix-tile > :not(:last-child) { margin-bottom: 10px; }
+.no-flex-gap .info-artwork > :not(:last-child) { margin-bottom: 12px; }
+.no-flex-gap .visualizer-overlay > :not(:last-child) { margin-bottom: 0.15em; }
+
+/* Wrapped controls retain separation on each line. A small bottom margin also
+   keeps the last line clear of adjacent controls on narrow windows. */
+.no-flex-gap .ownership-legend > *,
+.no-flex-gap .capacity-legend > * { margin-bottom: 2px; }
+.no-flex-gap .browser-control-bar > *,
+.no-flex-gap .welcome-actions > * { margin-bottom: 6px; }
+.no-flex-gap .view-options-presets > *,
+.no-flex-gap .view-options-save > *,
+.no-flex-gap .view-options-actions > *,
+.no-flex-gap .party-bar > * { margin-bottom: 8px; }
+/* Symmetric margins keep the centered Mixes tiles centered, including the last
+   row; adjust padding so the outer spacing remains the same. */
+.no-flex-gap .mixes-grid { padding: 16px 11px; }
+.no-flex-gap .mixes-grid > * { margin: 14px 13px; }
+@media (max-width: 660px) {
+  .no-flex-gap .album-grid-bar > :not(:last-child) { margin-right: 5px; }
+  .no-flex-gap .album-grid-bar > * { margin-bottom: 5px; }
+  .no-flex-gap .album-grid-groups > :not(:last-child) { margin-right: 0; }
+  .no-flex-gap .album-grid-actions > :not(:last-child) { margin-right: 4px; }
+  .no-flex-gap .album-grid-actions > * { margin-bottom: 4px; }
+}
+@media (max-width: 500px) {
+  .no-flex-gap .view-options-column > :not(:last-child) { margin-right: 3px; }
+}
+
+/* Do not combine these with :focus-visible selectors: an unsupported selector
+   invalidates its entire selector list in older WebKit, including hover rules. */
+.no-focus-visible button:focus { outline: 2px solid rgba(72, 132, 210, 0.7); outline-offset: 1px; }
+.no-focus-visible .album-tile:focus { outline-color: #5d94d6; outline-offset: 5px; }
+.no-focus-visible .sidebar-view-button:focus { outline-color: #5d94d6; outline-offset: -2px; }
+.no-focus-visible .song-heading-sort:focus,
+.no-focus-visible .song-heading-resizer:focus { outline: 2px solid #347bc5; outline-offset: -2px; }
+.no-focus-visible .song-heading-resizer:focus { background: #94b7dc; }
+.no-focus-visible .browser-facet-list:focus { box-shadow: inset 0 0 0 2px #5d94d6; }
+.no-focus-visible .volume-track:focus .volume-knob { box-shadow: 0 0 0 2px rgba(72, 132, 210, 0.7); }
+.no-focus-visible .mix-tile:focus .mix-play,
+.no-focus-visible .mix-tile:hover .mix-play,
+.no-focus-visible .radio-action:focus,
+.no-focus-visible .song-row:hover .radio-action { opacity: 1; }
+
+.no-aspect-ratio .artwork-pane-image { position: relative; display: block; height: 0; padding-bottom: 100%; }
+.no-aspect-ratio .artwork-pane-image > * { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.no-aspect-ratio .artwork-pane-empty { display: grid; place-items: center; }
+.no-container-units .visualizer-overlay-title { font-size: clamp(16px, 2.6vw, 40px); }
+.no-container-units .visualizer-overlay-artist { font-size: clamp(13px, 1.9vw, 28px); }
+/* break-word is supported by High Sierra and keeps long paths inside sheets. */
+.no-flex-gap .welcome-folder-path,
+.no-flex-gap .info-where { overflow-wrap: break-word; }

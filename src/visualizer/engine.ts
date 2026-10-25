@@ -2,6 +2,7 @@ import { Artwork } from "./artwork";
 import { AUDIO_TEXTURE_ROWS, AudioState } from "./audio";
 import { WAVEFORM_LENGTH } from "./feed";
 import { FlashLimiter } from "./flash";
+import { DEFAULT_GASLIGHT, type GaslightSettings } from "./gaslightSettings";
 import {
   COMMON_GLSL,
   FULLSCREEN_VS,
@@ -15,6 +16,7 @@ import {
 import type { Palette, RenderInfo, ScopeMode, StyleRenderer, VisualizerStyle } from "./styles";
 import { AlbumStyle } from "./styles/album";
 import { ClassicStyle } from "./styles/classic";
+import { GaslightStyle } from "./styles/gaslight";
 import { LightsStyle } from "./styles/lights";
 import { LinesStyle } from "./styles/lines";
 import { PipesStyle } from "./styles/pipes";
@@ -76,9 +78,11 @@ export interface EngineFrame {
   palette: Palette;
   scopeMode: ScopeMode;
   limitFlashing: boolean;
+  gaslight: GaslightSettings;
 }
 
 export interface EngineStats {
+  actualStyle: VisualizerStyle;
   /** Smoothed GPU time per frame, in milliseconds; 0 until measured or if unsupported. */
   gpuMs: number;
   /** Whether GPU timing is available (the timer query extension). */
@@ -110,7 +114,7 @@ export class VisualizerEngine {
     }
   }
 
-  readonly stats: EngineStats = { gpuMs: 0, gpuTiming: false, gain: 1, veil: 0, luminance: 0 };
+  readonly stats: EngineStats = { actualStyle: "classic", gpuMs: 0, gpuTiming: false, gain: 1, veil: 0, luminance: 0 };
   readonly artwork: Artwork;
   /** The graphics hardware, as the browser names it. */
   readonly renderer: string;
@@ -123,6 +127,7 @@ export class VisualizerEngine {
   private readonly meterBytes = new Uint8Array(METER_COLUMNS * METER_ROWS * 4);
   private readonly limiter = new FlashLimiter();
   private readonly styles = new Map<VisualizerStyle, StyleRenderer>();
+  private readonly failedStyles = new Set<VisualizerStyle>();
   private readonly timer: GpuTimer | null;
   private readonly feedbackFormat: number;
   private readonly feedbackIs8Bit: boolean;
@@ -171,6 +176,7 @@ export class VisualizerEngine {
       audio: new AudioState(),
       palette: "cream",
       scopeMode: "both",
+      gaslight: { ...DEFAULT_GASLIGHT },
     };
     this.timer = GpuTimer.create(gl);
     this.stats.gpuTiming = this.timer !== null;
@@ -215,7 +221,7 @@ export class VisualizerEngine {
     gl.disable(gl.BLEND);
     style.render(info);
     resetState(gl);
-    this.retireIdleStyles(frame.style, frame.time);
+    this.retireIdleStyles(this.stats.actualStyle, frame.time);
 
     let gain = 1;
     let veil = 0;
@@ -250,6 +256,7 @@ export class VisualizerEngine {
   dispose(): void {
     for (const style of this.styles.values()) style.dispose();
     this.styles.clear();
+    this.failedStyles.clear();
     this.lastUsed.clear();
     this.artwork.dispose();
     this.scene?.dispose();
@@ -291,6 +298,7 @@ export class VisualizerEngine {
     info.audio = frame.audio;
     info.palette = frame.palette;
     info.scopeMode = frame.scopeMode;
+    info.gaslight = frame.gaslight;
     return info;
   }
 
@@ -310,6 +318,8 @@ export class VisualizerEngine {
   }
 
   private styleFor(id: VisualizerStyle): StyleRenderer {
+    if (this.failedStyles.has(id)) return this.styleFor("spectrum");
+    this.stats.actualStyle = id;
     let style = this.styles.get(id);
     if (!style) {
       try {
@@ -317,6 +327,7 @@ export class VisualizerEngine {
       } catch (error) {
         // A shader some graphics driver will not take should not take the whole view with it.
         if (id === "spectrum") throw error;
+        this.failedStyles.add(id);
         console.error(`visualizer: the ${id} style could not be built; showing spectrum`, error);
         return this.styleFor("spectrum");
       }
@@ -350,6 +361,8 @@ function createStyle(id: VisualizerStyle, host: StyleHost): StyleRenderer {
   switch (id) {
     case "classic":
       return new ClassicStyle(host);
+    case "gaslight":
+      return new GaslightStyle(host);
     case "lights":
       return new LightsStyle(host);
     case "spectrum":

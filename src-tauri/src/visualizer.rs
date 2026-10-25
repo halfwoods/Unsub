@@ -275,13 +275,28 @@ mod permission {
 
     #[cfg(target_os = "macos")]
     pub fn ensure_microphone_access() -> CommandResult<()> {
+        check_microphone_access(objc2::available!(macos = 10.14), macos::authorization_status, macos::request_access)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn check_microphone_access(
+        has_privacy_controls: bool,
+        status: impl FnOnce() -> isize,
+        request: impl FnOnce() -> bool,
+    ) -> CommandResult<()> {
         use crate::error::CommandError;
 
-        match macos::authorization_status() {
+        // These selectors were introduced with microphone privacy controls in Mojave.
+        // High Sierra can open CoreAudio input directly; sending either selector there crashes.
+        if !has_privacy_controls {
+            return Ok(());
+        }
+
+        match status() {
             macos::AUTHORIZED => Ok(()),
-            macos::NOT_DETERMINED if macos::request_access() => Ok(()),
+            macos::NOT_DETERMINED if request() => Ok(()),
             _ => Err(CommandError::from(
-                "Microphone access is off for Unsub in System Settings › Privacy & Security › Microphone".to_owned(),
+                "Microphone access is off for Unsub. Enable it in the microphone privacy settings in System Settings or System Preferences.".to_owned(),
             )),
         }
     }
@@ -289,6 +304,30 @@ mod permission {
     #[cfg(not(target_os = "macos"))]
     pub fn ensure_microphone_access() -> CommandResult<()> {
         Ok(())
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn high_sierra_does_not_send_mojave_permission_selectors() {
+            assert!(
+                check_microphone_access(false, || panic!("status selector unavailable"), || panic!("request selector unavailable")).is_ok()
+            );
+        }
+
+        #[test]
+        fn authorized_input_never_prompts_again() {
+            assert!(check_microphone_access(true, || macos::AUTHORIZED, || panic!("already authorized")).is_ok());
+        }
+
+        #[test]
+        fn modern_microphone_denials_still_fail_closed() {
+            assert!(check_microphone_access(true, || 2, || panic!("must not prompt after denial")).is_err());
+            assert!(check_microphone_access(true, || macos::NOT_DETERMINED, || false).is_err());
+            assert!(check_microphone_access(true, || macos::NOT_DETERMINED, || true).is_ok());
+        }
     }
 
     /// AVFoundation's `AVCaptureDevice`, declared here straight from the SDK headers as the

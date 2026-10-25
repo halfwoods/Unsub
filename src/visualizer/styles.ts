@@ -1,10 +1,12 @@
 import type { AudioState } from "./audio";
+import type { GaslightSettings } from "./gaslightSettings";
 
-export const VISUALIZER_STYLES = ["classic", "lights", "spectrum", "scope", "album", "pipes", "starfield", "lines"] as const;
+export const VISUALIZER_STYLES = ["classic", "gaslight", "lights", "spectrum", "scope", "album", "pipes", "starfield", "lines"] as const;
 export type VisualizerStyle = (typeof VISUALIZER_STYLES)[number];
 
 export const STYLE_LABELS: Record<VisualizerStyle, string> = {
   classic: "Classic",
+  gaslight: "Gaslight",
   lights: "Lights",
   spectrum: "Spectrum",
   scope: "Scope",
@@ -31,6 +33,7 @@ export interface RenderInfo {
   audio: AudioState;
   palette: Palette;
   scopeMode: ScopeMode;
+  gaslight: GaslightSettings;
 }
 
 /** A style draws the whole picture into the scene target each frame. */

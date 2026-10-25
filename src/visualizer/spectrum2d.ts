@@ -23,7 +23,7 @@ const DARK = {
 
 /**
  * The Spectrum style on a plain 2D canvas, for when WebGL2 is not there. Same bars, caps and
- * reflection, without the shader polish; no other style has a fallback.
+ * reflection, without the shader polish. Composited by SoftwareVisualizer.
  */
 export class Spectrum2D {
   private width = 0;

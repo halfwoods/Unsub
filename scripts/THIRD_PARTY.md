@@ -27,12 +27,21 @@ Windows also ships whatever DLLs vcpkg builds for those three ports; the CI log 
 
 ### Minimum macOS
 
-The app claims macOS 11 (`minimumSystemVersion` in `tauri.conf.json`, which becomes
-`LSMinimumSystemVersion`). Every embedded dylib therefore has to be built for 11 or older. Homebrew's
+The base/Apple Silicon configuration targets macOS 11. The Intel build overrides
+`minimumSystemVersion` to 10.13.6 in `.github/tauri/macos-intel.conf.json`; High Sierra runtime
+validation is tracked in [the implementation plan](../docs/HIGH_SIERRA_GASLIGHT_PLAN.md).
+The value becomes `LSMinimumSystemVersion`. Every embedded dylib and the app executable must
+target that version or older. Homebrew's
 bottles are built for the Mac that poured them (`vtool -show-build` reports `minos 26.0` for the
 installed lame and opus), so `build-ffmpeg-macos.sh` compiles LAME and Opus itself, with the same
 `MACOSX_DEPLOYMENT_TARGET` as FFmpeg, and `bundle-ffmpeg-macos.sh` refuses any library whose `minos`
 is newer than the app's `LSMinimumSystemVersion`, naming it. It also prints each library's `minos`.
+FFmpeg caches include the architecture and deployment target. `check-macos-compat.py` reads every
+bundled Mach-O slice, checks required architectures and deployment targets, and rejects known
+newer hard imports before signing. It does not substitute for running on the target OS.
+
+Narrowly scoped CPAL and Security Framework compatibility patches retain their upstream licenses
+in `vendor/`; [vendor/README.md](../vendor/README.md) documents the patches and isolated tests.
 
 ## Why not Homebrew's `ffmpeg`
 

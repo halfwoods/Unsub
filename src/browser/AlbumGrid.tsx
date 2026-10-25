@@ -167,13 +167,13 @@ export function AlbumGrid() {
             <div
               key={row.index}
               className="album-grid-row"
-              style={{ transform: `translateY(${row.start + PADDING}px)`, gap: GAP, paddingLeft: PADDING }}
+              style={{ transform: `translateY(${row.start + PADDING}px)`, paddingLeft: PADDING }}
             >
               {items.slice(row.index * columns, row.index * columns + columns).map((item, column) => (
                 <button
                   key={item.key}
                   className={selected === item.key ? "album-tile album-tile--selected" : "album-tile"}
-                  style={{ width: tileSize }}
+                  style={{ width: tileSize, marginRight: column < columns - 1 ? GAP : 0, flexShrink: 0 }}
                   data-tile-index={row.index * columns + column}
                   tabIndex={tabStop === row.index * columns + column ? 0 : -1}
                   aria-label={`Open ${item.title}, ${item.subtitle}`}

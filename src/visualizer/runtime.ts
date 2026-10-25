@@ -2,7 +2,8 @@ import { AudioState } from "./audio";
 import { createBrowserClock, type Clock } from "./clock";
 import { VisualizerEngine, type EngineFrame } from "./engine";
 import type { VisualizerFeed, VisualizerFrame } from "./feed";
-import { Spectrum2D } from "./spectrum2d";
+import { SoftwareVisualizer } from "./software";
+import { DEFAULT_GASLIGHT, normalizeGaslight, type GaslightSettings } from "./gaslightSettings";
 import type { Palette, ScopeMode, VisualizerStyle } from "./styles";
 
 /** When nothing is playing the picture drifts, drawn this often (milliseconds apart). */
@@ -20,10 +21,12 @@ export interface RuntimeOptions {
   palette: Palette;
   scopeMode: ScopeMode;
   limitFlashing: boolean;
+  gaslight: GaslightSettings;
 }
 
 export interface RuntimeStats {
   mode: RenderMode;
+  actualStyle: VisualizerStyle;
   /** Frames drawn a second. */
   fps: number;
   /** Frames received a second from the feed. */
@@ -41,11 +44,12 @@ export interface RuntimeStats {
 /**
  * Everything that is not React: the canvas and its context, the loop, the smoothing of incoming
  * frames, sizing, pausing and recovering. It draws with WebGL2 when it can, and falls back to a
- * plain canvas showing the Spectrum style when it cannot.
+ * plain canvas showing Gaslight or Spectrum when it cannot.
  */
 export class VisualizerRuntime {
   readonly stats: RuntimeStats = {
     mode: "webgl2",
+    actualStyle: "classic",
     fps: 0,
     feedHz: 0,
     width: 0,
@@ -63,9 +67,10 @@ export class VisualizerRuntime {
     palette: "cream",
     scopeMode: "both",
     limitFlashing: true,
+    gaslight: { ...DEFAULT_GASLIGHT },
   };
   private engine: VisualizerEngine | null = null;
-  private fallback: Spectrum2D | null = null;
+  private fallback: SoftwareVisualizer | null = null;
   private unsubscribe: (() => void) | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private running = false;
@@ -98,6 +103,7 @@ export class VisualizerRuntime {
       palette: this.options.palette,
       scopeMode: this.options.scopeMode,
       limitFlashing: this.options.limitFlashing,
+      gaslight: this.options.gaslight,
     };
     this.open();
     if (typeof ResizeObserver !== "undefined") {
@@ -119,7 +125,7 @@ export class VisualizerRuntime {
   }
 
   setOptions(options: Partial<RuntimeOptions>): void {
-    this.options = { ...this.options, ...options };
+    this.options = { ...this.options, ...options, gaslight: normalizeGaslight(options.gaslight ?? this.options.gaslight) };
   }
 
   setNowPlaying(artworkUrl: string | null, key: string): void {
@@ -160,6 +166,8 @@ export class VisualizerRuntime {
     this.canvas.removeEventListener("webglcontextrestored", this.contextRestored);
     this.engine?.dispose();
     this.engine = null;
+    this.fallback?.dispose();
+    this.fallback = null;
   }
 
   /** Draws one frame now, for a clock that is driven by hand. */
@@ -180,6 +188,7 @@ export class VisualizerRuntime {
         frame.palette = this.options.palette;
         frame.scopeMode = this.options.scopeMode;
         frame.limitFlashing = this.options.limitFlashing;
+        frame.gaslight = this.options.gaslight;
         try {
           this.engine.render(frame);
         } catch (error) {
@@ -188,12 +197,16 @@ export class VisualizerRuntime {
           this.reportedError = true;
         }
         const stats = this.engine.stats;
+        this.stats.actualStyle = stats.actualStyle;
         this.stats.gpuMs = stats.gpuMs;
         this.stats.gpuTiming = stats.gpuTiming;
         this.stats.limiterGain = stats.gain;
         this.stats.limiterVeil = stats.veil;
       } else if (this.fallback) {
-        this.fallback.render(audio, this.options.palette);
+        this.fallback.render(audio, step, this.options.style, this.options.palette, this.options.gaslight, this.options.limitFlashing);
+        this.stats.actualStyle = this.options.style === "gaslight" ? "gaslight" : "spectrum";
+        this.stats.limiterGain = this.fallback.limiter.gain;
+        this.stats.limiterVeil = this.fallback.limiter.veil;
       }
       this.frames += 1;
     }
@@ -225,10 +238,10 @@ export class VisualizerRuntime {
       this.setMode("webgl2");
       return;
     }
-    // WebGL2 is not available (or has been refused): the Spectrum style on a 2D canvas.
+    // WebGL2 is not available (or has been refused): use the shared field on a 2D canvas.
     const context = this.canvas.getContext("2d");
     if (context) {
-      this.fallback = new Spectrum2D(context);
+      this.fallback = new SoftwareVisualizer(context);
       this.setMode("canvas2d");
     } else {
       this.setMode("lost");

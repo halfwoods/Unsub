@@ -523,7 +523,7 @@ pub fn collection_locate_folder(app: AppHandle) {
     });
 }
 
-/// Asks the Music app to fetch each song (by persistent ID) from iCloud. Music downloads on its own
+/// Asks Music or iTunes to fetch each song (by persistent ID) from iCloud. It downloads on its own
 /// schedule; the songs then show up as owned files to import on the next Refresh.
 #[cfg(target_os = "macos")]
 const MUSIC_DOWNLOAD_SCRIPT: &str = r#"
@@ -541,6 +541,17 @@ on run persistentIDs
     return accepted
 end run
 "#;
+
+#[cfg(target_os = "macos")]
+fn download_script(has_music_app: bool) -> String {
+    // Both application names are ours, never user input. Keep persistent IDs as osascript
+    // arguments so an ID cannot become executable AppleScript.
+    if has_music_app {
+        MUSIC_DOWNLOAD_SCRIPT.to_owned()
+    } else {
+        MUSIC_DOWNLOAD_SCRIPT.replace("tell application \"Music\"", "tell application \"iTunes\"")
+    }
+}
 
 // Only macOS has a Music app to ask, so only it has the command that returns this.
 #[cfg(target_os = "macos")]
@@ -576,6 +587,7 @@ pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<Do
     // osascript blocks while Music works through the list, so keep it off the IPC thread.
     let output = tauri::async_runtime::spawn_blocking(move || {
         use std::io::Write;
+        let script = download_script(objc2::available!(macos = 10.15));
         let mut child = std::process::Command::new("osascript")
             .arg("-")
             .args(&ids)
@@ -584,7 +596,7 @@ pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<Do
             .stderr(std::process::Stdio::piped())
             .spawn()?;
         if let Some(stdin) = child.stdin.as_mut() {
-            stdin.write_all(MUSIC_DOWNLOAD_SCRIPT.as_bytes())?;
+            stdin.write_all(script.as_bytes())?;
         }
         child.wait_with_output()
     })
@@ -593,7 +605,10 @@ pub async fn collection_download_from_icloud(app: AppHandle) -> CommandResult<Do
     .map_err(|e| CommandError::from(e.to_string()))?;
     if !output.status.success() {
         // Most often the Automation permission was declined in System Settings.
-        return Err(CommandError::from(format!("Music didn't accept the request: {}", String::from_utf8_lossy(&output.stderr).trim())));
+        return Err(CommandError::from(format!(
+            "Music or iTunes didn't accept the request: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
     let accepted = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0);
     Ok(DownloadRequest { requested, accepted })
@@ -637,6 +652,17 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn icloud_download_uses_itunes_before_catalina_and_keeps_ids_as_arguments() {
+        let legacy = download_script(false);
+        assert!(legacy.contains("tell application \"iTunes\""));
+        assert!(!legacy.contains("tell application \"Music\""));
+        assert!(legacy.contains("on run persistentIDs"));
+        assert!(legacy.contains("whose persistent ID is (pid as text)"));
+        assert_eq!(download_script(true), MUSIC_DOWNLOAD_SCRIPT);
+    }
 
     fn source(service: &str, label: &str) -> Source {
         Source { service: service.into(), label: label.into() }

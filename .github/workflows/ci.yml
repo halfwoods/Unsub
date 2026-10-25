@@ -1,6 +1,6 @@
 name: CI
 
-# Nothing in the build or the tests reads these paths, so a docs-only change skips the three-platform run.
+# Nothing in the build or the tests reads these paths, so documentation-only changes skip CI.
 on:
   push:
     branches: [main]
@@ -34,13 +34,17 @@ jobs:
   check:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 75
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS (arm64)
             os: macos-14
+            minimum_os: "11.0"
+          - name: macOS (Intel, High Sierra target)
+            os: macos-15-intel
+            minimum_os: "10.13.6"
           - name: Windows
             os: windows-latest
           - name: Linux
@@ -60,6 +64,9 @@ jobs:
       - run: pnpm exec tsc --noEmit
       - run: node --test src/import/test/*.test.mjs
       - run: node --test src/browser/test/*.test.mjs
+      - run: node --test src/visualizer/test/*.test.mjs
+      - run: node --test src/compat/test/*.test.mjs
+      - run: python3 -m unittest discover -s scripts/test -p 'test_*.py'
       # tauri-build refuses to compile src-tauri without the frontend's dist folder.
       - run: pnpm exec vite build
 
@@ -71,12 +78,15 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
+          key: ${{ matrix.minimum_os && format('macos-min-{0}', matrix.minimum_os) || '' }}
       - run: cargo fmt --all --check
 
       # FFmpeg, per platform. The Rust build links it through ffmpeg-sys-next.
       - name: FFmpeg (macOS)
         if: runner.os == 'macOS'
         uses: ./.github/actions/ffmpeg-macos
+        with:
+          deployment-target: ${{ matrix.minimum_os }}
       - name: FFmpeg (Windows)
         if: runner.os == 'Windows'
         uses: ./.github/actions/ffmpeg-windows
@@ -98,3 +108,30 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # --no-fail-fast reports every failing test binary in one run.
       - run: cargo test --workspace --no-fail-fast
+      - name: Native compatibility regressions
+        if: runner.os == 'macOS'
+        run: |
+          cargo test --manifest-path vendor/cpal-0.18.2/Cargo.toml --lib compatibility_tests
+          cargo test --manifest-path vendor/security-framework-3.7.0/Cargo.toml --features unsub-legacy-tests --test high_sierra
+
+      # This proves the Intel package targets 10.13 and has no known newer hard imports. It does
+      # not replace the manual High Sierra runtime check recorded in the implementation plan.
+      - name: Build the Intel compatibility candidate
+        if: matrix.minimum_os == '10.13.6'
+        run: pnpm exec tauri build --ci --debug --bundles app --config .github/tauri/macos-intel.conf.json --config '{"build":{"beforeBuildCommand":""}}'
+      - name: Bundle and audit the Intel compatibility candidate
+        if: matrix.minimum_os == '10.13.6'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          ENTITLEMENTS: scripts/entitlements.plist
+        run: |
+          scripts/bundle-ffmpeg-macos.sh target/debug/bundle/macos/Unsub.app
+          python3 scripts/check-macos-compat.py target/debug/bundle/macos/Unsub.app --minimum 10.13.6 --arch x86_64
+          ditto -c -k --sequesterRsrc --keepParent target/debug/bundle/macos/Unsub.app "$RUNNER_TEMP/Unsub-High-Sierra-candidate.zip"
+      - name: Keep the Intel compatibility candidate
+        if: matrix.minimum_os == '10.13.6'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Unsub-High-Sierra-candidate
+          path: ${{ runner.temp }}/Unsub-High-Sierra-candidate.zip
+          if-no-files-found: error

@@ -76,12 +76,16 @@ jobs:
             updater_arch: aarch64
             os: macos-15
             target: aarch64-apple-darwin
+            minimum_os: "11.0"
+            config: .github/tauri/macos-release.conf.json
           - arch: x86_64
             updater_arch: x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
+            minimum_os: "10.13.6"
+            config: .github/tauri/macos-intel.conf.json
     env:
-      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum_os }}
       # Only whether the key exists; the key itself is passed to the steps that sign.
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
@@ -101,8 +105,10 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-min${{ matrix.minimum_os }}
       - uses: ./.github/actions/ffmpeg-macos
+        with:
+          deployment-target: ${{ matrix.minimum_os }}
 
       - name: Check the signing secrets exist
         if: env.SIGN == 'true'
@@ -160,7 +166,7 @@ jobs:
         env:
           PODCASTINDEX_API_KEY: ${{ secrets.PODCASTINDEX_API_KEY }}
           PODCASTINDEX_API_SECRET: ${{ secrets.PODCASTINDEX_API_SECRET }}
-        run: pnpm exec tauri build --ci --target ${{ matrix.target }} --bundles app --config .github/tauri/macos-release.conf.json
+        run: pnpm exec tauri build --ci --target ${{ matrix.target }} --bundles app --config ${{ matrix.config }}
       - name: Locate the bundle
         run: |
           app="$PWD/target/${{ matrix.target }}/release/bundle/macos/Unsub.app"
@@ -171,7 +177,9 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ env.SIGN == 'true' && secrets.APPLE_SIGNING_IDENTITY || '-' }}
           ENTITLEMENTS: scripts/entitlements.plist
-        run: scripts/bundle-ffmpeg-macos.sh "$APP"
+        run: |
+          scripts/bundle-ffmpeg-macos.sh "$APP"
+          python3 scripts/check-macos-compat.py "$APP" --minimum ${{ matrix.minimum_os }} --arch ${{ matrix.arch }}
 
       - name: Notarize the app
         if: env.SIGN == 'true'

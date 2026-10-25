@@ -16,14 +16,28 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--edge) 70%, transparent);
+  border: 1px solid var(--edge);
   /* Aqua gel: dark band under a white gloss, glowing toward the bottom edge. */
   background:
     radial-gradient(ellipse 70% 45% at 50% 88%, var(--glow) 0%, transparent 100%),
-    linear-gradient(to bottom, var(--base) 25%, color-mix(in srgb, var(--base) 55%, var(--glow)) 100%);
+    linear-gradient(to bottom, var(--base) 25%, var(--glow) 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 0 1px color-mix(in srgb, var(--edge) 60%, transparent);
+    inset 0 0 1px var(--edge);
+}
+
+/* Gate variable-dependent values: an unsupported function can otherwise become
+   invalid only after var() substitution, discarding earlier fallback values. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  .traffic-light {
+    border-color: color-mix(in srgb, var(--edge) 70%, transparent);
+    background:
+      radial-gradient(ellipse 70% 45% at 50% 88%, var(--glow) 0%, transparent 100%),
+      linear-gradient(to bottom, var(--base) 25%, color-mix(in srgb, var(--base) 55%, var(--glow)) 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 0 1px color-mix(in srgb, var(--edge) 60%, transparent);
+  }
 }
 
 .traffic-light::before {

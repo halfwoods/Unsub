@@ -3,6 +3,11 @@ description: >
   Builds the pinned, LGPL-only FFmpeg with LAME and Opus from scripts/build-ffmpeg-macos.sh
   (cached between runs) and points pkg-config at it, so ffmpeg-sys-next links the build that ships.
 
+inputs:
+  deployment-target:
+    description: Oldest macOS supported by this architecture's app and every bundled library
+    required: true
+
 runs:
   using: composite
   steps:
@@ -18,16 +23,20 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/ffmpeg-prefix
-        key: ffmpeg-macos-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg-macos.sh') }}
+        key: ffmpeg-macos-${{ runner.arch }}-min${{ inputs.deployment-target }}-${{ hashFiles('scripts/build-ffmpeg-macos.sh') }}
 
     - name: Build FFmpeg
       shell: bash
       env:
-        MACOSX_DEPLOYMENT_TARGET: "11.0"
+        MACOSX_DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
       # Returns at once when the cache restored a prefix with a matching build stamp.
       run: scripts/build-ffmpeg-macos.sh "$RUNNER_TEMP/ffmpeg-prefix"
 
     - name: Point pkg-config at it
       shell: bash
       # opus.pc, which libavcodec.pc requires, is in the same prefix.
-      run: echo "PKG_CONFIG_PATH=$RUNNER_TEMP/ffmpeg-prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+      env:
+        DEPLOYMENT_TARGET: ${{ inputs.deployment-target }}
+      run: |
+        echo "PKG_CONFIG_PATH=$RUNNER_TEMP/ffmpeg-prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+        echo "MACOSX_DEPLOYMENT_TARGET=$DEPLOYMENT_TARGET" >> "$GITHUB_ENV"

@@ -1,4 +1,6 @@
-import { VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles";
+import { VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles.ts";
+
+import { DEFAULT_GASLIGHT, normalizeGaslight, type GaslightSettings } from "../visualizer/gaslightSettings.ts";
 
 /** Playback choices are per Mac (its audio device, its speakers), so they live in localStorage. */
 function load(key: string): boolean {
@@ -56,12 +58,19 @@ export interface VisualizerPrefs {
   microphone: boolean;
   /** The microphone to listen to; null for the system's default. */
   microphoneDevice: string | null;
+  gaslight: GaslightSettings;
 }
 
-const VISUALIZER: VisualizerPrefs = { style: "classic", limitFlashing: true, microphone: false, microphoneDevice: null };
+const VISUALIZER: VisualizerPrefs = { style: "classic", limitFlashing: true, microphone: false, microphoneDevice: null, gaslight: { ...DEFAULT_GASLIGHT } };
 export function loadVisualizerPrefs(): VisualizerPrefs {
   const prefs = loadJson("unsub.visualizer", VISUALIZER);
   // A style from some other version must not reach the renderer.
-  return VISUALIZER_STYLES.includes(prefs.style) ? prefs : { ...prefs, style: VISUALIZER.style };
+  return {
+    style: VISUALIZER_STYLES.includes(prefs.style) ? prefs.style : VISUALIZER.style,
+    limitFlashing: typeof prefs.limitFlashing === "boolean" ? prefs.limitFlashing : true,
+    microphone: typeof prefs.microphone === "boolean" ? prefs.microphone : false,
+    microphoneDevice: typeof prefs.microphoneDevice === "string" ? prefs.microphoneDevice : null,
+    gaslight: normalizeGaslight(prefs.gaslight),
+  };
 }
 export const saveVisualizerPrefs = (prefs: VisualizerPrefs) => save("unsub.visualizer", prefs);
