@@ -92,6 +92,11 @@ the new key. If the old key is lost, this is impossible; see the warning above.
 
 `scripts/updater-manifest.sh` refuses unsigned archives or signatures without the version. The real
 `tauri-plugin-updater` accepted a manifest and archive made this way and rejected a tampered
-archive, a mismatched version and a signature without a version. Not yet exercised: a complete
-update on macOS and Windows installed from the GitHub release (the install, relaunch and installer
-steps), and the update sheet's look.
+archive, a mismatched version and a signature without a version.
+
+On 2026-10-25, the complete Apple Silicon Mac update from the published 0.4.2 build to 0.5.0 passed
+in an isolated, user-writable app copy: the update sheet displayed the new version and release notes,
+Download and Install fetched the signed archive, the app relaunched as 0.5.0, and all 12 generated
+library tracks remained. The updated bundle passed deep strict code-signature verification.
+Still unverified: Intel Mac and Windows installation/relaunch, and macOS updates requiring an
+administrator password.
