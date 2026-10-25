@@ -1,6 +1,6 @@
 # High Sierra compatibility and Gaslight visualizer
 
-Status: implementation complete; final CI/package verification in progress. Actual High Sierra runtime remains an external release gate. Base `origin/main` pulled before edits at `9b2eb5f`; branch `mac-mini/high-sierra-gaslight`. The checkout was clean. User requested both features on 2026-10-25 and authorized routine implementation decisions and agent delegation. Repository instructions authorize small commits, push and PR; publishing another release is outside this task.
+Status: implementation and available validation complete. All four CI platforms passed, and the Intel candidate was independently audited. Actual High Sierra runtime remains an external release gate; PR #4 stays in draft. Base `origin/main` pulled before edits at `9b2eb5f`; branch `mac-mini/high-sierra-gaslight`. The checkout was clean. User requested both features on 2026-10-25 and authorized routine implementation decisions and agent delegation. Repository instructions authorize small commits, push and PR; publishing another release is outside this task.
 
 ## Outcomes and decisions
 
@@ -63,11 +63,11 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 | Safari 13.1 frontend output and layout | Web agent: `vite.config.ts`, compatibility bootstrap/styles/tests, targeted component CSS | Production bundle targets 13.1; missing capabilities retain functional layout/focus | Implemented; production build, 55 browser/compat tests and live forced fallback checks passed |
 | Shared Gaslight rendering and adapters | Visualizer agent: `src/visualizer/` | Three reference-informed looks on GPU and software paths; bounded/time-correct rendering | Implemented; model regressions and live GPU/software checks passed |
 | Preferences, menu and runtime integration | Visualizer agent: visualizer files, playback preferences, Preferences.tsx, menu.rs | Saved settings, migration, keyboard/fullscreen, clear fallback and safe flashing | Implemented; native keyboard, reset, restart persistence and fullscreen focus regression verified |
-| Deployment targets, cache and binary audits | Root: `.github/`, `scripts/` | Intel 10.13.6/ARM 11 artifacts audited; cache keys include deployment target | Implemented; 13 binary fixtures and fresh ARM executable audit passed; Intel CI pending |
-| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Local frontend 150 passed/1 existing skip; Rust workspace 2,601 passed/7 ignored; CI pending |
+| Deployment targets, cache and binary audits | Root: `.github/`, `scripts/` | Intel 10.13.6/ARM 11 artifacts audited; cache keys include deployment target | Implemented; 13 binary fixtures plus fresh ARM/Intel bundle audits passed; Intel candidate downloaded and signature verified |
+| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Passed: frontend 150/1 existing skip, Rust workspace 2,601/7 ignored, 13 audit tests, four-platform CI on source b4252b2 |
 | Live UI and compatibility evidence | Root | Native/preview rendering, software fallback, palettes/settings, resize/keyboard/idle inspected | Native generated-file playback, idle, settings, keyboard and 823×423 window verified; preview policy block documented |
 | Actual High Sierra runtime | Requires 10.13 Intel environment | Launch, import/playback, library UI, TLS/update check and new visualizer work | Environment unavailable here; user asked |
-| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Committed and pushed; draft PR #4 open; final evidence update pending |
+| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Complete: committed/pushed, draft PR #4, audited Intel candidate and final evidence recorded |
 
 ## Verification
 
@@ -95,6 +95,18 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 - Native preferences: Aurora and a keyboard-adjusted 51% trail value survived a full quit/relaunch. Autopilot toggled by keyboard, and Reset Gaslight restored Ember/70% trails/65% glow/70% height/autopilot off. Limit flashing stayed enabled and microphone stayed disabled. At approximately 823×423 logical pixels, Playback preferences scrolled to every control while OK stayed visible.
 - Live fullscreen testing discovered a first-responder loss after native fullscreen transitions. Added guarded webview/content focus restoration and five async regressions. Rebuilt native app then passed F → Right → Left → Escape without clicking the canvas; Escape closed the visualizer and restored the window. Open editors/dialogs and inactive applications are excluded from focus restoration.
 - CPU field benchmark on this M1: roughly 1.16–1.22 ms median and 1.35–1.60 ms p95 per 384×256 frame. This excludes compositing/limiting/GPU work and is not an old-Intel performance claim.
-- Draft [PR #4](https://github.com/halfwoods/Unsub/pull/4) is open. Initial CI found a Windows-only path-separator assumption in the audit test; the assertion now uses the platform-native relative path. Final CI results and the Intel candidate link will be recorded after completion.
+- Draft [PR #4](https://github.com/halfwoods/Unsub/pull/4) is open. Initial CI found a Windows-only path-separator assumption in the audit test; the assertion now uses the platform-native relative path. Final CI passed on all four platforms; the candidate and audit results are recorded below.
 
 - QA cleanup: the generated library and both test webview data directories were archived under `/tmp/unsub-high-sierra-native-state`; the normal app data folder had been absent before testing. The sole indexed file was the generated fixture. The native app and task-owned Vite server were closed. No personal library or music files were modified.
+
+## Intel candidate
+
+The final source revision `b4252b2` passed macOS Intel, macOS ARM, Windows and Linux CI in [run 40226016800](https://github.com/halfwoods/Unsub/actions/runs/40226016800). Strict Clippy and the complete platform test suites passed. The first Intel packaging attempt exposed Apple's SDK-defined legacy iTunesLibrary install path; the bundler now recognizes only that exact additional path as a system framework. It does not bundle Apple's framework or exempt arbitrary `/Library` dependencies.
+
+[Download the Intel compatibility candidate](https://github.com/halfwoods/Unsub/actions/runs/40226016800/artifacts/12611399265). This is a debug test build with an ad-hoc signature, not a Developer ID/notarized public release. Its extracted main executable and all six bundled dylibs independently passed the local audit: `x86_64`, minimum macOS `10.13.6`, no prohibited newer imports or loader commands. `codesign --verify --deep --strict` passed. The Intel app was inspected without executing it on the ARM host.
+
+Local archive: `/tmp/unsub-high-sierra-ci-final/Unsub-High-Sierra-candidate.zip`. SHA-256: `8f1fd86289214902ff1de7f724177c34681497e0dc12011a373bfc508787a35f`.
+
+Actual High Sierra launch, playback, old WebKit/GPU behavior, iTunes import and a live update/TLS check remain unverified. The draft PR and README retain that distinction. Published 0.5.0 assets remain unchanged.
+
+Final documentation-only updates follow source revision `b4252b2`; they do not change the audited code or candidate. No release tag was created and no public release assets were replaced.

@@ -28,7 +28,7 @@ Windows also ships whatever DLLs vcpkg builds for those three ports; the CI log 
 ### Minimum macOS
 
 The base/Apple Silicon configuration targets macOS 11. The Intel build overrides
-`minimumSystemVersion` to 10.13 in `.github/tauri/macos-intel.conf.json`; High Sierra runtime
+`minimumSystemVersion` to 10.13.6 in `.github/tauri/macos-intel.conf.json`; High Sierra runtime
 validation is tracked in [the implementation plan](../docs/HIGH_SIERRA_GASLIGHT_PLAN.md).
 The value becomes `LSMinimumSystemVersion`. Every embedded dylib and the app executable must
 target that version or older. Homebrew's
