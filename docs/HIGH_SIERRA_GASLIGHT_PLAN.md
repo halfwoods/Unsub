@@ -1,6 +1,6 @@
 # High Sierra compatibility and Gaslight visualizer
 
-Status: review and 0.6.0 release preparation in progress. The user explicitly authorized review, fixes and publication on 2026-10-25. The original implementation passed all four CI platforms and the Intel candidate was independently audited. Actual High Sierra runtime remains unverified, so the release will describe that compatibility as experimental rather than verified support. Original base `origin/main` was `9b2eb5f`; review branch `mac-mini/review-gaslight-release` was created from the freshly fetched default branch and fast-forwarded to PR #4 before edits. Both checkouts were clean.
+Status: complete; [Unsub 0.6.0 is published](https://github.com/halfwoods/Unsub/releases/tag/v0.6.0). The user explicitly authorized review, fixes and publication on 2026-10-25. All four CI platforms passed at source `3bdf24d`, tagged `v0.6.0`; PR #4 merged as `3c946db` with an identical tree. Signed release builds, package inspection and available native smoke tests passed. High Sierra runtime remains unverified and is labeled experimental. Original implementation base was `9b2eb5f`; review used `mac-mini/review-gaslight-release`, and release evidence uses `mac-mini/verify-060-release`, both created from the freshly fetched default branch before their edits. Checkouts were clean.
 
 ## Outcomes and decisions
 
@@ -8,17 +8,17 @@ Status: review and 0.6.0 release preparation in progress. The user explicitly au
 2. Add an original built-in **Gaslight** visualizer that closely follows the published GasLight references: mirrored frequency ridges, glowing vertical plumes, fine history trails and a central light band. Provide Ember, Aurora and Inverted palettes, adjustable trails/glow/height and optional slow autopilot. It uses Unsub's own code and audio analysis; it does not load, copy or redistribute the original plug-in, shaders or artwork.
 3. Preserve classic styling, audio playback, library data, existing visualizers, keyboard/fullscreen controls, casting behavior and flashing limits. The new visualizer must retain its character on the Canvas2D fallback available without WebGL2.
 
-The compatibility baseline is the final High Sierra/Safari updates, not the original Safari 11 shipped with 10.13. The current host is an Apple Silicon Mac running macOS 15.8.1. A question about access to a High Sierra test machine is pending; it does not block implementation/build inspection. No other computer or filesystem is assumed available.
+The compatibility baseline is the final High Sierra/Safari updates, not the original Safari 11 shipped with 10.13. The current host is an Apple Silicon Mac running macOS 15.8.1. No High Sierra test machine was available for this work. No other computer or filesystem is assumed available.
 
-## Evidence
+## Initial findings and references
 
-- Every existing release tag through 0.5.0 declares macOS 11. There is no existing High Sierra release.
+- Before this work, every release tag through 0.5.0 declared macOS 11; none targeted High Sierra.
 - Tauri documents macOS 10.13 as its baseline: <https://v2.tauri.app/distribute/macos-application-bundle/#minimum-system-version>.
 - Apple lists Safari 13.1.2 for High Sierra: <https://support.apple.com/en-us/103116>; High Sierra 10.13.6 update: <https://support.apple.com/en-us/106395>.
-- Vite currently has no explicit browser target; its default is newer than High Sierra's WebKit. CSS uses flex gap, `:has`, `color-mix`, `inset`, container units and newer focus selectors. WebKit documents ResizeObserver in Safari 13.1: <https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/>.
+- Vite had no explicit browser target; its default is newer than High Sierra's WebKit. CSS uses flex gap, `:has`, `color-mix`, `inset`, container units and newer focus selectors. WebKit documents ResizeObserver in Safari 13.1: <https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/>.
 - Native microphone permission selectors require 10.14; the cloud-download script names Music, whereas High Sierra uses iTunes. CPAL's process-tap path references 14.2 APIs. The platform certificate verifier reaches `SecTrustEvaluateWithError`, introduced in 10.14. These require real compatibility paths, not only a lower bundle version.
 - The FFmpeg composite action hardcodes deployment target 11.0 and omits it from the cache key. The bundling script checks library minimums but must also check the main executable.
-- Current visualizers use WebGL2; a missing GPU renderer falls back to Spectrum for every style. That path has inaccurate overlay/notice assumptions and does not pass through the existing flash limiter.
+- Before this work, visualizers used WebGL2 and a missing GPU renderer fell back to Spectrum for every style. That path had inaccurate overlay/notice assumptions and did not pass through the existing flash limiter.
 - GasLight's developer page and screenshots: <https://steelskies.com/gaslight/>. Reference images were inspected from the developer's site. Its downloadable v2 bundle contains Intel i386/x86_64 code and old iTunes/Carbon/AGL/OpenGL dependencies. It was inspected without installation or execution. No source/assets from that package enter this repository.
 
 ## Architecture and ownership
@@ -64,10 +64,10 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 | Shared Gaslight rendering and adapters | Visualizer agent: `src/visualizer/` | Three reference-informed looks on GPU and software paths; bounded/time-correct rendering | Implemented; model regressions and live GPU/software checks passed |
 | Preferences, menu and runtime integration | Visualizer agent: visualizer files, playback preferences, Preferences.tsx, menu.rs | Saved settings, migration, keyboard/fullscreen, clear fallback and safe flashing | Implemented; native keyboard, reset, restart persistence and fullscreen focus regression verified |
 | Deployment targets, cache and binary audits | Root: `.github/`, `scripts/` | Intel 10.13.6/ARM 11 artifacts audited; cache keys include deployment target | Implemented; 13 binary fixtures plus fresh ARM/Intel bundle audits passed; Intel candidate downloaded and signature verified |
-| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Passed: frontend 150/1 existing skip, Rust workspace 2,601/7 ignored, 13 audit tests, four-platform CI on source b4252b2 |
+| Automated regression/build validation | All, integrated by root | Relevant frontend/Rust tests, production build, format/lint, binary checks pass | Passed: frontend 153/1 existing skip, Rust workspace 2,601/7 ignored, 13 audit tests, four-platform CI on release source 3bdf24d |
 | Live UI and compatibility evidence | Root | Native/preview rendering, software fallback, palettes/settings, resize/keyboard/idle inspected | Native generated-file playback, idle, settings, keyboard and 823×423 window verified; preview policy block documented |
-| Actual High Sierra runtime | Requires 10.13 Intel environment | Launch, import/playback, library UI, TLS/update check and new visualizer work | Environment unavailable here; user asked |
-| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Complete: committed/pushed, draft PR #4, audited Intel candidate and final evidence recorded |
+| Actual High Sierra runtime | Requires 10.13 Intel environment | Launch, import/playback, library UI, TLS/update check and new visualizer work | Environment unavailable; explicitly unverified in the experimental release |
+| Documentation, commits and PR | Root | Accurate support matrix, patch notes, final evidence and limitations, clean branch/PR | Complete: PR #4 merged, 0.6.0 published, signed ARM/Intel packages and public update feed verified |
 
 ## Verification
 
@@ -85,7 +85,7 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 - The original implementation request did not authorize a release. The subsequent review-and-publish request does: publish a new 0.6.0 release after review, CI, signed-package inspection and available native smoke testing. Never overwrite older published assets.
 - Any plan adjustment must preserve the two requested outcomes and update this ledger with evidence.
 
-## Current validation record
+## Initial implementation validation record
 
 - Local host: Apple M1, macOS 15.8.1, Node 26.11.1, Rust 1.99.1. Full frontend production build passed with the existing main-chunk size warning. Final frontend suites: 150 passed, one existing optional allocation skip. Rust workspace: 2,601 passed, seven existing ignores; format check passed. The pinned Rust 1.93.1 CI remains authoritative for strict Clippy; the newer local compiler reports existing unrelated lints.
 - Fifteen focused native/dependency tests cover permission guards, old iTunes integration, old/new certificate evaluation, hostname/root/date failures and optional process-tap availability. The certificate fixtures are synthetic, network fetching is disabled and no keychain is changed.
@@ -95,7 +95,7 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 - Native preferences: Aurora and a keyboard-adjusted 51% trail value survived a full quit/relaunch. Autopilot toggled by keyboard, and Reset Gaslight restored Ember/70% trails/65% glow/70% height/autopilot off. Limit flashing stayed enabled and microphone stayed disabled. At approximately 823×423 logical pixels, Playback preferences scrolled to every control while OK stayed visible.
 - Live fullscreen testing discovered a first-responder loss after native fullscreen transitions. Added guarded webview/content focus restoration and five async regressions. Rebuilt native app then passed F → Right → Left → Escape without clicking the canvas; Escape closed the visualizer and restored the window. Open editors/dialogs and inactive applications are excluded from focus restoration.
 - CPU field benchmark on this M1: roughly 1.16–1.22 ms median and 1.35–1.60 ms p95 per 384×256 frame. This excludes compositing/limiting/GPU work and is not an old-Intel performance claim.
-- Draft [PR #4](https://github.com/halfwoods/Unsub/pull/4) is open. Initial CI found a Windows-only path-separator assumption in the audit test; the assertion now uses the platform-native relative path. Final CI passed on all four platforms; the candidate and audit results are recorded below.
+- The initial implementation was submitted as draft [PR #4](https://github.com/halfwoods/Unsub/pull/4). Initial CI found a Windows-only path-separator assumption in the audit test; the assertion now uses the platform-native relative path. Final CI passed on all four platforms; the candidate and audit results are recorded below.
 
 - QA cleanup: the generated library and both test webview data directories were archived under `/tmp/unsub-high-sierra-native-state`; the normal app data folder had been absent before testing. The sole indexed file was the generated fixture. The native app and task-owned Vite server were closed. No personal library or music files were modified.
 
@@ -103,13 +103,13 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 
 The final source revision `b4252b2` passed macOS Intel, macOS ARM, Windows and Linux CI in [run 40226016800](https://github.com/halfwoods/Unsub/actions/runs/40226016800). Strict Clippy and the complete platform test suites passed. The first Intel packaging attempt exposed Apple's SDK-defined legacy iTunesLibrary install path; the bundler now recognizes only that exact additional path as a system framework. It does not bundle Apple's framework or exempt arbitrary `/Library` dependencies.
 
-[Download the Intel compatibility candidate](https://github.com/halfwoods/Unsub/actions/runs/40226016800/artifacts/12611399265). This is a debug test build with an ad-hoc signature, not a Developer ID/notarized public release. Its extracted main executable and all six bundled dylibs independently passed the local audit: `x86_64`, minimum macOS `10.13.6`, no prohibited newer imports or loader commands. `codesign --verify --deep --strict` passed. The Intel app was inspected without executing it on the ARM host.
+[Download the Intel compatibility candidate](https://github.com/halfwoods/Unsub/actions/runs/40226016800/artifacts/12611399265). This is a debug test build with an ad-hoc signature, not a Developer ID/notarized public release. Its extracted main executable and all six bundled dylibs independently passed the local audit: `x86_64`, minimum macOS `10.13.6`, no prohibited newer imports or loader commands. `codesign --verify --deep --strict` passed. During this initial inspection, the Intel app was not executed; later Rosetta testing is recorded below.
 
 Local archive: `/tmp/unsub-high-sierra-ci-final/Unsub-High-Sierra-candidate.zip`. SHA-256: `8f1fd86289214902ff1de7f724177c34681497e0dc12011a373bfc508787a35f`.
 
-Actual High Sierra launch, playback, old WebKit/GPU behavior, iTunes import and a live update/TLS check remain unverified. The draft PR and README retain that distinction. Published 0.5.0 assets remain unchanged.
+Actual High Sierra launch, playback, old WebKit/GPU behavior, iTunes import and a live update/TLS check remain unverified. At the initial handoff, the draft PR and README retained that distinction. Published 0.5.0 assets remain unchanged.
 
-Final documentation-only updates follow source revision `b4252b2`; they do not change the audited code or candidate. No release tag was created and no public release assets were replaced.
+At the initial implementation handoff, documentation-only updates followed source revision `b4252b2`; they did not change the audited code or candidate. No release tag was created in that phase and no public release assets were replaced.
 
 ## 0.6.0 review and release
 
@@ -119,3 +119,26 @@ Final documentation-only updates follow source revision `b4252b2`; they do not c
 - Merge the reviewed PR, tag the exact merged source, build signed/notarized Mac packages and updater-signed Windows installers through the established release workflow.
 - Inspect the final manifests, signatures, versions and binary deployment targets; smoke-test the bundled application with isolated synthetic data. Publish only after the release artifacts pass the available checks.
 - High Sierra runtime testing remains a known limitation, not a completed check.
+
+### Review outcome
+
+- Independent native/dependency, Safari compatibility and visualizer reviews found one actionable issue: visualizer shortcuts could change the saved style or fullscreen state behind open Preferences or menus. Commit `3bdf24d` makes all visualizer hotkeys yield to overlays. Three component regressions exercise the real listener, including normal shortcuts and cleanup.
+- Production frontend build passed; 153 frontend tests passed with one existing optional allocation skip. Local Rust workspace: 2,601 passed, seven ignored across 63 suites. Fifteen focused native/dependency checks and thirteen binary-audit tests passed. Formatting, shell syntax and diff checks passed. Existing main-chunk size warning remains.
+- [CI run 40241121302](https://github.com/halfwoods/Unsub/actions/runs/40241121302) passed on macOS ARM, macOS Intel with the 10.13.6 target, Windows and Linux at `3bdf24d`.
+- Live local native 0.6.0 on the M1/macOS 15.8.1 host: a coordinate click followed by Tab/Shift+Tab visibly focused a Preferences button. Right, F and M left Gaslight, fullscreen and info state unchanged. After OK, Right changed the style. Fullscreen F → Right → Left → Escape worked without clicking the canvas after the transition.
+- The earlier Intel candidate (`b4252b2`) also launched through Rosetta on this M1, imported only the generated `gaslight.flac` fixture, played it and rendered Gaslight. This adds modern Intel-package execution evidence, not High Sierra evidence.
+- Release scheduling: after local checks and three CI platforms passed, `v0.6.0` was tagged at the exact reviewed source so signed builds could run alongside the final Windows CI job. Publication stayed gated on full CI and package inspection. After all four CI jobs passed, PR #4 merged; `git diff v0.6.0 origin/main` was empty and the tag is an ancestor of the merge.
+- An additional static spot-check of locked `rfd` 0.16.0 and Tauri dialog 2.8.3 found no post-10.13 file-dialog API dependency: the path uses legacy `setAllowedFileTypes` and panel/focus selectors available by macOS 10.6. This is static evidence, not an old-OS file-import test.
+- [Release run 40242439547](https://github.com/halfwoods/Unsub/actions/runs/40242439547) passed all jobs and produced the signed packages. Final package and publication results follow below.
+
+### Signed package validation and publication
+
+- Apple Silicon package: app version 0.6.0, minimum macOS 11.0; every Mach-O passed the deployment/import audit. App and DMG passed strict code signatures, notarization ticket and Gatekeeper checks. The updater archive signature verified against the unchanged configured public key. Mounted DMG and updater apps matched file-for-file.
+- A copy of the signed Apple Silicon app launched on this M1/macOS 15.8.1 host, played only the generated fixture and rendered Gaslight. Preferences displayed version 0.6.0. Aurora and a keyboard-adjusted 71% trail setting survived a full quit/relaunch; flashing limits stayed on and microphone access stayed off. The app was closed afterward.
+- Intel package: app version 0.6.0, minimum macOS 10.13.6; the executable and all six bundled dylibs passed architecture, deployment target, import and loader-command audits. App and DMG passed strict code signatures, notarization ticket and Gatekeeper checks. The updater signature verified, and the DMG and updater apps matched file-for-file.
+- The final signed Intel app launched through Rosetta on the M1/macOS 15.8.1 host, loaded the isolated fixture library and saved Aurora settings, played the fixture and rendered Gaslight. Fullscreen and style cycling worked; Escape restored the normal window. This verifies the Intel package on modern macOS, not on High Sierra.
+- Both Windows installer builds passed. All four distinct updater payloads verified against the unchanged configured public key with signed version 0.6.0. Windows installers have updater signatures but no Authenticode certificate; installer execution was not tested locally.
+- All 18 release assets matched GitHub's sizes and SHA-256 digests. Fixed download aliases matched their versioned installers; bundled-library source archives matched pinned build hashes. The manifest's five platform entries referenced the expected 0.6.0 assets and signatures.
+- Published as the latest release at 2026-10-25 23:38:06 UTC. An unauthenticated fetch of the public latest-release metadata and `releases/latest/download/latest.json` confirmed version 0.6.0, the verified manifest and all 18 asset digests. A complete installed-app upgrade to 0.6.0 was not exercised.
+- All task-owned apps were closed. The test database contained only `Gaslight Test Signal` at `/private/tmp/unsub-gaslight-qa/gaslight.flac`. Application support and WebKit state were archived to `/tmp/unsub-060-qa-state`, restoring the initially absent app data directories. No personal library or music files were modified.
+- Actual High Sierra launch, playback, old WebKit/GPU behavior, iTunes import and live TLS/update behavior remain unverified. This limitation is explicit in the published release notes and README; the standard Intel download includes the experimental compatibility work.
