@@ -78,7 +78,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
-          key: macos-min-${{ matrix.minimum_os }}
+          key: ${{ matrix.minimum_os && format('macos-min-{0}', matrix.minimum_os) || '' }}
       - run: cargo fmt --all --check
 
       # FFmpeg, per platform. The Rust build links it through ffmpeg-sys-next.
