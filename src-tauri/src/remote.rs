@@ -387,22 +387,50 @@ pub fn remote_tracks(state: State<'_, RemoteState>, library: String, query: Trac
         (a.album.to_lowercase(), a.disc_number, a.track_number).cmp(&(b.album.to_lowercase(), b.disc_number, b.track_number))
     };
     tracks.sort_by(|a, b| {
+        let desc = query.descending;
+        let text =
+            |a: &str, b: &str| compare_optional((!a.is_empty()).then(|| a.to_lowercase()), (!b.is_empty()).then(|| b.to_lowercase()), desc);
+        let album_artist = |t: &Track| if t.album_artist.is_empty() { t.artist.clone() } else { t.album_artist.clone() };
         let order = match query.sort {
-            SortKey::Name => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-            SortKey::Time => a.duration_ms.cmp(&b.duration_ms),
-            SortKey::Album => by_album(a, b),
-            SortKey::Genre => a.genre.to_lowercase().cmp(&b.genre.to_lowercase()),
-            SortKey::Year => a.year.cmp(&b.year),
-            SortKey::Plays => a.play_count.cmp(&b.play_count),
-            SortKey::Bitrate => a.bitrate_kbps.cmp(&b.bitrate_kbps),
-            SortKey::Size => a.file_size.cmp(&b.file_size),
-            _ => Ordering::Equal,
+            SortKey::Name => text(&a.title, &b.title),
+            SortKey::Time => compare_optional(Some(a.duration_ms), Some(b.duration_ms), desc),
+            SortKey::Artist | SortKey::PlaylistOrder => text(&a.artist, &b.artist),
+            SortKey::Album => text(&a.album, &b.album),
+            SortKey::AlbumArtist => text(&album_artist(a), &album_artist(b)),
+            SortKey::Composer => text(&a.composer, &b.composer),
+            SortKey::Genre => text(&a.genre, &b.genre),
+            SortKey::Year => compare_optional(a.year, b.year, desc),
+            SortKey::TrackNumber => compare_optional(a.track_number, b.track_number, desc),
+            SortKey::DiscNumber => compare_optional(a.disc_number, b.disc_number, desc),
+            SortKey::Rating => compare_optional(Some(a.rating), Some(b.rating), desc),
+            SortKey::Plays => compare_optional(Some(a.play_count), Some(b.play_count), desc),
+            SortKey::SkipCount => compare_optional(Some(a.skip_count), Some(b.skip_count), desc),
+            SortKey::LastPlayed => compare_optional(a.last_played, b.last_played, desc),
+            SortKey::DateAdded => compare_optional(Some(a.date_added), Some(b.date_added), desc),
+            SortKey::Kind => text(&a.codec, &b.codec),
+            SortKey::Bitrate => compare_optional(a.bitrate_kbps, b.bitrate_kbps, desc),
+            SortKey::SampleRate => compare_optional(a.sample_rate, b.sample_rate, desc),
+            SortKey::Size => compare_optional(Some(a.file_size), Some(b.file_size), desc),
         };
-        // Ties fall back to iTunes' artist, album, track order.
-        let order = order.then_with(|| a.artist.to_lowercase().cmp(&b.artist.to_lowercase())).then_with(|| by_album(a, b));
-        if query.descending { order.reverse() } else { order }
+        // Only the primary sort reverses, as in the local library.
+        order.then_with(|| a.artist.to_lowercase().cmp(&b.artist.to_lowercase())).then_with(|| by_album(a, b)).then_with(|| a.id.cmp(&b.id))
     });
     tracks
+}
+
+fn compare_optional<T: Ord>(a: Option<T>, b: Option<T>, descending: bool) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            if descending {
+                b.cmp(&a)
+            } else {
+                a.cmp(&b)
+            }
+        }
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (None, None) => Ordering::Equal,
+    }
 }
 
 #[cfg(test)]

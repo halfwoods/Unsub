@@ -1,4 +1,7 @@
 import { create } from "zustand";
+import { layoutFor, isLayoutSource } from "../preferences/libraryViews";
+import { useLibraryViews } from "../preferences/libraryViewStore";
+import { browseQuery, browserQueries, EMPTY_BROWSER, narrowBrowser, playlistPositionQuery, withoutBrowse, type BrowseStep, type BrowserFilters } from "../browser/browseScope";
 import { loadVisualizerPrefs, saveVisualizerPrefs, type VisualizerPrefs } from "../preferences/playbackPrefs";
 import { applyTextSizes, listRowHeight, loadTextSizes, saveTextSizes, type TextSizes } from "../preferences/textSizes";
 import * as api from "../api/commands";
@@ -42,6 +45,10 @@ import type {
 } from "../api/types";
 
 export type ViewMode = "list" | "albumList" | "grid" | "coverFlow";
+
+/** Album List renders consecutive album groups and therefore needs an album-compatible sort. */
+const sortForView = (sort: SortKey, descending: boolean, view: ViewMode) =>
+  view === "albumList" && !["album", "albumArtist", "artist"].includes(sort) ? { sort: "album" as SortKey, descending: false } : { sort, descending };
 
 /** The grid's Albums / Artists / Genres / Composers switch. */
 export type GridGroup = "albums" | "artists" | "genres" | "composers";
@@ -203,10 +210,13 @@ interface AppState {
   source: SourceId;
   viewMode: ViewMode;
   query: TrackQuery;
+  loadedQuery: TrackQuery | null;
   tracks: Track[];
   stats: LibraryStats | null;
   selection: ReadonlySet<number>;
   selectionAnchor: number | null;
+  /** A one-shot reveal, separate from the anchor so repeated Command-L presses scroll again. */
+  songReveal: { source: SourceId; query: TrackQuery; trackId: number } | null;
   playback: PlaybackStatus;
   nowPlaying: Track | null;
   /** The speaker the music is playing on; null for this computer. */
@@ -262,6 +272,11 @@ interface AppState {
   genres: GenreSummary[];
   composers: ComposerSummary[];
   gridGroup: GridGroup;
+  browsePath: BrowseStep[];
+  browseRootSort: { sort: SortKey; descending: boolean } | null;
+  browserFilters: BrowserFilters;
+  browserFacets: { genres: GenreSummary[]; artists: ArtistSummary[]; albums: AlbumSummary[] };
+  browseScroll: Record<string, number>;
   playlists: Playlist[];
   expandedFolders: ReadonlySet<number>;
   renamingPlaylist: number | null;
@@ -293,6 +308,7 @@ interface AppState {
   refresh: () => Promise<void>;
   selectRow: (index: number, modifiers: SelectModifiers) => void;
   playRow: (index: number) => Promise<void>;
+  revealCurrentSong: (canReveal?: () => boolean) => Promise<void>;
   togglePlay: () => Promise<void>;
   setVolume: (volume: number) => void;
   seekTo: (positionMs: number) => void;
@@ -315,6 +331,17 @@ interface AppState {
   showAllSongs: () => void;
   toggleDevice: (deviceId: string) => void;
   setGridGroup: (group: GridGroup) => void;
+  showMusicView: (view: "songs" | "albums" | "artists") => void;
+  openArtist: (key: string, label: string) => void;
+  openAlbum: (key: string, label: string) => void;
+  openGroup: (kind: "genre" | "composer", key: string, label: string) => void;
+  browseBack: () => void;
+  browseTo: (index: number) => void;
+  setBrowseScroll: (key: string, offset: number) => void;
+  setBrowserFilter: (field: keyof BrowserFilters, value: string | null) => void;
+  clearBrowser: () => void;
+  toggleColumnBrowser: () => void;
+  playBrowse: (shuffled?: boolean) => Promise<void>;
   refreshPlaylists: () => Promise<void>;
   toggleFolder: (id: number) => void;
   /** `parentId` makes it a child of that folder. */
@@ -348,12 +375,14 @@ export const useApp = create<AppState>((set, get) => ({
   windowActive: true,
   windowFullscreen: false,
   source: "music",
-  viewMode: "list",
-  query: { kind: "music", search: null, sort: "artist", descending: false },
+  viewMode: useLibraryViews.getState().prefs.browsing.viewMode,
+  query: { kind: "music", search: null, ...sortForView(layoutFor(useLibraryViews.getState().prefs, "music").sort, layoutFor(useLibraryViews.getState().prefs, "music").descending, useLibraryViews.getState().prefs.browsing.viewMode) },
+  loadedQuery: null,
   tracks: [],
   stats: null,
   selection: new Set(),
   selectionAnchor: null,
+  songReveal: null,
   playback: IDLE_PLAYBACK,
   nowPlaying: null,
   castTarget: null,
@@ -394,7 +423,12 @@ export const useApp = create<AppState>((set, get) => ({
   artists: [],
   genres: [],
   composers: [],
-  gridGroup: "albums",
+  gridGroup: useLibraryViews.getState().prefs.browsing.gridGroup,
+  browsePath: [],
+  browseRootSort: null,
+  browserFilters: { ...EMPTY_BROWSER },
+  browserFacets: { genres: [], artists: [], albums: [] },
+  browseScroll: {},
   playlists: [],
   expandedFolders: new Set(),
   renamingPlaylist: null,
@@ -417,11 +451,15 @@ export const useApp = create<AppState>((set, get) => ({
     // Device and playlist lists filter on the backend, so the query's own kind stays unset.
     const kind = isLibrarySource(source) ? SOURCE_KIND[source] : null;
     const regular = get().playlists.find((p) => p.id === playlist)?.kind === "regular";
-    // A regular playlist opens in its own order (the # column); everything else sorts like the library.
-    const sortFor = (current: SortKey): SortKey => (regular ? "playlistOrder" : current === "playlistOrder" ? "artist" : current);
+    const layout = isLayoutSource(source) ? layoutFor(useLibraryViews.getState().prefs, source, regular) : null;
     set((s) => ({
       source,
-      query: { ...s.query, kind, search: null, playlist, ids: null, sort: sortFor(s.query.sort), descending: regular ? false : s.query.descending },
+      songReveal: null,
+      query: { ...withoutBrowse(s.query), kind, search: null, playlist, ids: null, ...sortForView(layout?.sort ?? "artist", layout?.descending ?? false, s.viewMode) },
+      browsePath: [],
+      browseRootSort: null,
+      browserFilters: { ...EMPTY_BROWSER },
+      browserFacets: { genres: [], artists: [], albums: [] },
       duplicates: null,
       tracks: isList ? s.tracks : [],
       stats: isList ? s.stats : null,
@@ -439,12 +477,15 @@ export const useApp = create<AppState>((set, get) => ({
   setViewMode: (viewMode) => {
     const { query } = get();
     const grouped = query.sort === "album" || query.sort === "albumArtist" || query.sort === "artist";
-    set({ viewMode, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false } : query });
+    set({ viewMode, songReveal: null, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false } : query });
+    useLibraryViews.getState().setBrowsing({ viewMode });
     void get().refresh();
   },
 
   setSearch: (search) => {
-    set((s) => ({ query: { ...s.query, search: search.trim() === "" ? null : search } }));
+    const value = search.trim() === "" ? null : search;
+    if (get().query.search === value) return;
+    set((s) => ({ query: { ...s.query, search: value }, selection: new Set(), selectionAnchor: null, songReveal: null }));
     void get().refresh();
   },
 
@@ -452,12 +493,17 @@ export const useApp = create<AppState>((set, get) => ({
   sortBy: (sort) => {
     set((s) => ({
       query: { ...s.query, sort, descending: s.query.sort === sort ? !s.query.descending : false },
+      selectionAnchor: null,
     }));
+    const { source, query, playlists } = get();
+    if (isLayoutSource(source)) useLibraryViews.getState().setSort(source, sort, query.descending, playlists.some((p) => p.id === playlistIdOf(source) && p.kind === "regular"));
     void get().refresh();
   },
 
   refresh: async () => {
     const { query, source } = get();
+    // Never offer old-scope rows for playback or edits while a narrower request is pending.
+    if (get().loadedQuery !== query) set({ tracks: [], stats: null, albums: [], artists: [], genres: [], composers: [] });
     const device = parseDeviceSource(source);
     const discId = cdIdOf(source);
     const sharedId = sharedIdOf(source);
@@ -479,16 +525,24 @@ export const useApp = create<AppState>((set, get) => ({
     const { viewMode, gridGroup } = get();
     const wantsAlbums = (isLibrarySource(source) || isPlaylistSource(source)) && (viewMode === "grid" || viewMode === "coverFlow");
     const grid = wantsAlbums && viewMode === "grid";
-    const [[tracks, stats], albums, artists, genres, composers] = await Promise.all([
+    const browserVisible = useLibraryViews.getState().prefs.browsing.browserVisible && (isLibrarySource(source) || isPlaylistSource(source));
+    const facets = browserQueries(query);
+    try {
+    const [[tracks, stats], albums, artists, genres, composers, browserFacets] = await Promise.all([
       request,
-      wantsAlbums ? api.libraryAlbums(query) : Promise.resolve([]),
+      wantsAlbums ? (query.artistKey != null ? api.libraryArtistAlbums(query.artistKey, query) : api.libraryAlbums(query)) : Promise.resolve([]),
       grid && gridGroup === "artists" ? api.libraryArtists(query) : Promise.resolve([]),
       grid && gridGroup === "genres" ? api.libraryGenres(query) : Promise.resolve([]),
       grid && gridGroup === "composers" ? api.libraryComposers(query) : Promise.resolve([]),
+      browserVisible ? Promise.all([api.libraryGenres(facets.genres), api.libraryArtists(facets.artists), api.libraryAlbums(facets.albums)])
+        .then(([genres, artists, albums]) => ({ genres, artists, albums })) : Promise.resolve({ genres: [], artists: [], albums: [] }),
     ]);
     // Drop stale responses when the user typed or switched source mid-flight.
-    if (get().query !== query || get().source !== source) return;
-    set({ tracks, stats, albums, artists, genres, composers });
+    if (get().query !== query || get().source !== source || get().viewMode !== viewMode || get().gridGroup !== gridGroup) return;
+    set({ tracks, stats, albums, artists, genres, composers, browserFacets, loadedQuery: query });
+    } catch (error) {
+      if (get().query === query && get().source === source) get().showNotice(`Couldn't load library: ${String(error)}`);
+    }
   },
 
   selectRow: (index, { extend, toggle }) => {
@@ -523,6 +577,75 @@ export const useApp = create<AppState>((set, get) => ({
       queue.map((t) => t.id),
       queue.indexOf(tracks[index]),
     );
+  },
+
+  revealCurrentSong: async (canReveal = () => true) => {
+    const initial = get(), trackId = initial.playback.trackId, playingSource = initial.playingSource;
+    if (!canReveal() || trackId === null || initial.playback.live || initial.playback.state === "stopped") return;
+    let expectedSource = initial.source, expectedQuery = initial.query, expectedView = initial.viewMode;
+    const current = () => canReveal() && get().source === expectedSource && get().query === expectedQuery && get().viewMode === expectedView
+      && get().playback.trackId === trackId && !get().playback.live && get().playback.state !== "stopped" && sameSource(get().playingSource, playingSource);
+    const unavailable = () => get().showNotice("The current song is no longer available in its source.");
+    // CD, device and shared IDs must never be looked up in the local library.
+    if ((playingSource.type === "device" && !initial.devices.some(d => d.id === playingSource.deviceId))
+      || (playingSource.type === "cd" && !initial.cds.some(d => d.id === playingSource.discId))
+      || (playingSource.type === "shared" && !initial.shared.some(l => l.id === playingSource.library && l.hasLogin))) return unavailable();
+    const select = () => {
+      const state = get();
+      const index = state.selectionAnchor !== null && state.tracks[state.selectionAnchor]?.id === trackId
+        ? state.selectionAnchor : state.tracks.findIndex(t => t.id === trackId);
+      if (index < 0) return unavailable();
+      set({ viewMode: "list", visualizer: { ...state.visualizer, open: false }, selection: new Set([trackId]), selectionAnchor: index,
+        songReveal: { source: state.source, query: state.query, trackId } });
+      useLibraryViews.getState().setBrowsing({ viewMode: "list" });
+    };
+    const isListSource = (source: SourceId) => source === "music" || source === "audiobooks" || isPlaylistSource(source)
+      || parseDeviceSource(source)?.view != null || cdIdOf(source) !== null || sharedIdOf(source) !== null;
+    const compatible = isListSource(initial.source) && sameSource(playSourceOf(initial.source), playingSource);
+    if (compatible && initial.loadedQuery === initial.query && initial.tracks.some(t => t.id === trackId)) { select(); return; }
+    // Membership probes are bounded to this ID where the source supports it; refresh loads the final full list once.
+    const find = async (source: SourceId, query: TrackQuery) => {
+      const probe = { ...query, ids: [trackId] }, device = parseDeviceSource(source);
+      const rows = device?.view ? await api.deviceTracks(device.deviceId, device.view, probe)
+        : playingSource.type === "cd" ? await api.cdTracks(playingSource.discId)
+        : playingSource.type === "shared" ? await api.remoteTracks(playingSource.library, probe)
+        : await api.libraryTracks(probe);
+      return rows.find(t => t.id === trackId);
+    };
+    try {
+      let source = initial.source;
+      let query: TrackQuery = { ...withoutBrowse(initial.query), search: null, ids: null, ...(initial.browseRootSort ?? {}) };
+      let found = compatible ? await find(source, query) : undefined;
+      if (!current()) return;
+      if (!found) {
+        let track = initial.playingTracks.find(t => t.id === trackId) ?? (initial.nowPlaying?.id === trackId ? initial.nowPlaying : null);
+        if (!track && playingSource.type === "library") track = await api.libraryTrack(trackId);
+        if (!current()) return;
+        if (playingSource.type === "library") {
+          if (!track) return unavailable();
+          if (track.kind !== "music" && track.kind !== "audiobook") {
+            get().showNotice("This item is not in a song list. Open Podcasts or Radio to find it."); return;
+          }
+          source = track.kind === "audiobook" ? "audiobooks" : "music";
+        } else if (playingSource.type === "device") source = deviceSource(playingSource.deviceId, { kind: track?.kind ?? "music" });
+        else if (playingSource.type === "cd") source = cdSource(playingSource.discId);
+        else source = sharedSource(playingSource.library);
+        const layout = layoutFor(useLibraryViews.getState().prefs, source);
+        query = { ...withoutBrowse(initial.query), kind: isLibrarySource(source) ? SOURCE_KIND[source] : null, playlist: null,
+          search: null, ids: null, sort: layout.sort, descending: layout.descending };
+        found = await find(source, query);
+        if (!current()) return;
+        if (!found) return unavailable();
+      }
+      expectedSource = source; expectedQuery = query; expectedView = "list";
+      set({ source, query, viewMode: "list", songReveal: null, selection: new Set(), selectionAnchor: null,
+        browsePath: [], browseRootSort: null, browserFilters: { ...EMPTY_BROWSER }, browserFacets: { genres: [], artists: [], albums: [] }, duplicates: null,
+        expandedDevices: playingSource.type === "device" ? new Set([...get().expandedDevices, playingSource.deviceId]) : get().expandedDevices });
+      await get().refresh();
+      if (current() && get().loadedQuery === query) select();
+    } catch (error) {
+      if (current()) get().showNotice(`Couldn't show the current song: ${String(error)}`);
+    }
   },
 
   // iTunes' play button with nothing loaded plays the selection, else the top of the list.
@@ -587,7 +710,7 @@ export const useApp = create<AppState>((set, get) => ({
     const playlistId = playlistIdOf(source);
     if (!fromLibrary && playlistId !== null && playlists.some((p) => p.id === playlistId && p.kind === "regular")) {
       // A playlist may repeat a song, so its rows go by position in its stored order, which the list may be sorted or filtered away from.
-      const stored = await api.libraryTracks({ ...query, sort: "playlistOrder", descending: false, search: null });
+      const stored = await api.libraryTracks(playlistPositionQuery(query));
       await api.libraryRemoveFromPlaylist(
         playlistId,
         stored.flatMap((t, i) => (selection.has(t.id) ? [i] : [])),
@@ -644,8 +767,73 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setGridGroup: (gridGroup) => {
-    set({ gridGroup });
+    set((s) => ({ gridGroup, browsePath: [], browseRootSort: null, query: { ...browseQuery(s.query, s.browserFilters, []), ...(s.browseRootSort ?? {}) }, selection: new Set(), selectionAnchor: null }));
+    useLibraryViews.getState().setBrowsing({ gridGroup });
     void get().refresh();
+  },
+
+  showMusicView: (view) => {
+    if (get().source !== "music") get().setSource("music");
+    const viewMode = view === "songs" ? "list" : "grid";
+    const gridGroup = view === "artists" ? "artists" : "albums";
+    const layout = layoutFor(useLibraryViews.getState().prefs, "music");
+    set((s) => ({ viewMode, gridGroup, browsePath: [], browseRootSort: null, query: { ...browseQuery(s.query, s.browserFilters, []), sort: layout.sort, descending: layout.descending }, selection: new Set(), selectionAnchor: null }));
+    useLibraryViews.getState().setBrowsing({ viewMode, gridGroup });
+    void get().refresh();
+  },
+
+  openArtist: (key, label) => {
+    const browsePath: BrowseStep[] = [{ kind: "artist", key, label }];
+    set((s) => ({ browsePath, browseRootSort: s.browseRootSort ?? { sort: s.query.sort, descending: s.query.descending }, viewMode: "grid", gridGroup: "albums", query: browseQuery(s.query, s.browserFilters, browsePath), selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+
+  openGroup: (kind, key, label) => {
+    const browsePath: BrowseStep[] = [{ kind, key, label }];
+    set((s) => ({ browsePath, browseRootSort: s.browseRootSort ?? { sort: s.query.sort, descending: s.query.descending }, viewMode: "grid", gridGroup: "albums", query: browseQuery(s.query, s.browserFilters, browsePath), selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+
+  openAlbum: (key, label) => {
+    const browsePath: BrowseStep[] = [...get().browsePath.filter((p) => p.kind !== "album"), { kind: "album", key, label }];
+    set((s) => ({ browsePath, browseRootSort: s.browseRootSort ?? { sort: s.query.sort, descending: s.query.descending }, viewMode: "list", query: { ...browseQuery(s.query, s.browserFilters, browsePath), sort: "album", descending: false }, selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+
+  browseBack: () => get().browseTo(get().browsePath.length - 2),
+  browseTo: (index) => {
+    const previous = get().browsePath;
+    const browsePath = previous.slice(0, Math.max(0, index + 1));
+    const root = previous[0]?.kind;
+    const gridGroup = browsePath.length ? "albums" : root === "artist" ? "artists" : root === "genre" ? "genres" : root === "composer" ? "composers" : "albums";
+    set((s) => ({ browsePath, browseRootSort: browsePath.length ? s.browseRootSort : null, viewMode: "grid", gridGroup,
+      query: { ...browseQuery(s.query, s.browserFilters, browsePath), ...(s.browseRootSort ?? { sort: "artist", descending: false }) }, selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+
+  setBrowseScroll: (key, offset) => set((s) => ({ browseScroll: { ...Object.fromEntries(Object.entries(s.browseScroll).slice(-99)), [key]: offset } })),
+  setBrowserFilter: (field, value) => {
+    const browserFilters = narrowBrowser(get().browserFilters, field, value);
+    set((s) => ({ browserFilters, browsePath: [], browseRootSort: null, viewMode: "list", query: browseQuery(s.query, browserFilters, []), selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+  clearBrowser: () => {
+    set((s) => ({ browserFilters: { ...EMPTY_BROWSER }, browsePath: [], browseRootSort: null, query: { ...withoutBrowse(s.query), ...(s.browseRootSort ?? {}) }, selection: new Set(), selectionAnchor: null }));
+    void get().refresh();
+  },
+  toggleColumnBrowser: () => {
+    if (!isLibrarySource(get().source) && !isPlaylistSource(get().source)) return;
+    const browserVisible = !useLibraryViews.getState().prefs.browsing.browserVisible;
+    useLibraryViews.getState().setBrowsing({ browserVisible, ...(browserVisible ? { viewMode: "list" as const } : {}) });
+    if (!browserVisible) get().clearBrowser();
+    else { set({ viewMode: "list" }); void get().refresh(); }
+  },
+  playBrowse: async (shuffled = false) => {
+    const tracks = get().tracks.filter((t) => t.enabled && t.kind !== "radio");
+    if (!tracks.length) return;
+    if (get().shuffle !== shuffled) get().toggleShuffle();
+    set({ playingTracks: tracks, playingSource: { type: "library" }, podcastWish: null });
+    await api.playerPlayList({ type: "library" }, tracks.map((t) => t.id), shuffled ? Math.floor(Math.random() * tracks.length) : 0);
   },
 
   // Mixes arrive as ids; playing them works like any library list.
@@ -661,7 +849,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   playAlbum: async (key) => {
-    const tracks = await api.libraryAlbumTracks(key);
+    const tracks = (await api.libraryAlbumTracks(key, get().query)).filter((t) => t.enabled && t.kind !== "radio");
     if (tracks.length === 0) return;
     set({ playingTracks: tracks, playingSource: { type: "library" }, podcastWish: null });
     await api.playerPlayList({ type: "library" }, tracks.map((t) => t.id), 0);
@@ -800,3 +988,18 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 }));
+
+// Presets, Restore Defaults and explicit layout copies can change the current sort.
+// Width/visibility-only updates never refetch a large library.
+useLibraryViews.subscribe((next, previous) => {
+  const { source, playlists, query } = useApp.getState();
+  if (!isLayoutSource(source)) return;
+  const regular = playlists.some((p) => p.id === playlistIdOf(source) && p.kind === "regular");
+  const before = layoutFor(previous.prefs, source, regular);
+  const after = layoutFor(next.prefs, source, regular);
+  if ((before.sort !== after.sort || before.descending !== after.descending)
+      && (query.sort !== after.sort || query.descending !== after.descending)) {
+    useApp.setState({ query: { ...query, ...sortForView(after.sort, after.descending, useApp.getState().viewMode) }, selectionAnchor: null });
+    void useApp.getState().refresh();
+  }
+});

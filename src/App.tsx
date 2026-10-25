@@ -33,6 +33,8 @@ import {
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
+import { ViewOptions } from "./browser/ViewOptions";
+import { useLibraryViews } from "./preferences/libraryViewStore";
 import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
@@ -82,6 +84,14 @@ function runMenuAction(action: MenuAction) {
   const visualizerStyle = VISUALIZER_STYLES.find((style) => action === `visualizer-${style}`);
   if (visualizerStyle) return setVisualizer({ style: visualizerStyle, open: true });
   switch (action) {
+    case "go-to-current-song":
+      // Keep edits and modal focus intact; the native accelerator also works from Search.
+      void useApp.getState().revealCurrentSong(() => !document.querySelector('.sheet-backdrop, [aria-modal="true"]'));
+      return;
+    case "show-view-options":
+      return useLibraryViews.getState().setOptionsOpen(true);
+    case "toggle-column-browser":
+      return useApp.getState().toggleColumnBrowser();
     case "get-info":
       if (inLibrary && selection.size > 0) openLibrarySheet({ type: "info", trackIds: [...selection] });
       return;
@@ -274,7 +284,7 @@ function useNoDefaultContextMenu() {
 function useGlobalKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLInputElement;
+      const typing = e.target instanceof Element && e.target.closest("input, textarea, select, button, [role=listbox], [role=separator], [role=dialog], [contenteditable=true]");
       if (e.key === " " && !typing) {
         e.preventDefault();
         void useApp.getState().togglePlay();
@@ -321,6 +331,7 @@ export default function App() {
       {/* Keyed so each opening starts from that playlist's saved rules. */}
       {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
       {preferencesOpen && <Preferences />}
+      <ViewOptions />
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
       {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}

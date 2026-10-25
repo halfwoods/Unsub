@@ -120,6 +120,21 @@ What comes over: songs, podcasts and audiobooks that have files (added where the
 Limits: smart playlists arrive as the songs they hold today, since Music's rules don't carry over. Apple Music streaming-only songs, videos and other media don't come. To list them, open **Purchases › To Own** and click **Compare with Music Library** (Mac) or **Choose Library XML…**. Songs that exist only in iCloud arrive as placeholders and download when you play them. A dialog titled **Import Complete** lists what was added and what wasn't.
 </details>
 
+<details>
+<summary><b>Choose columns and browse your library</b></summary>
+
+**Music › Songs, Albums and Artists** opens the song list or the existing artwork grid. The toolbar still offers List, Album List, Grid and Album Artwork. Open an artist to browse their albums from oldest to newest, then open an album to see its songs. Breadcrumbs and Back return to the previous view. Artist covers come from your local albums; artists without artwork show initials. Search and playlist scope stay in effect, including when you use Play or Shuffle.
+
+Choose **View › Go to Current Song** (`⌘L` on Mac, `Ctrl+L` on Windows/Linux) to select and scroll to the playing or paused song. It keeps the current playlist when possible, clears filters that hide the song, and otherwise opens its library or device list. Playback continues unchanged.
+
+Right-click a song heading to show or hide metadata, or choose **View › Show View Options…** (`⌘J` on Mac, `Ctrl+J` on Windows). Search the checklist for Year, Album Artist, Composer, track/disc numbers, dates, playback counts and audio properties. Drag headings to reorder, drag a divider to resize, or double-click a divider to fit its contents. View Options also provides keyboard-accessible layout controls.
+
+Layouts and sorting are saved on this computer. Playlists inherit the library layout until customized; **Restore Defaults** removes a playlist override. Choose Listening, Library Cleanup or Audio Quality, save a named layout, or explicitly apply the current layout to selected other playlists. A regular playlist's **#** heading restores its stored order for drag reordering.
+
+**Show Column Browser** adds the classic Genre | Artist | Album filters above the song list. Each choice narrows the next list and combines with search and the current playlist. Use **All**, **Clear Filters**, or hide the browser to reset. These filters are separate from choosing which metadata columns are visible. CDs, devices and shared libraries keep their source-specific controls.
+
+</details>
+
 <a id="leaving-spotify"></a>
 
 <details open>
@@ -425,6 +440,7 @@ pnpm tauri dev                                 # run the app
 cargo test --workspace                         # Rust tests
 pnpm exec tsc --noEmit                         # typecheck the UI
 node --test src/import/test/*.test.mjs         # folder selection and file drops
+node --test src/browser/test/*.test.mjs        # layouts, metadata, exact scope and navigation
 node --test src/visualizer/test/*.test.mjs     # visualizer tests
 ```
 

@@ -10,6 +10,7 @@ import { useApp } from "../state/store";
 import { IS_MAC, IS_WINDOWS } from "../util/platform";
 
 export type MenuItems = NonNullable<MenuOptions["items"]>;
+type MenuPosition = Parameters<Menu["popup"]>[0];
 
 export const SEPARATOR = { item: "Separator" } as const;
 /** menu.rs words the bar's item the same way for each platform. */
@@ -31,15 +32,15 @@ function playlistItems(byParent: Map<number | null, Playlist[]>, parent: number 
   });
 }
 
-export async function popUp(menu: Menu) {
+export async function popUp(menu: Menu, at?: MenuPosition) {
   void lastMenu?.close();
   lastMenu = menu;
-  await menu.popup();
+  await menu.popup(at);
 }
 
-/** Pops up a menu of `items` at the cursor. */
-export async function showMenu(items: MenuItems) {
-  await popUp(await Menu.new({ items }));
+/** Pops up a menu of `items` at a window position, or at the cursor if omitted. */
+export async function showMenu(items: MenuItems, at?: MenuPosition) {
+  await popUp(await Menu.new({ items }), at);
 }
 
 /** Shows a song's file in the system's file manager, or says why it can't. */

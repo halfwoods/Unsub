@@ -1,5 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useLibraryViews } from "../preferences/libraryViewStore";
+import { isLayoutSource, layoutFor, type ColumnId } from "../preferences/libraryViews";
 import { libraryAddToPlaylist, libraryMoveInPlaylist } from "../api/commands";
 import { DEVICE_TRACKS_MIME, TRACKS_MIME, type DeviceDrag } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
@@ -13,20 +15,15 @@ import {
   useApp,
 } from "../state/store";
 import { isContextClick } from "../util/platform";
-import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN, SHARED_COLUMNS } from "./columns";
+import { CD_COLUMNS, COLUMNS, gridTemplate, layoutColumns, POSITION_COLUMN, SHARED_COLUMNS, STATUS_COLUMN_WIDTH } from "./columns";
+import { ColumnHeadings } from "./ColumnHeadings";
+import { formatColumnText } from "./columnFormat";
+import { hasBrowseFilters } from "./browseScope";
 import { showCdSongMenu, showDeviceSongMenu, showMenu, showSongMenu } from "./songMenu";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
 const ROWS_MIME = "application/x-unsub-rows";
-
-function SortArrow({ descending }: { descending: boolean }) {
-  return (
-    <svg className="sort-arrow" width={7} height={5} viewBox="0 0 7 5" aria-hidden="true">
-      <path d={descending ? "M0 0h7L3.5 5z" : "M0 5h7L3.5 0z"} />
-    </svg>
-  );
-}
 
 export function NowPlayingIcon({ playing }: { playing: boolean }) {
   return (
@@ -38,10 +35,14 @@ export function NowPlayingIcon({ playing }: { playing: boolean }) {
 }
 
 export function SongList() {
+  const source = useApp((s) => s.source);
+  const prefs = useLibraryViews((s) => s.prefs);
+  const [draftWidths, setDraftWidths] = useState<Partial<Record<ColumnId, number>>>({});
   const tracks = useApp((s) => s.tracks);
   const query = useApp((s) => s.query);
   const selection = useApp((s) => s.selection);
   const anchor = useApp((s) => s.selectionAnchor);
+  const songReveal = useApp((s) => s.songReveal);
   // Library and iPod track ids can collide, so the speaker only shows in the list playback came from.
   const nowPlayingId = useApp((s) =>
     sameSource(s.playingSource, playSourceOf(s.source)) ? s.playback.trackId : null,
@@ -49,6 +50,9 @@ export function SongList() {
   const playing = useApp((s) => s.playback.state === "playing");
   const playlistId = useApp((s) => playlistIdOf(s.source));
   const isRegularPlaylist = useApp((s) => s.playlists.some((p) => p.id === playlistIdOf(s.source) && p.kind === "regular"));
+  const layout = useMemo(() => layoutFor(prefs, source, isRegularPlaylist), [prefs, source, isRegularPlaylist]);
+  const editable = isLayoutSource(source);
+  useEffect(() => setDraftWidths({}), [source]);
   const { sortBy, selectRow, playRow, deleteSelection, refresh, refreshPlaylists } = useApp.getState();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const rowHeight = useApp((s) => s.rowHeight);
@@ -58,24 +62,60 @@ export function SongList() {
   const isShared = useApp((s) => sharedIdOf(s.source) !== null);
   // An iPod's songs can't be edited, but they can be copied into the library.
   const deviceId = useApp((s) => parseDeviceSource(s.source)?.deviceId ?? null);
-  const columns = useMemo(
-    () => (isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS),
-    [isCd, isShared, isRegularPlaylist],
-  );
+  const columns = useMemo(() => {
+    // Device IDs can collide with library IDs: ratings and checkboxes must never edit local songs.
+    const deviceColumns = COLUMNS.filter((c) => c.id !== "enabled").map((c) => c.id === "rating" ? { ...c, render: (t: typeof tracks[number]) => formatColumnText("rating", t) } : c);
+    const base = isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : deviceId !== null ? deviceColumns : layoutColumns(layout);
+    return (isRegularPlaylist ? [POSITION_COLUMN, ...base] : base).map(c => ({ ...c, flex: false, width: draftWidths[c.id as ColumnId] ?? c.width }));
+  }, [isCd, isShared, deviceId, layout, isRegularPlaylist, draftWidths]);
+  const tableWidth = STATUS_COLUMN_WIDTH + columns.reduce((sum, c) => sum + c.width, 0);
   // Reordering only makes sense while the playlist is shown in its own order.
-  const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
+  const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null && !hasBrowseFilters(query) && query.ids == null;
+  useEffect(() => setDropIndex(null), [source, query]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(20);
+  useLayoutEffect(() => {
+    const element = headerRef.current; if (!element) return;
+    const measure = () => setHeaderHeight(element.offsetHeight);
+    measure(); const observer = new ResizeObserver(measure); observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const virtualizer = useVirtualizer({
     count: tracks.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 24,
+    scrollMargin: headerHeight,
+    scrollPaddingStart: headerHeight,
   });
 
-  useEffect(() => {
-    if (anchor !== null) virtualizer.scrollToIndex(anchor, { align: "auto" });
-  }, [anchor, virtualizer]);
+  const lastScrolledAnchor = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const anchorChanged = lastScrolledAnchor.current !== anchor;
+    lastScrolledAnchor.current = anchor;
+    const element = scrollRef.current;
+    if (!element || !songReveal || songReveal.source !== source || songReveal.query !== query || songReveal.trackId !== nowPlayingId
+      || anchor === null || tracks[anchor]?.id !== songReveal.trackId) {
+      if (anchorChanged && anchor !== null) virtualizer.scrollToIndex(anchor, { align: "auto" });
+      return;
+    }
+    // A sheet may have opened between the command and this layout effect.
+    if (document.querySelector('.sheet-backdrop, [aria-modal="true"]')) {
+      if (useApp.getState().songReveal === songReveal) useApp.setState({ songReveal: null });
+      return;
+    }
+    virtualizer.scrollToIndex(anchor, { align: "center" });
+    const name = columns.findIndex(column => column.id === "name");
+    if (name >= 0) {
+      const left = STATUS_COLUMN_WIDTH + columns.slice(0, name).reduce((sum, column) => sum + column.width, 0), right = left + columns[name].width;
+      if (left < element.scrollLeft || columns[name].width >= element.clientWidth) element.scrollLeft = left;
+      else if (right > element.scrollLeft + element.clientWidth) element.scrollLeft = right - element.clientWidth;
+    }
+    element.focus({ preventScroll: true });
+    if (useApp.getState().songReveal === songReveal) useApp.setState({ songReveal: null });
+  }, [songReveal, source, query, nowPlayingId, anchor, tracks, columns, virtualizer]);
 
   useEffect(() => virtualizer.measure(), [rowHeight, virtualizer]);
 
@@ -86,6 +126,7 @@ export function SongList() {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof Element && e.target.closest(".song-list-header")) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const from = anchor ?? -1;
@@ -138,7 +179,7 @@ export function SongList() {
     e.preventDefault();
     const to = dropIndex;
     setDropIndex(null);
-    if (playlistId === null || to === null) return;
+    if (!reorderable || playlistId === null || to === null) return;
     const rows = e.dataTransfer.getData(ROWS_MIME);
     const ids = e.dataTransfer.getData(TRACKS_MIME);
     if (rows) void libraryMoveInPlaylist(playlistId, JSON.parse(rows) as number[], to).then(afterPlaylistEdit);
@@ -146,26 +187,7 @@ export function SongList() {
   };
 
   return (
-    <div className="song-list" style={{ "--grid": gridTemplate(columns) } as CSSProperties}>
-      <div className="song-list-header" role="row">
-        <div className="song-list-header-cell" />
-        {columns.map((c) => {
-          const sorted = c.sort === query.sort;
-          return (
-            <button
-              key={c.id}
-              role="columnheader"
-              aria-sort={sorted ? (query.descending ? "descending" : "ascending") : "none"}
-              className={sorted ? "song-list-header-cell song-list-header-cell--sorted" : "song-list-header-cell"}
-              style={{ justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}
-              onClick={() => c.sort && sortBy(c.sort)}
-            >
-              <span className="song-list-header-title">{c.title}</span>
-              {sorted && <SortArrow descending={query.descending} />}
-            </button>
-          );
-        })}
-      </div>
+    <div className="song-list song-list--custom" style={{ "--grid": gridTemplate(columns), "--song-table-width": `${tableWidth}px` } as CSSProperties}>
       <div
         ref={scrollRef}
         className="song-list-body"
@@ -174,10 +196,17 @@ export function SongList() {
         onDragLeave={(e) => e.currentTarget === e.target && setDropIndex(null)}
         onDrop={onDrop}
         role="grid"
-        aria-rowcount={tracks.length}
+        aria-label="Songs"
+        aria-colcount={columns.length + 1}
+        aria-rowcount={tracks.length + 1}
       >
-        <div className="song-list-stripes" />
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        <div ref={headerRef} className="song-list-header" role="row" aria-rowindex={1}>
+          <ColumnHeadings columns={columns} layout={layout} source={source} regular={isRegularPlaylist} editable={editable}
+            sort={query.sort} descending={query.descending} tracks={tracks} sortBy={sortBy}
+            preview={(id, width) => setDraftWidths(current => { const next = { ...current }; if (width === null) delete next[id]; else next[id] = width; return next; })} />
+        </div>
+        <div className="song-list-stripes" style={{ top: headerHeight }} />
+        <div className="song-list-rows" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((row) => {
             const track = tracks[row.index];
             const selected = selection.has(track.id);
@@ -187,9 +216,10 @@ export function SongList() {
                 // Playlists may repeat a song, so rows are keyed by position as well as id.
                 key={`${row.index}-${track.id}`}
                 role="row"
+                aria-rowindex={row.index + 2}
                 aria-selected={selected}
                 className={classes.join(" ")}
-                style={{ transform: `translateY(${row.start}px)` }}
+                style={{ transform: `translateY(${row.start - headerHeight}px)` }}
                 draggable
                 onDragStart={(e) => onDragStart(e, row.index)}
                 onDragOver={(e) => onDragOver(e, row.index)}
@@ -198,7 +228,7 @@ export function SongList() {
                 onContextMenu={(e) => onContextMenu(e, row.index)}
                 onDoubleClick={() => void playRow(row.index)}
               >
-                <div className="song-cell song-cell--status">
+                <div role="gridcell" className="song-cell song-cell--status">
                   {track.id === nowPlayingId ? (
                     <NowPlayingIcon playing={playing} />
                   ) : isCd ? (
@@ -219,7 +249,7 @@ export function SongList() {
                   )}
                 </div>
                 {columns.map((c) => (
-                  <div key={c.id} className="song-cell" style={{ textAlign: c.align ?? "left" }}>
+                  <div key={c.id} role="gridcell" title={formatColumnText(c.id, track) || undefined} className="song-cell" style={{ textAlign: c.align ?? "left" }}>
                     {c.render(track, selected, row.index)}
                   </div>
                 ))}
@@ -228,6 +258,7 @@ export function SongList() {
           })}
           {dropIndex !== null && <div className="song-drop-line" style={{ top: dropIndex * rowHeight - 1 }} />}
         </div>
+        {tracks.length === 0 && <div className="song-list-empty">No songs match this view.</div>}
       </div>
     </div>
   );

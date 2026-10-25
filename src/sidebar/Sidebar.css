@@ -64,6 +64,11 @@
   padding-left: 37px;
 }
 
+.sidebar-music-view { padding-left: 0; }
+.sidebar-view-button { display: flex; align-items: center; width: 100%; height: 100%; padding-left: 37px; color: inherit; font: inherit; text-shadow: inherit; text-align: left; }
+.sidebar-view-mark { width: 16px; text-align: center; font-size: 15px; line-height: 1; opacity: 0.8; }
+.sidebar-view-button:focus-visible { outline: 2px solid #5d94d6; outline-offset: -2px; }
+
 /* Disclosure triangle sits in the gutter left of the icon, like Snow Leopard source lists. */
 .sidebar-disclosure {
   position: absolute;

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useState, type MouseEvent, type ReactNode } from "react";
 import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject, remoteForget } from "../api/commands";
 import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
@@ -90,7 +90,7 @@ function Row({
   onDropTracks?: (trackIds: number[]) => void;
   onDropDeviceTracks?: (drag: DeviceDrag) => void;
 }) {
-  const selected = useApp((s) => s.source === id);
+  const selected = useApp((s) => s.source === id && id !== "music");
   const setSource = useApp((s) => s.setSource);
   const [dropTarget, setDropTarget] = useState(false);
   const rowMenu = useRowMenu(menu);
@@ -128,6 +128,23 @@ function Row({
       {after}
     </li>
   );
+}
+
+function MusicViews() {
+  const source = useApp((s) => s.source);
+  const mode = useApp((s) => s.viewMode);
+  const group = useApp((s) => s.gridGroup);
+  const artistPath = useApp((s) => s.browsePath[0]?.kind === "artist");
+  const showMusicView = useApp((s) => s.showMusicView);
+  const active = artistPath || (mode === "grid" && group === "artists") ? "artists" : mode === "grid" ? "albums" : "songs";
+  return ([{ id: "songs", label: "Songs" }, { id: "albums", label: "Albums" }, { id: "artists", label: "Artists" }] as const).map((view) => (
+    <li key={view.id} className="sidebar-item sidebar-item--child sidebar-music-view" role="option" aria-selected={source === "music" && active === view.id}>
+      <button className="sidebar-view-button" onClick={() => showMusicView(view.id)} aria-label={`Music: ${view.label}`}>
+        <span className="sidebar-view-mark" aria-hidden="true">{view.id === "songs" ? "≡" : view.id === "albums" ? "▦" : "♬"}</span>
+        <span className="sidebar-label">{view.label}</span>
+      </button>
+    </li>
+  ));
 }
 
 function Section({ heading, children, footer }: { heading: string; children: ReactNode; footer?: ReactNode }) {
@@ -249,13 +266,15 @@ export function Sidebar() {
             )}
           >
             {section.items.map((item) => (
+              <Fragment key={item.id}>
               <Row
-                key={item.id}
                 {...item}
                 // Songs dropped on Music from an iPod are copied into the library.
                 onDropDeviceTracks={item.id === "music" ? ({ deviceId, ids }) => copySongsToLibrary(deviceId, ids) : undefined}
                 menu={item.id === "podcasts" ? showPodcastsMenu : undefined}
               />
+              {item.id === "music" && <MusicViews />}
+              </Fragment>
             ))}
           </Section>
         ))}

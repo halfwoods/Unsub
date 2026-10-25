@@ -22,6 +22,9 @@ const NOT_APPLE: &str = "Not affiliated with or endorsed by Apple. iTunes, iPod 
 const PREFERENCES: (&str, &str, Option<&str>) = ("preferences", "Preferences…", Some("CmdOrCtrl+,"));
 const EQUALIZER: (&str, &str, Option<&str>) = ("equalizer", "Equalizer", Some("Alt+CmdOrCtrl+E"));
 const SHOW_VISUALIZER: (&str, &str, Option<&str>) = ("show-visualizer", "Show Visualizer", Some("CmdOrCtrl+T"));
+const VIEW_OPTIONS: (&str, &str, Option<&str>) = ("show-view-options", "Show View Options…", Some("CmdOrCtrl+J"));
+const COLUMN_BROWSER: (&str, &str, Option<&str>) = ("toggle-column-browser", "Show/Hide Column Browser", Some("CmdOrCtrl+B"));
+const CURRENT_SONG: (&str, &str, Option<&str>) = ("go-to-current-song", "Go to Current Song", Some("CmdOrCtrl+L"));
 /// The system's own Close Window asks the window's close button to act, and a borderless window has none.
 #[cfg(target_os = "macos")]
 const CLOSE_WINDOW: (&str, &str, Option<&str>) = ("close-window", "Close Window", Some("CmdOrCtrl+W"));
@@ -168,6 +171,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         "View",
         true,
         &[
+            &MenuItem::with_id(app, CURRENT_SONG.0, CURRENT_SONG.1, true, CURRENT_SONG.2)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, VIEW_OPTIONS.0, VIEW_OPTIONS.1, true, VIEW_OPTIONS.2)?,
+            &MenuItem::with_id(app, COLUMN_BROWSER.0, COLUMN_BROWSER.1, true, COLUMN_BROWSER.2)?,
+            &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, SHOW_VISUALIZER.0, SHOW_VISUALIZER.1, true, SHOW_VISUALIZER.2)?,
             &visualizer_styles,
             &PredefinedMenuItem::separator(app)?,
@@ -268,6 +276,9 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         || id == IMPORT_ELSEWHERE
         || id == DELETE
         || id == SHOW_VISUALIZER.0
+        || id == VIEW_OPTIONS.0
+        || id == COLUMN_BROWSER.0
+        || id == CURRENT_SONG.0
         || id == CLEAN_UP.0
         || id == SONG_DETAILS.0
         || id == WELCOME.0

@@ -119,6 +119,7 @@ pub fn run() {
             library::library_set_rating,
             library::library_albums,
             library::library_artists,
+            library::library_artist_albums,
             library::library_album_tracks,
             library::library_genres,
             library::library_composers,

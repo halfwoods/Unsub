@@ -1271,9 +1271,25 @@ mod tests {
             1 << 30
         });
 
-        let summary = cloudy.read(&host);
+        // This tests eviction/space pacing, not download stalls. The shared 5 ms test
+        // deadline can expire during the initial file stat on a busy Windows runner,
+        // before the fake drive gets to complete its synchronous download.
+        let pacing = Pacing {
+            stall: Duration::MAX,
+            ..pacing()
+        };
+        let summary = cloudy
+            .library
+            .read_details_with(
+                Path::new(ANYWHERE),
+                Some(&cloudy.root),
+                &host,
+                &*cloudy.drive,
+                &pacing,
+            )
+            .unwrap();
 
-        assert_eq!(summary.read, 3);
+        assert_eq!(summary, super::tests::summary(3, 0, 0));
         assert!(host.looks.get() > 3, "it did have to wait");
         assert!(host.blocked.borrow().is_empty());
         // The system never took the last one back while the read waited, so the library still

@@ -96,6 +96,7 @@ fn imported_rows_sort_and_search_like_scanned_rows() {
                         descending,
                         ids: None,
                         playlist: None,
+                        ..TrackQuery::default()
                     };
                     assert_eq!(
                         titles(&device, &query),
