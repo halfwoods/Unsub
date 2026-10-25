@@ -47,7 +47,13 @@ mkdir -p "$WORK/origin" "$WORK/stage"
 # --- Mach-O helpers -------------------------------------------------------------------------
 
 is_system() {
-  case "$1" in /System/*|/usr/lib/*) return 0 ;; *) return 1 ;; esac
+  # Apple's SDK selects this legacy iTunesLibrary install name for macOS <= 10.13.
+  # Newer systems resolve it through Apple's framework redirect/dyld cache. Do not
+  # copy Apple's framework or exempt unrelated third-party /Library frameworks.
+  case "$1" in
+    /System/*|/usr/lib/*|/Library/Frameworks/iTunesLibrary.framework/iTunesLibrary) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # References of a Mach-O file, without the dylib's own install name.
