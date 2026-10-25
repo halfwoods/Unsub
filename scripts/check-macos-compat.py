@@ -21,6 +21,21 @@ NEW_IMPORTS = {
     "_SecTrustEvaluateWithError": (10, 14, 0),
     "_SecTrustSetSignedCertificateTimestamps": (10, 14, 2),
 }
+# These required commands are absent from High Sierra/Mojave dyld; unknown LC_REQ_DYLD
+# commands are fatal. Catalina-era dyld recognizes them, but individual chained pointer
+# formats can still need later systems. This is a known legacy rejection, not a promise
+# that every chained-fixup format works on 10.15.
+# https://github.com/apple-oss-distributions/dyld/blob/dyld-551.4/src/ImageLoaderMachO.cpp
+# https://github.com/apple-oss-distributions/dyld/blob/dyld-655.1.1/src/ImageLoaderMachO.cpp
+# https://github.com/apple-oss-distributions/dyld/blob/dyld-733.8/src/ImageLoaderMachO.cpp
+LEGACY_UNSUPPORTED_COMMANDS = {
+    0x80000033: "LC_DYLD_EXPORTS_TRIE",
+    0x80000034: "LC_DYLD_CHAINED_FIXUPS",
+}
+KNOWN_REQUIRED_COMMANDS = {
+    0x80000018, 0x8000001C, 0x8000001F, 0x80000022, 0x80000023, 0x80000028,
+    *LEGACY_UNSUPPORTED_COMMANDS,
+}
 THIN = {
     b"\xcf\xfa\xed\xfe": ("<", True), b"\xfe\xed\xfa\xcf": (">", True),
     b"\xce\xfa\xed\xfe": ("<", False), b"\xfe\xed\xfa\xce": (">", False),
@@ -55,6 +70,7 @@ class Slice:
     architecture: str
     minimum: tuple
     strong_imports: frozenset
+    required_load_commands: frozenset = frozenset()
 
 
 def bind_imports(data, begin, end, lazy=False):
@@ -220,11 +236,16 @@ def parse_macho(data):
             raise AuditError("invalid Mach-O load-command bounds")
         minimums, symbols, bindings, chained = [], None, [], None
         has_dyld_info = False
+        required_load_commands = set()
         offset = start + header_size
         for _ in range(commands):
             cmd, length = unpack(endian + "2I", offset, command_end)
             if length < 8 or offset + length > command_end:
                 raise AuditError("invalid Mach-O load-command size")
+            if cmd & 0x80000000:
+                if cmd not in KNOWN_REQUIRED_COMMANDS:
+                    raise AuditError("unsupported required dyld load command: " + hex(cmd))
+                required_load_commands.add(cmd)
             if cmd == 0x24:  # LC_VERSION_MIN_MACOSX
                 minimums.append(packed_version(unpack(endian + "4I", offset, offset + length)[2]))
             elif cmd == 0x32:  # LC_BUILD_VERSION
@@ -243,6 +264,10 @@ def parse_macho(data):
                 if chained is not None:
                     raise AuditError("duplicate chained fixups command")
                 chained = unpack(endian + "4I", offset, offset + length)[2:]
+            elif cmd == 0x80000033:  # LC_DYLD_EXPORTS_TRIE
+                relative, export_size = unpack(endian + "4I", offset, offset + length)[2:]
+                if relative + export_size > size:
+                    raise AuditError("invalid export-trie bounds")
             offset += length
         if not minimums or any(v == (0, 0, 0) for v in minimums):
             raise AuditError("missing macOS deployment target")
@@ -281,7 +306,8 @@ def parse_macho(data):
             if relative + length > size:
                 raise AuditError("invalid chained fixups bounds")
             strong.update(chained_imports(data, start + relative, start + relative + length, endian))
-        return Slice(ARCHITECTURES.get(cpu, "cpu-" + hex(cpu)), max(minimums), frozenset(strong))
+        return Slice(ARCHITECTURES.get(cpu, "cpu-" + hex(cpu)), max(minimums), frozenset(strong),
+                     frozenset(required_load_commands))
 
     magic = bytes(data[:4])
     if magic in THIN:
@@ -322,6 +348,10 @@ def validate_slices(slices, minimum, required_arches):
         if item.minimum > minimum:
             errors.append(item.architecture + " needs macOS " + display(item.minimum)
                           + ", above declared " + display(minimum))
+        if minimum < (10, 15, 0):
+            for command in sorted(item.required_load_commands & LEGACY_UNSUPPORTED_COMMANDS.keys()):
+                errors.append(item.architecture + " uses " + LEGACY_UNSUPPORTED_COMMANDS[command]
+                              + ", unsupported by High Sierra/Mojave dyld regardless of deployment metadata")
         for name in sorted(item.strong_imports & NEW_IMPORTS.keys()):
             introduced = NEW_IMPORTS[name]
             if introduced > minimum:

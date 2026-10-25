@@ -14,22 +14,23 @@ sys.modules[SPEC.name] = audit
 SPEC.loader.exec_module(audit)
 
 
-def binary(minimum=(10, 13, 0), cpu=0x01000007, symbols=(), modern=False, endian="<", wide=True):
+def binary(minimum=(10, 13, 0), cpu=0x01000007, symbols=(), modern=False, endian="<", wide=True, load_command=None):
     pack = lambda fmt, *values: struct.pack(endian + fmt, *values)
     packed = minimum[0] << 16 | minimum[1] << 8 | minimum[2]
     platform = pack("6I", 0x32, 24, 1, packed, 0x0F0000, 0) if modern else pack("4I", 0x24, 16, packed, 0x0F0000)
     header_size = 32 if wide else 28
-    symbol_offset = header_size + len(platform) + 24
+    extra = pack("4I", load_command, 16, 0, 0) if load_command else b""
+    symbol_offset = header_size + len(platform) + len(extra) + 24
     string_offset = symbol_offset + len(symbols) * (16 if wide else 12)
     strings, entries = b"\0", b""
     for name, weak in symbols:
         entries += pack("IBBHQ" if wide else "IBBHI", len(strings), 1, 0, 0x40 if weak else 0, 0)
         strings += name.encode() + b"\0"
     symtab = pack("6I", 2, 24, symbol_offset, len(symbols), string_offset, len(strings))
-    header = pack("7I", 0xFEEDFACF if wide else 0xFEEDFACE, cpu, 3, 2, 2, len(platform) + 24, 0)
+    header = pack("7I", 0xFEEDFACF if wide else 0xFEEDFACE, cpu, 3, 2, 2 + bool(extra), len(platform) + len(extra) + 24, 0)
     if wide:
         header += pack("I", 0)
-    return header + platform + symtab + entries + strings
+    return header + platform + extra + symtab + entries + strings
 
 
 def universal(blobs, wide=False):
@@ -146,9 +147,26 @@ class MachOAuditTests(unittest.TestCase):
                 ], import_format=format_)
                 slices = audit.parse_macho(data)
                 self.assertEqual(slices[0].strong_imports, frozenset({"_SecTrustEvaluateWithError"}))
-                self.assertIn("SecTrust", audit.validate_slices(slices, (10, 13, 0), ["x86_64"])[0])
+                self.assertTrue(any("SecTrust" in error for error in audit.validate_slices(slices, (10, 13, 0), ["x86_64"])))
                 # Chained offsets are relative to their slice, including in fat binaries.
                 self.assertEqual(audit.parse_macho(universal([(0x01000007, data)])), slices)
+
+    def test_new_required_load_commands_fail_on_legacy_macos_without_new_symbols(self):
+        fixtures = [
+            ("LC_DYLD_CHAINED_FIXUPS", chained_binary([("_malloc", True)])),
+            ("LC_DYLD_EXPORTS_TRIE", binary(load_command=0x80000033)),
+        ]
+        for command, data in fixtures:
+            slices = audit.parse_macho(data)
+            for minimum in ((10, 13, 6), (10, 14, 6)):
+                with self.subTest(command=command, minimum=minimum):
+                    errors = audit.validate_slices(slices, minimum, ["x86_64"])
+                    self.assertTrue(any(command in error for error in errors))
+            self.assertEqual(audit.validate_slices(slices, (11, 0, 0), ["x86_64"]), [])
+        self.assertEqual(audit.validate_slices(audit.parse_macho(binding_binary(bind_stream([("_malloc", False)]))),
+                                              (10, 13, 6), ["x86_64"]), [])
+        with self.assertRaisesRegex(audit.AuditError, "unsupported required dyld load command"):
+            audit.parse_macho(binary(load_command=0x80000040))
 
     def test_bad_chained_metadata_fails_closed(self):
         for field, value in ((0, 1), (2, 1), (3, 1), (4, 10000), (5, 4), (6, 1)):
