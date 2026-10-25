@@ -18,7 +18,7 @@
 # Build dependencies: Xcode command line tools and `brew install pkgconf` (plus `nasm` on Intel).
 #
 # Environment:
-#   MACOSX_DEPLOYMENT_TARGET  Oldest macOS the libraries run on (default 11.0).
+#   MACOSX_DEPLOYMENT_TARGET  Oldest macOS the libraries run on (default 10.13 Intel / 11.0 ARM).
 #   FFMPEG_DOWNLOAD_DIR       Where the source tarballs are kept (default: a temporary directory).
 set -euo pipefail
 
@@ -48,7 +48,14 @@ fi
 [ $# -eq 1 ] || die "usage: $0 <install-prefix> | --print-sources"
 mkdir -p "$1"
 PREFIX=$(cd "$1" && pwd -P)
-MIN_OS=${MACOSX_DEPLOYMENT_TARGET:-11.0}
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64) DEFAULT_MIN_OS=10.13.6 ;;
+  arm64) DEFAULT_MIN_OS=11.0 ;;
+  *) die "unsupported macOS architecture: $ARCH" ;;
+esac
+MIN_OS=${MACOSX_DEPLOYMENT_TARGET:-$DEFAULT_MIN_OS}
+[[ "$MIN_OS" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "invalid deployment target: $MIN_OS"
 export MACOSX_DEPLOYMENT_TARGET=$MIN_OS
 
 command -v pkg-config >/dev/null || die "missing dependency: brew install pkgconf"
@@ -69,7 +76,7 @@ FFMPEG_FLAGS=(
 )
 # Everything that changes the result goes into the stamp, so a cached prefix is reused only when
 # it would be rebuilt identically.
-STAMP="ffmpeg $FFMPEG_VERSION $FFMPEG_SHA256 lame $LAME_VERSION $LAME_SHA256 opus $OPUS_VERSION $OPUS_SHA256 min-os=$MIN_OS ${FFMPEG_FLAGS[*]}"
+STAMP="ffmpeg $FFMPEG_VERSION $FFMPEG_SHA256 lame $LAME_VERSION $LAME_SHA256 opus $OPUS_VERSION $OPUS_SHA256 arch=$ARCH min-os=$MIN_OS ${FFMPEG_FLAGS[*]}"
 if [ -f "$PREFIX/.build-stamp" ] && [ "$(cat "$PREFIX/.build-stamp")" = "$STAMP" ]; then
   echo "==> FFmpeg $FFMPEG_VERSION already built in $PREFIX"
   exit 0
