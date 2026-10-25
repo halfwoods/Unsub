@@ -1,8 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { artworkUrl, onVisualizerEnded, visualizerStart, visualizerStop } from "../api/commands";
 import { useApp } from "../state/store";
 import { TauriFeed } from "./feed";
+import { attachVisualizerFocus } from "./focus";
 import { Visualizer } from "./Visualizer";
 import "./VisualizerPane.css";
 
@@ -18,6 +20,7 @@ const COVER_SIZE = 1024;
  * while it is on screen.
  */
 export function VisualizerPane() {
+  const paneRef = useRef<HTMLDivElement>(null);
   const { style, limitFlashing, microphone, microphoneDevice, gaslight } = useApp((s) => s.visualizer);
   const setVisualizer = useApp((s) => s.setVisualizer);
   const showNotice = useApp((s) => s.showNotice);
@@ -57,7 +60,12 @@ export function VisualizerPane() {
   useEffect(() => {
     if (!fullscreen) return;
     const resized = appWindow.onResized(() => {
-      if (enteredFullscreen.current) void appWindow.isFullscreen().then((full) => !full && setFullscreen(false));
+      void appWindow.isFullscreen().then((full) => {
+        if (!full) {
+          enteredFullscreen.current = false;
+          setFullscreen(false);
+        }
+      });
     });
     return () => void resized.then((unlisten) => unlisten());
   }, [fullscreen]);
@@ -87,13 +95,26 @@ export function VisualizerPane() {
     return () => document.removeEventListener("visibilitychange", sync);
   }, []);
 
-  // The arrow keys change the style here, not the selection in a list underneath.
+  // The arrow keys change the style here. Keep the webview as the native first responder
+  // through fullscreen entry/exit, but never take focus from another app, editor or sheet.
   useEffect(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (!document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')
+      && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    return attachVisualizerFocus({
+      onResize: (callback) => appWindow.onResized(callback),
+      isWindowFocused: () => appWindow.isFocused(),
+      canRestore: () => !document.hidden
+        && !document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')
+        && !(document.activeElement instanceof HTMLElement
+          && (document.activeElement.isContentEditable || document.activeElement.closest('input, textarea, select, button, a[href]'))),
+      focusWebview: () => getCurrentWebview().setFocus(),
+      focusContent: () => paneRef.current?.focus({ preventScroll: true }),
+      onError: (error) => console.warn("visualizer: could not restore keyboard focus", error),
+    });
   }, []);
 
   return (
-    <div className="visualizer-pane" data-fullscreen={fullscreen}>
+    <div ref={paneRef} className="visualizer-pane" data-fullscreen={fullscreen} tabIndex={-1}>
       <Visualizer
         feed={hidden ? null : feed}
         nowPlaying={
