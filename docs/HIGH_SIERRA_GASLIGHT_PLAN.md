@@ -1,6 +1,6 @@
 # High Sierra compatibility and Gaslight visualizer
 
-Status: implementation and available validation complete. All four CI platforms passed, and the Intel candidate was independently audited. Actual High Sierra runtime remains an external release gate; PR #4 stays in draft. Base `origin/main` pulled before edits at `9b2eb5f`; branch `mac-mini/high-sierra-gaslight`. The checkout was clean. User requested both features on 2026-10-25 and authorized routine implementation decisions and agent delegation. Repository instructions authorize small commits, push and PR; publishing another release is outside this task.
+Status: review and 0.6.0 release preparation in progress. The user explicitly authorized review, fixes and publication on 2026-10-25. The original implementation passed all four CI platforms and the Intel candidate was independently audited. Actual High Sierra runtime remains unverified, so the release will describe that compatibility as experimental rather than verified support. Original base `origin/main` was `9b2eb5f`; review branch `mac-mini/review-gaslight-release` was created from the freshly fetched default branch and fast-forwarded to PR #4 before edits. Both checkouts were clean.
 
 ## Outcomes and decisions
 
@@ -75,14 +75,14 @@ The compatibility baseline is the final High Sierra/Safari updates, not the orig
 - Compatibility regressions: forced missing browser capabilities, actual production syntax/transform checks, unsupported-layout fallback coverage, deployment target/cache propagation and binary audit failure fixtures.
 - Run the complete relevant frontend suites and production build, targeted native/dependency checks and workspace Rust validation. Use the pinned CI Rust version for strict linting; distinguish newer local-toolchain advisories.
 - Exercise the actual rendered app or isolated visualizer preview with deterministic audio and generated local files only. Inspect all palettes on GPU and forced software rendering, resize/narrow windows, keyboard cycling, fullscreen/Escape, settings persistence, idle decay and playback continuity. Observe performance and cleanup; do not infer UI success from static code.
-- Intel compilation and Mach-O inspection prove build/link properties only. They do not substitute for executing on High Sierra. A supported public release requires the actual runtime matrix above; if no host is available, deliver the implemented/tested candidate and explicitly identify that remaining gate.
+- Intel compilation and Mach-O inspection prove build/link properties only. They do not substitute for executing on High Sierra. Verified High Sierra support requires the actual runtime matrix above. Under the subsequent explicit release request, 0.6.0 may ship the standard Intel binary with High Sierra support clearly labeled experimental; no claim of actual 10.13 execution is made.
 
 ## Delivery boundaries
 
 - No permission changes, personal-library imports, original GasLight installation, or third-party source copying.
 - No lowering certificate security or weakening tests to obtain a passing build.
 - Preserve modern appearance and source/playback behaviors established in 0.5.0.
-- Do not publish a new version or overwrite release assets as part of this implementation request.
+- The original implementation request did not authorize a release. The subsequent review-and-publish request does: publish a new 0.6.0 release after review, CI, signed-package inspection and available native smoke testing. Never overwrite older published assets.
 - Any plan adjustment must preserve the two requested outcomes and update this ledger with evidence.
 
 ## Current validation record
@@ -110,3 +110,12 @@ Local archive: `/tmp/unsub-high-sierra-ci-final/Unsub-High-Sierra-candidate.zip`
 Actual High Sierra launch, playback, old WebKit/GPU behavior, iTunes import and a live update/TLS check remain unverified. The draft PR and README retain that distinction. Published 0.5.0 assets remain unchanged.
 
 Final documentation-only updates follow source revision `b4252b2`; they do not change the audited code or candidate. No release tag was created and no public release assets were replaced.
+
+## 0.6.0 review and release
+
+- Review the native compatibility patches, browser fallbacks and visualizer independently; fix reproducible defects with focused regression tests.
+- Retain one Intel download/update platform, label High Sierra compatibility experimental, and document the Safari 13.1.2 prerequisite.
+- Update package, workspace, lockfile and Tauri versions together. Run frontend production build/tests, Rust checks and all four CI jobs.
+- Merge the reviewed PR, tag the exact merged source, build signed/notarized Mac packages and updater-signed Windows installers through the established release workflow.
+- Inspect the final manifests, signatures, versions and binary deployment targets; smoke-test the bundled application with isolated synthetic data. Publish only after the release artifacts pass the available checks.
+- High Sierra runtime testing remains a known limitation, not a completed check.

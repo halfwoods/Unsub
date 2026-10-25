@@ -67,7 +67,7 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 These links always download the newest version. The [download page](https://halfwoods.com/unsub/) picks the right one for you; older versions and release notes are on [Releases](https://github.com/halfwoods/Unsub/releases).
 
-- **Mac** (macOS 11 or later): **[Apple chip](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_arm64.dmg)** or **[Intel](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.dmg)**. Open the `.dmg` and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
+- **Mac** (Apple Silicon: macOS 11+; Intel: macOS 11+ with experimental support for fully updated High Sierra 10.13.6 and later): **[Apple chip](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_arm64.dmg)** or **[Intel](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.dmg)**. Open the `.dmg` and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
 - **Windows** (10 or 11, 64-bit): **[installer](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64-setup.exe)**, or the [MSI](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64_en-US.msi) if you prefer. The Windows build isn't code-signed yet (certificates cost money), so you'll see “Windows protected your PC”. Choose **More info › Run anyway**.
 
 Unsub updates itself from new releases, and only when you let it.
@@ -358,14 +358,14 @@ A new library comes with a few: 90’s Music, Classical Music, My Top Rated, Rec
 <summary><b>Visualizer</b></summary>
 
 1. Choose **View › Show Visualizer** (`Cmd+T`) to toggle it.
-2. Choose a style from **View › Visualizer**: Classic, Lights, Spectrum, Scope, Album, Pipes, Starfield or Lines.
+2. Choose a style from **View › Visualizer**: Classic, Lights, Spectrum, Scope, Album, Pipes, Starfield, Lines or Gaslight.
 3. While it's open, the left and right arrows change style, `F` toggles full screen, `M` shows the info corner and `Esc` closes it.
 
 In **Preferences › Playback**, **Limit flashing** keeps it to three bright flashes a second or fewer (on by default). **React to sound around you (microphone)** is off by default. Nothing is recorded or kept.
 
 Limits: it can't hear a Chromecast or Sonos speaker, and shows the Album style with a note instead.
 
-**In the next version:** **Gaslight** adds mirrored spectrum ridges, glowing plumes and fading
+**Gaslight** adds mirrored spectrum ridges, glowing plumes and fading
 trails inspired by Jonathan del Strother's [GasLight](https://steelskies.com/gaslight/).
 Choose it under **View › Visualizer**, then use **Preferences › Playback** to select Ember,
 Aurora or Inverted colors and adjust trails, glow and height. Autopilot varies the shape slowly;
@@ -434,9 +434,11 @@ Yes. GPL-3.0-or-later: you can read it, change it and share it.
 It builds and passes its tests on Linux, but isn't packaged yet. Pull requests welcome.
 
 **High Sierra?**
-The published 0.5.0 release requires macOS 11. An Intel compatibility build is in development for
-High Sierra 10.13.6 with Safari 13.1.2 installed. Actual testing on High Sierra is still required;
-see the [compatibility plan and validation record](docs/HIGH_SIERRA_GASLIGHT_PLAN.md). Apple Silicon
+Version 0.6.0 adds experimental High Sierra support to the standard Intel download; there is no
+separate legacy edition. Install macOS 10.13.6 and Safari 13.1.2 first. The Intel app and bundled
+libraries are built and audited for that baseline, but launch, playback and the interface have
+not yet been tested on an actual High Sierra Mac. See the
+[compatibility plan and validation record](docs/HIGH_SIERRA_GASLIGHT_PLAN.md). Apple Silicon
 continues to require macOS 11 or later.
 
 **Will you add NFTs?**
