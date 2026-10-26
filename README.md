@@ -46,13 +46,23 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 <sub>The artists and albums in these screenshots are fictional.</sub>
 
+## What's new in 0.6.0
+
+- **Gaslight visualizer.** Glowing spectrum ridges and fading trails, with Ember, Aurora and Inverted colors, saved controls and optional autopilot. Choose **View › Visualizer › Gaslight**.
+- **Experimental High Sierra compatibility.** The standard Intel download now targets macOS 10.13.6 with Safari 13.1.2; no separate legacy edition is needed. Build and binary checks pass, but it has not yet been tested on an actual High Sierra Mac. Apple Silicon still requires macOS 11 or later.
+- **Better visualizer keyboard controls.** Arrow keys and Escape retain focus after fullscreen transitions, and visualizer shortcuts respect open dialogs and menus.
+
+[Read the 0.6.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.6.0) or [download the latest version](#download).
+
+Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.0): customizable metadata columns, artist browsing, the classic Column Browser, saved view presets and **Go to Current Song** (`Cmd+L` on Mac, `Ctrl+L` on Windows/Linux).
+
 ## What it does
 
 - **Plays music you own.** MP3, AAC, ALAC, FLAC, Opus, Vorbis, WAV, AIFF, WavPack and APE. Gapless and bit-perfect.
 - **Brings your stuff with you.** Import your Music or iTunes library with its play counts, ratings and playlists intact. Leaving Spotify or YouTube Music? Bring your playlists **and your listening history**. Songs you don't own yet go on a list called **To Own**.
 - **Plays to your speakers.** Chromecast, Sonos and other UPnP speakers, plus AirPlay on the Mac, through its sound output. No premium tier.
 - **Works with an iCloud Drive library.** A 37,000-song library that isn't actually on your Mac is fine. Unsub reads it without downloading anything and fetches each song when you press play.
-- **Syncs classic iPods.** Classic, video, mini, nano 1st–4th gen, shuffle. *(New, and so far tested only against simulated iPods. Tell us how yours does.)*
+- **Syncs classic iPods.** Classic, video, mini, nano 1st–4th gen, shuffle. A user has reported successful syncing with a 7th-generation iPod Classic. Other models still need more real-device testing; tell us how yours does.
 - **Syncs other players too.** Rockbox, USB players, and Android phones that mount as a USB drive.
 - **Rescues the music trapped on your old iPod.** iTunes never let you. Unsub copies it back into your library with its play counts, ratings and playlists, and the iPod isn't touched. (Songs bought from the iTunes Store before 2009 are still copy-protected, so those stay behind.)
 - **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations are worked out on your computer, not for an ad network.
