@@ -62,7 +62,7 @@ Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.
 - **Brings your stuff with you.** Import your Music or iTunes library with its play counts, ratings and playlists intact. Leaving Spotify or YouTube Music? Bring your playlists **and your listening history**. Songs you don't own yet go on a list called **To Own**.
 - **Plays to your speakers.** Chromecast, Sonos and other UPnP speakers, plus AirPlay on the Mac, through its sound output. No premium tier.
 - **Works with an iCloud Drive library.** A 37,000-song library that isn't actually on your Mac is fine. Unsub reads it without downloading anything and fetches each song when you press play.
-- **Syncs classic iPods.** Classic, video, mini, nano 1st–4th gen, shuffle. A user has reported successful syncing with a 7th-generation iPod Classic. Other models still need more real-device testing; tell us how yours does.
+- **Syncs older iPods.** Classic, video, photo, mini, original iPod (1st–4th gen), nano (1st–4th gen) and shuffle (1st–4th gen).
 - **Syncs other players too.** Rockbox, USB players, and Android phones that mount as a USB drive.
 - **Rescues the music trapped on your old iPod.** iTunes never let you. Unsub copies it back into your library with its play counts, ratings and playlists, and the iPod isn't touched. (Songs bought from the iTunes Store before 2009 are still copy-protected, so those stay behind.)
 - **Smart playlists, Party Shuffle and "more like this" mixes.** Recommendations are worked out on your computer, not for an ad network.
@@ -229,7 +229,7 @@ Works with the iPod (1st–4th generation), mini, photo, video, classic, nano 1s
 4. Read the preview at the bottom, then click **Sync**. The first sync to each iPod asks you to confirm.
 5. Eject from the sidebar when it's done.
 
-Sync is manual. Nothing starts when you plug in. Unsub only changes or removes songs it added itself, and keeps a copy of the iPod's database beside the original before every sync. Play counts from the iPod are merged back into your library. This is new and hasn't been tested on every model.
+Sync is manual. Nothing starts when you plug in. Unsub only changes or removes songs it added itself, and keeps a copy of the iPod's database beside the original before every sync. Play counts from the iPod are merged back into your library.
 
 Files already AAC, MP3, ALAC, WAV or AIFF at up to 48 kHz and 16 bits are copied as they are. Other lossless files become Apple Lossless and other lossy ones become 256 kbps AAC.
 
