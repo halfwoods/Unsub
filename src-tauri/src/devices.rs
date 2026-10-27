@@ -202,7 +202,9 @@ fn to_track(track: &IpodTrack, kind: MediaKind) -> Track {
 
 fn connect(mount: &std::path::Path) -> Result<Connected, Box<dyn std::error::Error>> {
     let ipod = unsub_ipod::open(mount)?;
-    let database = unsub_ipod::read_database(&ipod)?;
+    // Keep an unreadable iPod available for read-only recovery. Sync preview and execution
+    // independently re-read the database and still fail before writing if it is corrupt.
+    let database = unsub_ipod::read_database(&ipod).unwrap_or_default();
     let mut counts = KindCounts::default();
     let tracks: Vec<Track> = database
         .tracks
@@ -394,4 +396,21 @@ pub fn device_eject(app: AppHandle, state: State<'_, DevicesState>, jobs: State<
     state.connected().retain(|_, connected| connected.ipod.id != device_id);
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(())
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+    #[test]
+    fn corrupt_database_keeps_device_visible_but_cannot_be_read_for_sync() {
+        let mount = tempfile::tempdir().unwrap();
+        let directory = mount.path().join("iPod_Control/iTunes");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("iTunesDB"), b"corrupt fixture database").unwrap();
+        let device = connect(mount.path()).unwrap();
+        assert!(unsub_ipod::read_database(&device.ipod).is_err());
+        assert!(device.playlists.is_empty());
+        assert!(unsub_ipod::video::list(&device.ipod).unwrap().from_files);
+        assert_eq!(std::fs::read(directory.join("iTunesDB")).unwrap(), b"corrupt fixture database");
+    }
 }

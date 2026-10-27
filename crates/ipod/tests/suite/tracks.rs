@@ -247,3 +247,34 @@ fn serializes_camel_case_with_64_bit_ids_as_strings() {
     assert_eq!(json["durationMs"], 236_000);
     assert_eq!(json["bitrateKbps"], 320);
 }
+
+#[test]
+fn video_subtypes_preserve_the_existing_audio_classification() {
+    use unsub_ipod::video::VideoKind;
+    let flags = [2, 32, 64, 2 | 4, 4, 1, 256];
+    let input = flags
+        .iter()
+        .enumerate()
+        .map(|(i, flag)| {
+            let mut track = Track::new(i as u32 + 1, "Video subtype fixture");
+            track.media_type = *flag;
+            track
+        })
+        .collect();
+    let (_fake, tracks) = read_tracks(input);
+    assert_eq!(
+        tracks.iter().map(|t| t.video_kind).collect::<Vec<_>>(),
+        vec![
+            Some(VideoKind::Movie),
+            Some(VideoKind::MusicVideo),
+            Some(VideoKind::Tv),
+            Some(VideoKind::VideoPodcast),
+            None,
+            None,
+            None
+        ]
+    );
+    assert_eq!(tracks[3].media_kind, IpodMediaKind::Podcast);
+    assert_eq!(tracks[4].media_kind, IpodMediaKind::Podcast);
+    assert_eq!(tracks[5].media_kind, IpodMediaKind::Music);
+}

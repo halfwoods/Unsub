@@ -154,6 +154,10 @@ fn parse_track(data: &[u8], chunk: &Chunk, mount: &Path) -> Result<IpodTrack> {
             chunk.u32(at::MEDIA_TYPE),
             chunk.u8(at::MOVIE_FLAG) == Some(1),
         ),
+        video_kind: crate::video::VideoKind::from_flags(
+            chunk.u32(at::MEDIA_TYPE).unwrap_or(0),
+            chunk.u8(at::MOVIE_FLAG) == Some(1),
+        ),
         compilation: chunk.u8(at::COMPILATION).is_some_and(|flag| flag != 0),
         ..IpodTrack::default()
     };
