@@ -468,9 +468,11 @@ cargo test --workspace                         # Rust tests
 pnpm exec tsc --noEmit                         # typecheck the UI
 node --test src/import/test/*.test.mjs         # folder selection and file drops
 node --test src/browser/test/*.test.mjs        # layouts, metadata, exact scope and navigation
+node --test src/devices/test/*.test.mjs        # video-export selection and async recovery
 node --test src/visualizer/test/*.test.mjs     # visualizer tests
 node --test src/compat/test/*.test.mjs         # Safari compatibility
 python3 -m unittest discover -s scripts/test  # macOS binary-audit regressions
+python3 -m unittest scripts/test_linux_packaging.py # Linux packaging and updater routing
 ```
 
 See [docs/SPEC.md](docs/SPEC.md) for decisions, the measured window anatomy and milestones, and [scripts/UPDATES.md](scripts/UPDATES.md) for releases.
