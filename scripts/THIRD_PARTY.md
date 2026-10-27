@@ -100,3 +100,26 @@ view before selling anything.
   `libopus`. `otool -L Contents/MacOS/unsub` shows only `@rpath/…` and system libraries.
 - Windows: the DLLs next to `unsub.exe` are the same set plus any runtime DLLs vcpkg added.
 - Anything GPL showing up in either list means the wrong FFmpeg was picked up at build time.
+
+
+## Linux distribution
+
+`scripts/build-ffmpeg-linux.sh` uses the exact source names, versions, SHA-256 hashes and URLs
+from the macOS recipe's `--print-sources` output. It builds FFmpeg 8.1.2, LAME 3.100 and Opus
+1.6.1 on Ubuntu 22.04 x86_64 with the same shared-library-only feature selection. The release
+attaches those exact source archives for both platforms. No system FFmpeg ABI is required.
+
+Both Debian and AppImage packages contain separate replaceable libraries in `/usr/lib/unsub`
+(relative to the extracted AppImage root for AppImage). The executable resolves that directory
+with `$ORIGIN/../lib/unsub`; each private library resolves its peers with `$ORIGIN`. Copyright,
+license texts and `sources.tsv` are installed under `/usr/share/doc/unsub/licenses`. To use modified
+compatible libraries, replace these files in the extracted AppImage or Debian installation;
+repackaging is not required to run the extracted AppImage's `AppRun`.
+
+Debian system libraries are installed by the package manager using explicit runtime dependencies.
+AppImage packaging also collects distribution libraries using Tauri/linuxdeploy. These retain
+their distribution licenses and source-package provenance; the release workflow records the
+Ubuntu package versions and includes distribution copyright notices. Their corresponding source
+packages are available from Ubuntu's archive using those exact source names and versions. This
+inventory is separate from the three pinned codec source archives. The build runner is Ubuntu
+22.04; do not silently raise its baseline or substitute distro FFmpeg when a build fails.

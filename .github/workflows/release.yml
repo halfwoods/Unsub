@@ -375,10 +375,17 @@ jobs:
             target/release/bundle/msi/*.msi.sig
           if-no-files-found: error
 
+  linux:
+    needs: verify
+    uses: ./.github/workflows/linux-packages.yml
+    with:
+      sign: ${{ github.event_name == 'push' || inputs.sign == true }}
+    secrets: inherit
+
   publish:
     name: Draft release
     if: github.ref_type == 'tag'
-    needs: [macos, windows]
+    needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -423,6 +430,8 @@ jobs:
           fi
           nsis=(artifacts/*-setup.exe)
           msi=(artifacts/*.msi)
+          appimage=(artifacts/*.AppImage)
+          deb=(artifacts/*.deb)
           # The script refuses any entry whose artifact or signature is missing, so a partial
           # build cannot publish a manifest that skips a platform.
           scripts/updater-manifest.sh --version "$version" --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
@@ -431,7 +440,9 @@ jobs:
             "darwin-x86_64=artifacts/Unsub_${version}_x86_64.app.tar.gz" \
             "windows-x86_64-nsis=${nsis[0]}" \
             "windows-x86_64-msi=${msi[0]}" \
-            "windows-x86_64=${nsis[0]}" > artifacts/latest.json
+            "windows-x86_64=${nsis[0]}" \
+            "linux-x86_64-appimage=${appimage[0]}" \
+            "linux-x86_64-deb=${deb[0]}" > artifacts/latest.json
           jq . artifacts/latest.json
 
       # Fixed names let a download page link to releases/latest/download/<name>, which always serves
@@ -445,6 +456,8 @@ jobs:
           done
           cp "artifacts/Unsub_${version}_x64-setup.exe" artifacts/Unsub_x64-setup.exe
           cp "artifacts/Unsub_${version}_x64_en-US.msi" artifacts/Unsub_x64_en-US.msi
+          cp artifacts/Unsub_*_amd64.AppImage artifacts/Unsub_x86_64.AppImage
+          cp artifacts/Unsub_*_amd64.deb artifacts/Unsub_amd64.deb
 
       - name: Create the draft
         env:
