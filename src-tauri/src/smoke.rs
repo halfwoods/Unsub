@@ -44,6 +44,11 @@ fn parse(args: Vec<String>, env: impl Fn(&str) -> Option<PathBuf>, linux: bool) 
         if !directory.is_dir() || !child(&directory, &home) {
             return Err(format!("{name} must be a directory below smoke HOME"));
         }
+        // Tauri/WebKit can populate the app directory before the setup hook runs.
+        // Reject existing data here, before constructing the builder or webview.
+        if name == "XDG_DATA_HOME" && std::fs::read_dir(&directory).map_err(|e| e.to_string())?.next().is_some() {
+            return Err("Smoke XDG_DATA_HOME must be empty before startup".into());
+        }
     }
     let fixture = canonical(Path::new(&args[1]))?;
     let report = PathBuf::from(&args[3]);
@@ -171,6 +176,15 @@ mod tests {
         let report = home.join("report.json");
         let args = vec!["--smoke-test".into(), fixture.display().to_string(), "--smoke-report".into(), report.display().to_string()];
         let config = parse(args.clone(), |key| env.get(key).cloned(), true).unwrap().unwrap();
+        let existing_data = home.join("XDG_DATA_HOME/existing-library");
+        std::fs::write(&existing_data, b"existing").unwrap();
+        assert!(parse(args.clone(), |key| env.get(key).cloned(), true).unwrap_err().contains("must be empty"));
+        std::fs::remove_file(existing_data).unwrap();
+        // Webview-created state after the early guard must not fail setup.
+        let app_data = home.join("XDG_DATA_HOME/unsub");
+        std::fs::create_dir_all(app_data.join("webkit")).unwrap();
+        assert!(config.check_path(&app_data).is_ok());
+        std::fs::remove_dir_all(app_data).unwrap();
         assert!(config.check_path(&home.join("new/cache")).is_ok());
         assert!(config.check_path(&home.join("../escaped-smoke-test")).is_err());
         env.insert("XDG_CACHE_HOME", std::env::temp_dir());

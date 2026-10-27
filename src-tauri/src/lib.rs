@@ -80,9 +80,6 @@ pub fn run() {
                 for path in [&data_dir, &app.path().app_cache_dir()?, &music_dir, &downloads_dir] {
                     config.check_path(path)?;
                 }
-                if std::fs::read_dir(&data_dir)?.next().is_some() {
-                    return Err("Smoke app data directory must be empty".into());
-                }
             }
             if !smoke {
                 migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
