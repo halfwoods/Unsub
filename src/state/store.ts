@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { orderAlbumTracks } from "../browser/albumKeys";
 import { layoutFor, isLayoutSource } from "../preferences/libraryViews";
 import { useLibraryViews } from "../preferences/libraryViewStore";
 import { browseQuery, browserQueries, EMPTY_BROWSER, narrowBrowser, playlistPositionQuery, withoutBrowse, type BrowseStep, type BrowserFilters } from "../browser/browseScope";
@@ -249,6 +250,7 @@ interface AppState {
   settingUpPlayer: boolean;
   /** The iPod whose Copy to Library sheet is open. */
   copyFromDevice: string | null;
+  videosFromDevice: string | null;
   connectingToServer: boolean;
   openingStream: boolean;
   importingElsewhere: boolean;
@@ -406,6 +408,7 @@ export const useApp = create<AppState>((set, get) => ({
   importProgress: null,
   settingUpPlayer: false,
   copyFromDevice: null,
+  videosFromDevice: null,
   connectingToServer: false,
   openingStream: false,
   importingElsewhere: false,
@@ -475,9 +478,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   // Album List only makes sense in album order, so iTunes switches the sort to it.
   setViewMode: (viewMode) => {
-    const { query } = get();
+    const { query, viewMode: previousView, source, playlists } = get();
+    const saved = layoutFor(useLibraryViews.getState().prefs, source, playlists.some(p => p.id === playlistIdOf(source) && p.kind === "regular"));
     const grouped = query.sort === "album" || query.sort === "albumArtist" || query.sort === "artist";
-    set({ viewMode, songReveal: null, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false } : query });
+    set({ viewMode, tracks: viewMode === "albumList" ? orderAlbumTracks(get().tracks) : get().tracks, songReveal: null, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false }
+      : previousView === "albumList" && viewMode !== "albumList" ? { ...query, sort: saved.sort, descending: saved.descending } : query });
     useLibraryViews.getState().setBrowsing({ viewMode });
     void get().refresh();
   },
@@ -496,7 +501,7 @@ export const useApp = create<AppState>((set, get) => ({
       selectionAnchor: null,
     }));
     const { source, query, playlists } = get();
-    if (isLayoutSource(source)) useLibraryViews.getState().setSort(source, sort, query.descending, playlists.some((p) => p.id === playlistIdOf(source) && p.kind === "regular"));
+    if (isLayoutSource(source) && get().viewMode !== "albumList") useLibraryViews.getState().setSort(source, sort, query.descending, playlists.some((p) => p.id === playlistIdOf(source) && p.kind === "regular"));
     void get().refresh();
   },
 
@@ -539,7 +544,7 @@ export const useApp = create<AppState>((set, get) => ({
     ]);
     // Drop stale responses when the user typed or switched source mid-flight.
     if (get().query !== query || get().source !== source || get().viewMode !== viewMode || get().gridGroup !== gridGroup) return;
-    set({ tracks, stats, albums, artists, genres, composers, browserFacets, loadedQuery: query });
+    set({ tracks: viewMode === "albumList" ? orderAlbumTracks(tracks) : tracks, stats, albums, artists, genres, composers, browserFacets, loadedQuery: query });
     } catch (error) {
       if (get().query === query && get().source === source) get().showNotice(`Couldn't load library: ${String(error)}`);
     }
@@ -575,7 +580,7 @@ export const useApp = create<AppState>((set, get) => ({
     await api.playerPlayList(
       playingSource,
       queue.map((t) => t.id),
-      queue.indexOf(tracks[index]),
+      tracks.slice(0, index).filter(t => t.enabled && t.kind !== "radio").length,
     );
   },
 
@@ -692,7 +697,8 @@ export const useApp = create<AppState>((set, get) => ({
   refreshDevices: async () => {
     const [devices, players] = await Promise.all([api.devicesList(), api.playersList()]);
     // The sheet goes with its iPod, which must not bring it back when plugged in again.
-    set((s) => ({ devices, players, copyFromDevice: devices.some((d) => d.id === s.copyFromDevice) ? s.copyFromDevice : null }));
+    set((s) => ({ devices, players, copyFromDevice: devices.some((d) => d.id === s.copyFromDevice) ? s.copyFromDevice : null,
+      videosFromDevice: devices.some((d) => d.id === s.videosFromDevice) ? s.videosFromDevice : null }));
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
     const player = playerIdOf(get().source);

@@ -267,3 +267,26 @@ test("Go to Current Song yields to a dialog opened while looking up a hidden son
   assert.equal(useApp.getState().query, query); assert.equal(useApp.getState().songReveal, null);
   assert.equal(useApp.getState().selectionAnchor, null);
 });
+
+test("Album List makes canonical groups contiguous and playback retains duplicate positions", async () => {
+  const a = { id: 11, albumGroup: "a", enabled: true, kind: "music", missing: false };
+  const b = { ...a, id: 12, albumGroup: "b" };
+  globalThis.__browseTest.read = async () => [a, b, a];
+  useApp.getState().setViewMode("albumList"); await settle();
+  assert.deepEqual(useApp.getState().tracks.map(t => t.id), [11, 11, 12]);
+  await useApp.getState().playRow(1);
+  assert.deepEqual(globalThis.__browseTest.queues.at(-1).ids, [11, 11, 12]);
+  assert.equal(globalThis.__browseTest.queues.at(-1).index, 1);
+});
+
+test("Album List heading sorts do not replace saved Songs sorting", async () => {
+  useApp.getState().sortBy("composer"); await settle();
+  const saved = useLibraryViews.getState().prefs.libraryDefault;
+  useApp.getState().setViewMode("albumList"); await settle();
+  useApp.getState().sortBy("year"); await settle();
+  assert.equal(useApp.getState().query.sort, "year");
+  assert.deepEqual(useLibraryViews.getState().prefs.libraryDefault, saved);
+  useApp.getState().setViewMode("list"); await settle();
+  assert.equal(useApp.getState().query.sort, "composer");
+  assert.equal(useApp.getState().query.descending, saved.descending);
+});

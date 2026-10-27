@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { artworkUrl } from "../api/commands";
 import "./Artwork.css";
 
 /** Album art from the library, or iTunes' gray note placeholder when a track has none. */
 export function Artwork({ trackId, size, className = "" }: { trackId: number; size: number; className?: string }) {
-  const [failed, setFailed] = useState(false);
+  const source = artworkUrl(trackId, { type: "library" }, size);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  useEffect(() => setFailedSource(null), [source]);
   const style = { width: size, height: size };
-  if (failed) {
+  if (failedSource === source) {
     return (
       <div className={`artwork artwork--empty ${className}`} style={style}>
         <svg viewBox="0 0 32 32" width={size * 0.42} height={size * 0.42} aria-hidden="true">
@@ -19,11 +21,11 @@ export function Artwork({ trackId, size, className = "" }: { trackId: number; si
     <img
       className={`artwork ${className}`}
       style={style}
-      src={artworkUrl(trackId, { type: "library" }, size)}
+      src={source}
       alt=""
       loading="lazy"
       draggable={false}
-      onError={() => setFailed(true)}
+      onError={() => setFailedSource(source)}
     />
   );
 }
