@@ -33,7 +33,7 @@ jobs:
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev libclang-dev pkg-config nasm autoconf automake libtool zlib1g-dev libbz2-dev patchelf libfuse2
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev libclang-dev pkg-config nasm autoconf automake libtool zlib1g-dev libbz2-dev patchelf libfuse2 minisign
       - id: ffmpeg-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -79,6 +79,7 @@ jobs:
           for artifact in target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb; do
             pnpm exec tauri signer sign --app-version "$version" "$artifact"
           done
+          scripts/verify-linux-signatures.sh "$version" target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: linux
