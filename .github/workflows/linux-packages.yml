@@ -53,8 +53,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           shared-key: linux-package-ubuntu22
+          cache-workspace-crates: true
           # Status functions are not allowed in action input expressions.
           save-if: true
+      - name: ALSA startup timing regression tests
+        run: cargo test --locked --manifest-path vendor/cpal-0.18.2/Cargo.toml --target-dir "$RUNNER_TEMP/cpal-tests" --lib startup_timing
       - run: pnpm install --frozen-lockfile
       - name: Build and stage private libraries
         run: |
