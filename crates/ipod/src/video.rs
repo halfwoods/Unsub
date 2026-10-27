@@ -1,5 +1,5 @@
 //! Read-only video rescue. The source device and the audio library are never written.
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -358,6 +358,7 @@ pub struct Preview {
 }
 pub fn preview(ipod: &Ipod, catalog: &Catalog, ids: &[String], root: &Path) -> io::Result<Preview> {
     preview_with_cancel(ipod, catalog, ids, root, &AtomicBool::new(false))
+        .map(|(preview, _)| preview)
 }
 fn preview_with_cancel(
     ipod: &Ipod,
@@ -365,9 +366,10 @@ fn preview_with_cancel(
     ids: &[String],
     root: &Path,
     cancel: &AtomicBool,
-) -> io::Result<Preview> {
+) -> io::Result<(Preview, ExistingCopies)> {
     let rows = selected(catalog, ids)?;
     let folder = destination(ipod, root)?;
+    let existing = ExistingCopies::read(&folder)?;
     let bytes = rows.iter().try_fold(0u64, |sum, v| {
         sum.checked_add(v.bytes.unwrap_or(0))
             .ok_or_else(|| invalid("Video sizes exceed supported capacity"))
@@ -377,7 +379,7 @@ fn preview_with_cancel(
     let mut required_bytes = bytes;
     if bytes > free_bytes && folder.is_dir() {
         for row in &rows {
-            match verified_copy(&mount, &folder, row, cancel) {
+            match verified_copy(&mount, &folder, row, &existing, cancel) {
                 Ok(Some(_)) => {
                     required_bytes = required_bytes.saturating_sub(row.bytes.unwrap_or(0))
                 }
@@ -386,22 +388,25 @@ fn preview_with_cancel(
             }
         }
     }
-    Ok(Preview {
-        videos: rows.len(),
-        bytes,
-        free_bytes,
-        fits: required_bytes <= free_bytes,
-        missing: rows.iter().filter(|v| v.missing).count(),
-        protected: rows
-            .iter()
-            .filter(|v| v.protection == Protection::Protected)
-            .count(),
-        unknown_protection: rows
-            .iter()
-            .filter(|v| v.protection == Protection::Unknown)
-            .count(),
-        folder: folder.to_string_lossy().into_owned(),
-    })
+    Ok((
+        Preview {
+            videos: rows.len(),
+            bytes,
+            free_bytes,
+            fits: required_bytes <= free_bytes,
+            missing: rows.iter().filter(|v| v.missing).count(),
+            protected: rows
+                .iter()
+                .filter(|v| v.protection == Protection::Protected)
+                .count(),
+            unknown_protection: rows
+                .iter()
+                .filter(|v| v.protection == Protection::Unknown)
+                .count(),
+            folder: folder.to_string_lossy().into_owned(),
+        },
+        existing,
+    ))
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -444,26 +449,81 @@ fn hash_file(path: &Path, cancel: &AtomicBool) -> io::Result<String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
+/// Index generated names once per preview/export. Gaps left by deleted collision files must
+/// not hide later valid copies. The stable ID also survives edits to a video's display title.
+#[derive(Default)]
+struct ExistingCopies {
+    by_id_and_extension: HashMap<(String, String), Vec<String>>,
+}
+impl ExistingCopies {
+    fn read(folder: &Path) -> io::Result<Self> {
+        let entries = match fs::read_dir(folder) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) => return Err(error),
+        };
+        let mut index = Self::default();
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let filename = entry.file_name();
+            let Some(filename) = filename.to_str() else {
+                continue;
+            };
+            let Some(stem) = Path::new(filename).file_stem().and_then(|v| v.to_str()) else {
+                continue;
+            };
+            let stem = if let Some((base, suffix)) = stem.rsplit_once(" (") {
+                match suffix
+                    .strip_suffix(')')
+                    .and_then(|v| v.parse::<usize>().ok())
+                {
+                    Some(number) if (1..10_000).contains(&number) => base,
+                    _ => stem,
+                }
+            } else {
+                stem
+            };
+            let Some((_, id)) = stem.rsplit_once(" [") else {
+                continue;
+            };
+            let Some(id) = id.strip_suffix(']') else {
+                continue;
+            };
+            index
+                .by_id_and_extension
+                .entry((id.into(), extension(Path::new(filename))))
+                .or_default()
+                .push(filename.into());
+        }
+        for candidates in index.by_id_and_extension.values_mut() {
+            candidates.sort();
+        }
+        Ok(index)
+    }
+
+    fn candidates(&self, item: &VideoItem, ext: String) -> &[String] {
+        self.by_id_and_extension
+            .get(&(safe_name(&item.id), ext))
+            .map_or(&[], Vec::as_slice)
+    }
+}
 /// Existing files are never trusted from names or lengths alone. Hash both originals and
 /// destinations, and only read the source when a plausible prior output actually exists.
 fn verified_copy(
     mount: &Path,
     folder: &Path,
     item: &VideoItem,
+    existing: &ExistingCopies,
     cancel: &AtomicBool,
 ) -> io::Result<Option<(String, String)>> {
     let source = safe_source(mount, &item.path)?;
     let before = fs::metadata(&source)?;
-    let ext = safe_name(&extension(&source));
-    let base = format!("{} [{}]", safe_name(&item.title), safe_name(&item.id));
     let mut source_digest = None;
-    for suffix in 0..10_000 {
-        let name = if suffix == 0 {
-            format!("{base}.{ext}")
-        } else {
-            format!("{base} ({suffix}).{ext}")
-        };
-        let target = folder.join(&name);
+    for name in existing.candidates(item, safe_name(&extension(&source)).to_ascii_lowercase()) {
+        let target = folder.join(name);
         match fs::symlink_metadata(&target) {
             Ok(meta)
                 if meta.is_file()
@@ -481,10 +541,10 @@ fn verified_copy(
                     {
                         return Err(invalid("The source video changed during verification"));
                     }
-                    return Ok(Some((name, digest.clone())));
+                    return Ok(Some((name.clone(), digest.clone())));
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => break,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
             _ => {}
         }
@@ -495,6 +555,7 @@ fn copy_one(
     mount: &Path,
     folder: &Path,
     item: &VideoItem,
+    existing: &ExistingCopies,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64, u64),
 ) -> io::Result<(String, String, bool)> {
@@ -504,7 +565,7 @@ fn copy_one(
     let mut input = File::open(&source)?;
     let ext = safe_name(&extension(&source));
     let base = format!("{} [{}]", safe_name(&item.title), safe_name(&item.id));
-    if let Some((name, digest)) = verified_copy(mount, folder, item, cancel)? {
+    if let Some((name, digest)) = verified_copy(mount, folder, item, existing, cancel)? {
         progress(expected, expected);
         return Ok((name, digest, true));
     }
@@ -586,7 +647,7 @@ pub fn export(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(usize, usize, &str, u64, u64),
 ) -> io::Result<Report> {
-    let checked = preview_with_cancel(ipod, catalog, ids, root, cancel)?;
+    let (checked, existing) = preview_with_cancel(ipod, catalog, ids, root, cancel)?;
     if !checked.fits {
         return Err(invalid("Not enough free space for the selected videos"));
     }
@@ -619,9 +680,14 @@ pub fn export(
             break;
         }
         progress(index, rows.len(), &item.title, 0, item.bytes.unwrap_or(0));
-        let result = copy_one(&mount, &folder, item, cancel, &mut |done, total| {
-            progress(index, rows.len(), &item.title, done, total)
-        });
+        let result = copy_one(
+            &mount,
+            &folder,
+            item,
+            &existing,
+            cancel,
+            &mut |done, total| progress(index, rows.len(), &item.title, done, total),
+        );
         let (file, sha256, status, detail) = match result {
             Ok((name, hash, skipped)) => (
                 Some(name),
@@ -831,6 +897,61 @@ mod tests {
                 .unwrap()
                 .starts_with("iPod_Control/")
         );
+    }
+    #[test]
+    fn resume_finds_verified_copies_after_a_collision_gap_and_title_change() {
+        let (_source, target, device, path) = fixture();
+        let original = fs::read(&path).unwrap();
+        let mut catalog = list(&device).unwrap();
+        let chosen = ids(&catalog);
+        let folder = destination(&device, target.path()).unwrap();
+        fs::create_dir(&folder).unwrap();
+        let base = folder.join(format!(
+            "{} [{}].m4v",
+            safe_name(&catalog.items[0].title),
+            catalog.items[0].id
+        ));
+        fs::write(&base, b"unrelated collision file").unwrap();
+        let first = export(
+            &device,
+            &catalog,
+            &chosen,
+            target.path(),
+            &AtomicBool::new(false),
+            &mut |_, _, _, _, _| {},
+        )
+        .unwrap();
+        let filename = first.items[0].file.as_ref().unwrap();
+        assert!(filename.ends_with(" (1).m4v"));
+        let copied = folder.join(filename);
+        let modified = fs::metadata(&copied).unwrap().modified().unwrap();
+        fs::remove_file(&base).unwrap();
+
+        // Force the low-space branch without filling the host disk. Verified copies
+        // still require no new video space, even when an earlier filename is absent.
+        catalog.items[0].bytes = Some(u64::MAX);
+        assert!(
+            preview(&device, &catalog, &chosen, target.path())
+                .unwrap()
+                .fits
+        );
+        catalog.items[0].bytes = Some(original.len() as u64);
+        catalog.items[0].title = "Edited title".into();
+        let resumed = export(
+            &device,
+            &catalog,
+            &chosen,
+            target.path(),
+            &AtomicBool::new(false),
+            &mut |_, _, _, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(resumed.items[0].status, "skipped");
+        assert_eq!(resumed.items[0].file, first.items[0].file);
+        assert!(!base.exists());
+        assert_eq!(fs::read(&copied).unwrap(), original);
+        assert_eq!(fs::metadata(&copied).unwrap().modified().unwrap(), modified);
+        assert_eq!(fs::read(&path).unwrap(), original);
     }
     #[test]
     fn cancellation_and_missing_files_have_reports_without_partial_videos() {
