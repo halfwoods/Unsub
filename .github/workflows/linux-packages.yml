@@ -34,7 +34,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev libclang-dev pkg-config nasm autoconf automake libtool zlib1g-dev libbz2-dev patchelf libfuse2
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      - id: ffmpeg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ runner.temp }}/ffmpeg-prefix
           key: ffmpeg-linux-ubuntu22-x64-${{ hashFiles('scripts/build-ffmpeg-linux.sh', 'scripts/build-ffmpeg-macos.sh') }}
@@ -43,9 +44,16 @@ jobs:
           scripts/build-ffmpeg-linux.sh "$RUNNER_TEMP/ffmpeg-prefix"
           echo "PKG_CONFIG_PATH=$RUNNER_TEMP/ffmpeg-prefix/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$RUNNER_TEMP/ffmpeg-prefix/lib" >> "$GITHUB_ENV"
+      # Preserve successful codec compilation even if packaging or a smoke check needs a fix.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/ffmpeg-prefix
+          key: ffmpeg-linux-ubuntu22-x64-${{ hashFiles('scripts/build-ffmpeg-linux.sh', 'scripts/build-ffmpeg-macos.sh') }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           shared-key: linux-package-ubuntu22
+          save-if: ${{ !cancelled() }}
       - run: pnpm install --frozen-lockfile
       - name: Build and stage private libraries
         run: |

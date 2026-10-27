@@ -16,6 +16,15 @@ class LinuxPackagingTests(unittest.TestCase):
         self.assertEqual(mac, linux)
         self.assertEqual(len(linux.splitlines()), 3)
 
+    def test_linux_rehearsal_cannot_publish_or_skip_tag_platforms(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        guard = "if: github.event_name != 'workflow_dispatch' || !inputs.linux-only"
+        for job in ('macos', 'windows'):
+            self.assertIn(f'  {job}:\n    {guard}', workflow)
+        self.assertIn("  publish:\n    name: Draft release\n    if: github.ref_type == 'tag'", workflow)
+        self.assertIn('      linux-only:\n        description: Rehearse Linux packages only (never publish a release)\n        type: boolean\n        default: false', workflow)
+        self.assertIn('    needs: [macos, windows, linux]', workflow)
+
     def test_source_directory_selection_ignores_archives(self):
         script = (ROOT / 'scripts/build-ffmpeg-linux.sh').read_text()
         with tempfile.TemporaryDirectory() as directory:

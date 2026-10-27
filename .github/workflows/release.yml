@@ -32,6 +32,10 @@ on:
         description: Sign and notarize with the repository secrets
         type: boolean
         default: false
+      linux-only:
+        description: Rehearse Linux packages only (never publish a release)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -60,6 +64,7 @@ jobs:
           [ "$tag" = "$tauri" ] && [ "$tag" = "$cargo" ] || { echo "::error::version mismatch"; exit 1; }
 
   macos:
+    if: github.event_name != 'workflow_dispatch' || !inputs.linux-only
     name: macOS ${{ matrix.arch }}
     needs: verify
     runs-on: ${{ matrix.os }}
@@ -256,6 +261,7 @@ jobs:
         run: security delete-keychain "$CODESIGN_KEYCHAIN" || true
 
   windows:
+    if: github.event_name != 'workflow_dispatch' || !inputs.linux-only
     name: Windows
     needs: verify
     runs-on: windows-latest
