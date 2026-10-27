@@ -1,6 +1,7 @@
 """Host-independent regressions for Linux packaging and updater routing."""
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,6 +11,51 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class LinuxPackagingTests(unittest.TestCase):
+    def test_package_audit_checks_resolved_closure_and_build_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            tools = root / 'tools'
+            tools.mkdir()
+            package = root / 'package'
+            (package / 'usr/bin').mkdir(parents=True)
+            (package / 'usr/lib/unsub').mkdir(parents=True)
+            (package / 'usr/share/doc/unsub/licenses').mkdir(parents=True)
+            (package / 'usr/share/doc/unsub/licenses/sources.tsv').write_text('pinned sources')
+            (package / 'usr/bin/unsub').touch(mode=0o755)
+            (package / 'AppRun').touch()
+            families = ('avcodec', 'avformat', 'avutil', 'swresample', 'mp3lame', 'opus')
+            for family in families:
+                for parent in ('usr/lib', 'usr/lib/unsub'):
+                    (package / parent / f'lib{family}.so.1').touch()
+            stub = r'''#!/usr/bin/env python3
+import os, pathlib, sys
+root = os.environ['AUDIT_FIXTURE_ROOT']
+mode = os.environ.get('AUDIT_FIXTURE_MODE', '')
+name = pathlib.Path(sys.argv[0]).name
+if name == 'file': print('ELF shared object')
+elif name == 'ldd':
+    assert 'LD_LIBRARY_PATH' not in os.environ
+    for family in ('avcodec', 'avformat', 'avutil', 'swresample', 'mp3lame', 'opus'):
+        parent = '/usr/lib' if mode == 'external' else root + '/usr/lib'
+        print(f'lib{family}.so.1 => {parent}/lib{family}.so.1 (0x0)')
+elif sys.argv[1] == '-n':
+    mismatch = mode == 'identity' and '/lib/unsub/' not in sys.argv[-1]
+    print('Build ID: ' + ('incorrect' if mismatch else 'pinned'))
+elif sys.argv[1] == '--version-info': print('GLIBC_2.36' if mode == 'glibc' else 'GLIBC_2.35')
+else: print('RUNPATH [$ORIGIN/../lib]')
+'''
+            for tool in ('readelf', 'file', 'ldd'):
+                (tools / tool).write_text(stub)
+                (tools / tool).chmod(0o755)
+            env = dict(os.environ, PATH=f'{tools}:{os.environ["PATH"]}', AUDIT_FIXTURE_ROOT=str(package), LD_LIBRARY_PATH='/build/prefix')
+            command = ['bash', str(ROOT / 'scripts/audit-linux-package.sh'), str(package)]
+            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for failure in ('external', 'identity', 'glibc'):
+                with self.subTest(failure=failure):
+                    result = subprocess.run(command, env=dict(env, AUDIT_FIXTURE_MODE=failure), capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+
     def test_shared_source_pins(self):
         mac = subprocess.check_output([str(ROOT / 'scripts/build-ffmpeg-macos.sh'), '--print-sources'])
         linux = subprocess.check_output([str(ROOT / 'scripts/build-ffmpeg-linux.sh'), '--print-sources'])

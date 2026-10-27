@@ -109,11 +109,13 @@ from the macOS recipe's `--print-sources` output. It builds FFmpeg 8.1.2, LAME 3
 1.6.1 on Ubuntu 22.04 x86_64 with the same shared-library-only feature selection. The release
 attaches those exact source archives for both platforms. No system FFmpeg ABI is required.
 
-Both Debian and AppImage packages contain separate replaceable libraries in `/usr/lib/unsub`
-(relative to the extracted AppImage root for AppImage). The executable resolves that directory
-with `$ORIGIN/../lib/unsub`; each private library resolves its peers with `$ORIGIN`. Copyright,
+Debian packages contain separate replaceable libraries in `/usr/lib/unsub`, resolved with
+`$ORIGIN/../lib/unsub`. AppImage stages the same libraries there; linuxdeploy may also relocate
+runtime copies to the extracted AppImage's `usr/lib`. The audit unsets the build library path,
+checks that all six runtime codec libraries resolve inside the package, and compares their ELF
+build identities with the pinned staged copies. Copyright,
 license texts and `sources.tsv` are installed under `/usr/share/doc/unsub/licenses`. To use modified
-compatible libraries, replace these files in the extracted AppImage or Debian installation;
+compatible libraries, replace the runtime copies in the extracted AppImage's `usr/lib` or Debian's `/usr/lib/unsub`;
 repackaging is not required to run the extracted AppImage's `AppRun`.
 
 Debian system libraries are installed by the package manager using explicit runtime dependencies.

@@ -88,6 +88,15 @@ jobs:
             target/release/bundle/deb/*.deb*
             src-tauri/ffmpeg-bundle/linux/licenses/ubuntu-packages.tsv
           if-no-files-found: error
+      - name: Preserve packages for failed-audit diagnosis
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: linux-diagnostics
+          path: |
+            target/release/bundle/appimage/*.AppImage*
+            target/release/bundle/deb/*.deb*
+          if-no-files-found: ignore
   smoke:
     needs: build
     runs-on: ubuntu-22.04
