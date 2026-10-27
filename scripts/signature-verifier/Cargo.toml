@@ -1,0 +1,13 @@
+[package]
+name = "unsub-signature-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+
+# Keep this release-only utility outside the application workspace. This is the same
+# verifier version already pinned by the app's updater; it has no other dependencies.
+[workspace]
+
+[dependencies]
+minisign-verify = "=0.3.0"

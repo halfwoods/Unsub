@@ -117,7 +117,7 @@ WebKitGTK 4.1, and glibc 2.35 or later; the supported validation matrix is Ubunt
 Ubuntu 24.04 and Debian 12. The AppImage can be extracted when FUSE is unavailable.
 
 `.github/workflows/linux-packages.yml` is reusable from CI and release builds and can also be
-dispatched on a branch without tagging or publishing. It builds both packages, audits ELF
+called by the existing Release workflow on a branch without tagging or publishing. Direct dispatch of the new Linux workflow requires it to exist on the default branch first. It builds both packages, audits ELF
 runtime paths and the glibc baseline, then runs each package in all three fresh distribution
 containers. Containers install only runtime dependencies, use disposable HOME/XDG directories,
 a generated WAV fixture, Xvfb and a PulseAudio null sink. The opt-in packaged smoke mode (`UNSUB_SMOKE_TEST=1`) must
@@ -127,8 +127,8 @@ physical iPod is mounted. Release drafting waits for all six smoke jobs.
 Run an unsigned rehearsal after pushing a branch (CI also runs this for the PR):
 
 ```sh
-gh workflow run linux-packages.yml --ref mac-mini/linux-video-artwork
-gh run list --workflow linux-packages.yml --limit 3
+gh workflow run release.yml --ref mac-mini/linux-video-artwork -f sign=false -f linux-only=true
+gh run list --workflow release.yml --limit 3
 gh run watch <run-id> --exit-status
 gh run download <run-id> --name linux
 ```
@@ -141,7 +141,7 @@ gh workflow run release.yml --ref mac-mini/linux-video-artwork -f sign=true -f l
 ```
 
 `linux-only` defaults to false and cannot skip platforms on a tag push. The signed rehearsal
-verifies both payload signatures against the app's public key using minisign, rejects a modified
+verifies both payload signatures against the app's public key using the same pinned `minisign-verify` Rust library as the updater, rejects a modified
 copy of each package, and rejects a manifest version that differs from the signed version. It
 still does not perform an installed old-to-new update or interactive privilege elevation.
 

@@ -33,7 +33,7 @@ jobs:
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev libclang-dev pkg-config nasm autoconf automake libtool zlib1g-dev libbz2-dev patchelf libfuse2 minisign
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev libclang-dev pkg-config nasm autoconf automake libtool zlib1g-dev libbz2-dev patchelf libfuse2
       - id: ffmpeg-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:

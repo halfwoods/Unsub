@@ -8,13 +8,15 @@ image=$2
 deb=$3
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+cargo build --release --locked --manifest-path "$ROOT/scripts/signature-verifier/Cargo.toml" --target-dir "$work/target"
+verifier="$work/target/release/unsub-signature-verifier"
 jq -r .plugins.updater.pubkey "$ROOT/src-tauri/tauri.conf.json" | base64 --decode > "$work/unsub.pub"
 for artifact in "$image" "$deb"; do
   base64 --decode < "$artifact.sig" > "$work/signature.minisig"
-  minisign -Vm "$artifact" -p "$work/unsub.pub" -x "$work/signature.minisig"
+  "$verifier" "$artifact" "$work/unsub.pub" "$work/signature.minisig"
   cp "$artifact" "$work/tampered"
   printf '\nUnsub signature rejection fixture\n' >> "$work/tampered"
-  if minisign -Vm "$work/tampered" -p "$work/unsub.pub" -x "$work/signature.minisig"; then
+  if "$verifier" "$work/tampered" "$work/unsub.pub" "$work/signature.minisig"; then
     echo 'Tampered package incorrectly accepted' >&2; exit 1
   fi
 done
