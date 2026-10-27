@@ -32,7 +32,7 @@ Installed copies update themselves from GitHub releases:
 4. Commit that. The first release carrying it must be installed by hand; earlier builds have no
    updater.
 
-Without the two secrets `release.yml` still works: it just attaches no `latest.json`.
+Unsigned workflow rehearsals do not need the secrets. Tagged Linux release builds require the updater signing key; a missing key fails the release rather than producing a partially signed update manifest.
 
 ## Releasing
 
@@ -53,7 +53,7 @@ Without the two secrets `release.yml` still works: it just attaches no `latest.j
    (`Unsub_<v>_arm64.dmg`, `_x86_64.dmg`), the Windows installers, the update archives
    (`Unsub_<v>_aarch64.app.tar.gz`, `_x86_64.app.tar.gz`, the NSIS `-setup.exe` and the MSI,
    each with a `.sig`), the library sources, and `latest.json`.
-4. Look the draft over: the five `platforms` in `latest.json`, the notes, a smoke test of a DMG on a
+4. Look the draft over: the seven `platforms` in `latest.json`, the notes, a smoke test of a DMG on a
    Mac that has never run the app. Publish it. Installed apps offer it from then on.
 
 ## Rolling back a bad release
@@ -100,3 +100,55 @@ Download and Install fetched the signed archive, the app relaunched as 0.5.0, an
 library tracks remained. The updated bundle passed deep strict code-signature verification.
 Still unverified: Intel Mac and Windows installation/relaunch, and macOS updates requiring an
 administrator password.
+
+## Linux packages and rehearsal
+
+Linux releases add x86_64 AppImage and Debian packages built on Ubuntu 22.04. The updater
+manifest uses **both** `linux-x86_64-appimage` and `linux-x86_64-deb`; there is deliberately
+no generic Linux fallback that could send a Debian installation an AppImage. The pinned
+`tauri-plugin-updater` 2.14 supports both formats: AppImage replaces its writable executable;
+Debian installation invokes `dpkg -i` with desktop privilege elevation. A desktop PolicyKit
+agent is needed for that elevation. Manual downloads remain available if elevation is unavailable.
+Both payloads use `tauri signer sign --app-version`, just like Windows installers.
+
+Fixed download aliases are `Unsub_x86_64.AppImage` and `Unsub_amd64.deb`. Updates reference
+versioned payloads and their matching signatures, never the aliases. Linux requires x86_64,
+WebKitGTK 4.1, and glibc 2.35 or later; the supported validation matrix is Ubuntu 22.04,
+Ubuntu 24.04 and Debian 12. The AppImage can be extracted when FUSE is unavailable.
+
+`.github/workflows/linux-packages.yml` is reusable from CI and release builds and can also be
+called by the existing Release workflow on a branch without tagging or publishing. Direct dispatch of the new Linux workflow requires it to exist on the default branch first. It builds both packages, audits ELF
+runtime paths and the glibc baseline, then runs each package in all three fresh distribution
+containers. Containers install only runtime dependencies, use disposable HOME/XDG directories,
+a generated WAV fixture, Xvfb and a PulseAudio null sink. The opt-in packaged smoke mode (`UNSUB_SMOKE_TEST=1`) must
+report successful import, playback and frontend readiness before exiting. No host library or
+physical iPod is mounted. Release drafting waits for all six smoke jobs.
+
+Run an unsigned rehearsal after pushing a branch (CI also runs this for the PR):
+
+```sh
+gh workflow run release.yml --ref mac-mini/linux-video-artwork -f sign=false -f linux-only=true
+gh run list --workflow release.yml --limit 3
+gh run watch <run-id> --exit-status
+gh run download <run-id> --name linux
+```
+
+The existing Release workflow can run just Linux on a branch, including real updater signatures,
+without creating a tag or publishing assets:
+
+```sh
+gh workflow run release.yml --ref mac-mini/linux-video-artwork -f sign=true -f linux-only=true
+```
+
+`linux-only` defaults to false and cannot skip platforms on a tag push. The signed rehearsal
+verifies both payload signatures against the app's public key using the same pinned `minisign-verify` Rust library as the updater, rejects a modified
+copy of each package, and rejects a manifest version that differs from the signed version. It
+still does not perform an installed old-to-new update or interactive privilege elevation.
+
+Local macOS checks cover the scripts/configuration and manifest regression fixtures only:
+`python3 -m unittest scripts/test_linux_packaging.py`. They do **not** prove Linux installation,
+playback, desktop integration, privilege elevation or an update transition. The container smoke
+checks do not exercise a physical audio device, compositor, mounted iPod or interactive PolicyKit
+agent. Before publishing the first Linux release, record the successful workflow run and manually
+rehearse a signed old-to-new update on both formats on a Linux desktop, including tampered payload
+and signed-version rejection. A configured workflow is not a completed rehearsal.

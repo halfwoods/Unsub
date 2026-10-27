@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -39,6 +40,7 @@ import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
+import { CopyVideos } from "./devices/CopyVideos";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { ImportElsewhere } from "./import/ImportElsewhere";
@@ -296,6 +298,7 @@ function useGlobalKeys() {
 }
 
 export default function App() {
+  useEffect(() => { void invoke("smoke_frontend_ready").catch(() => {}); }, []);
   const windowActive = useApp((s) => s.windowActive);
   const windowFullscreen = useApp((s) => s.windowFullscreen);
   const smartEditor = useApp((s) => s.smartEditor);
@@ -306,6 +309,7 @@ export default function App() {
   const importSheet = useApp((s) => s.importSheet);
   const importingElsewhere = useApp((s) => s.importingElsewhere);
   const copyFromDevice = useApp((s) => s.devices.find((d) => d.id === s.copyFromDevice));
+  const videosFromDevice = useApp((s) => s.devices.find((d) => d.id === s.videosFromDevice));
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
@@ -335,6 +339,7 @@ export default function App() {
       <LibrarySheets />
       {settingUpPlayer && <SetUpPlayer />}
       {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
+      {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
       {connectingToServer && <ConnectToServer />}
       {openingStream && <OpenStream />}
       {importSheet && <ImportSheet preview={importSheet} />}

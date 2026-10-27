@@ -1313,7 +1313,21 @@ mod tests {
             })
         };
 
-        let summary = cloudy.read(&host);
+        // This tests space recovery, not a stalled download. As in the pacing
+        // test above, scheduler delays must not trip the 5 ms stall fixture.
+        let summary = cloudy
+            .library
+            .read_details_with(
+                Path::new(ANYWHERE),
+                Some(&cloudy.root),
+                &host,
+                &*cloudy.drive,
+                &Pacing {
+                    stall: Duration::MAX,
+                    ..pacing()
+                },
+            )
+            .unwrap();
 
         assert_eq!(summary.read, 3);
         assert_eq!(host.blocked.borrow().len(), 1);

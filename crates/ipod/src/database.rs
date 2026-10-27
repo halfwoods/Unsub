@@ -57,6 +57,8 @@ pub struct IpodTrack {
     /// Unix seconds.
     pub date_added: Option<i64>,
     pub media_kind: IpodMediaKind,
+    /// Video classification is independent of audio menus (video podcasts have both flags).
+    pub video_kind: Option<crate::video::VideoKind>,
     /// The type string iTunes stored ("MPEG audio file") or, for flash iPods, the four-letter code.
     pub file_type: String,
     pub compilation: bool,

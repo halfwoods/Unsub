@@ -20,10 +20,13 @@ mod radio;
 mod remote;
 mod rescue;
 mod sharing;
+mod smoke;
 mod sync;
 #[cfg(test)]
 mod test_support;
 mod updates;
+mod user_paths;
+mod video_export;
 mod visualizer;
 mod welcome;
 mod window;
@@ -45,6 +48,10 @@ use sharing::SharingState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let smoke_config = smoke::config().unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(2);
+    });
     #[cfg(target_os = "macos")]
     window::keep_full_screen_item_ours();
     tauri::Builder::default()
@@ -61,13 +68,26 @@ pub fn run() {
             // Embedded art can take a moment to pull out of big files; keep it off the IPC thread.
             std::thread::spawn(move || responder.respond(artwork::response(&app, &path, query.as_deref())));
         })
-        .setup(|app| {
+        .setup(move |app| {
+            let smoke = smoke_config.is_some();
+            if smoke {
+                app.manage(smoke::Ready::default());
+            }
             let data_dir = app.path().app_data_dir()?;
-            migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
+            let music_dir = user_paths::music(app.handle())?;
+            let downloads_dir = user_paths::downloads(app.handle())?;
+            if let Some(config) = &smoke_config {
+                for path in [&data_dir, &app.path().app_cache_dir()?, &music_dir, &downloads_dir] {
+                    config.check_path(path)?;
+                }
+            }
+            if !smoke {
+                migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
+            }
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json"), data_dir.join("StreamedSongs.json")));
-            app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("Unsub"))?;
+            app.state::<LibraryState>().media_folder(&music_dir.join("Unsub"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
@@ -80,12 +100,16 @@ pub fn run() {
             app.manage(loudness::LoudnessState::default());
             app.manage(visualizer::VisualizerState::default());
             app.manage(sync::SyncState::load(data_dir.join("DeviceSync.json")));
-            sync::tidy(app.handle());
-            let episodes_dir = app.path().audio_dir()?.join("Unsub").join("Podcasts");
+            if !smoke {
+                sync::tidy(app.handle());
+            }
+            let episodes_dir = music_dir.join("Unsub").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
-            let purchases_dir = app.path().audio_dir()?.join("Unsub").join("Purchases");
-            app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
-            PurchasesState::apply(app.handle());
+            let purchases_dir = music_dir.join("Unsub").join("Purchases");
+            app.manage(PurchasesState::open(&data_dir, purchases_dir, downloads_dir)?);
+            if !smoke {
+                PurchasesState::apply(app.handle());
+            }
             let radio_cache = app.path().app_cache_dir()?;
             std::fs::create_dir_all(&radio_cache)?;
             app.manage(radio::RadioState::new(radio_cache.join("RadioGenres.json")));
@@ -101,16 +125,22 @@ pub fn run() {
             })?;
             app.manage(cast::CastState::new(events, casting, app.path().app_cache_dir()?.join("Cast")));
             app.manage(PlaybackState::new(player, app.handle().clone()));
-            cast::browse(app.handle());
-            devices::watch(app.handle().clone());
-            library::check_missing(app.handle());
-            details::resume_on_launch(app.handle());
-            remote::browse(app.handle());
-            cd::watch(app.handle().clone());
-            updates::watch(app.handle().clone());
+            if !smoke {
+                cast::browse(app.handle());
+                devices::watch(app.handle().clone());
+                library::check_missing(app.handle());
+                details::resume_on_launch(app.handle());
+                remote::browse(app.handle());
+                cd::watch(app.handle().clone());
+                updates::watch(app.handle().clone());
+            }
+            if let Some(config) = smoke_config.clone() {
+                smoke::start(app.handle().clone(), config);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            smoke::smoke_frontend_ready,
             library::library_tracks,
             library::library_track,
             library::library_lyrics,
@@ -229,6 +259,9 @@ pub fn run() {
             details::details_set_paused,
             rescue::device_rescue_preview,
             rescue::device_rescue,
+            video_export::device_videos,
+            video_export::device_video_export_preview,
+            video_export::device_video_export,
             updates::updates_status,
             updates::updates_set_auto_check,
             updates::updates_dismiss,

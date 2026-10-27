@@ -1,4 +1,4 @@
-.album-list-header {
+.song-list.album-list .album-list-header {
   display: flex;
 }
 
@@ -66,3 +66,6 @@
 .song-row-static.song-row--odd {
   background: var(--list-stripe);
 }
+
+.album-list-album-heading { flex: none; padding: 0; }
+.album-list { min-height: 0; }

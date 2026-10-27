@@ -423,7 +423,7 @@ export interface DeviceSyncStatus {
   deviceId: string;
   // iPods report preparing, downloading and writingDatabase; players report skipped and playlists. Copy to Library
   // reports rescuing, which takes the place of a sync.
-  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists" | "rescuing";
+  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists" | "rescuing" | "exportingVideos";
   done: number;
   total: number;
   current: string;
@@ -431,6 +431,29 @@ export interface DeviceSyncStatus {
 
 /** Which of an iPod's songs Copy to Library takes: all, those in some playlists (by key), or songs picked in its list. */
 export type RescueScope = { type: "all" } | { type: "playlists"; keys: string[] } | { type: "songs"; ids: number[] };
+
+export interface DeviceVideo {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  kind: "movie" | "musicVideo" | "tv" | "videoPodcast" | "other";
+  bytes: number | null;
+  durationMs: number;
+  protection: "protected" | "unprotected" | "unknown";
+  missing: boolean;
+}
+export interface DeviceVideos { items: DeviceVideo[]; fromFiles: boolean; warning: string | null }
+export interface VideoExportPreview {
+  videos: number;
+  bytes: number;
+  freeBytes: number;
+  fits: boolean;
+  missing: number;
+  protected: number;
+  unknownProtection: number;
+  folder: string;
+}
 
 export interface RescueOptions {
   /** Leave alone the songs the library already has. */

@@ -12,8 +12,9 @@ interface Props {
   columns: Column[]; layout: ColumnLayout; source: string; regular: boolean; editable: boolean;
   sort: SortKey; descending: boolean; tracks: Track[]; sortBy: (key: SortKey) => void;
   preview: (id: ColumnId, width: number | null) => void;
+  excluded?: ColumnId[];
 }
-export function ColumnHeadings({ columns, layout, source, regular, editable, sort, descending, tracks, sortBy, preview }: Props) {
+export function ColumnHeadings({ columns, layout, source, regular, editable, sort, descending, tracks, sortBy, preview, excluded = [] }: Props) {
   const resizing = useRef<{ id: ColumnId; startX: number; startWidth: number; width: number } | null>(null);
   const moving = useRef<{ id: ColumnId; source: string; pointer: number; x: number; y: number; dragged: boolean; heading: HTMLElement; captor: HTMLElement } | null>(null);
   const suppressSort = useRef<ColumnId | null>(null);
@@ -43,7 +44,7 @@ export function ColumnHeadings({ columns, layout, source, regular, editable, sor
   const menu = (at: LogicalPosition) => {
     if (!editable) return;
     void showMenu([
-      ...ALL_COLUMNS.map(c => ({ text: columnLabel(c.id), checked: layout.visible.includes(c.id as ColumnId), enabled: c.id !== "name", action: () => {
+      ...ALL_COLUMNS.filter(c => !excluded.includes(c.id as ColumnId)).map(c => ({ text: columnLabel(c.id), checked: layout.visible.includes(c.id as ColumnId), enabled: c.id !== "name", action: () => {
         const id = c.id as ColumnId;
         update({ visible: layout.visible.includes(id) ? layout.visible.filter(key => key !== id) : [...layout.visible, id] });
       } })), SEPARATOR,
@@ -103,7 +104,7 @@ export function ColumnHeadings({ columns, layout, source, regular, editable, sor
           onKeyDown={event => {
             if (canEdit && event.shiftKey && event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
               event.preventDefault(); event.stopPropagation();
-              const visible = layout.order.filter(key => layout.visible.includes(key)), target = visible[visible.indexOf(id) + (event.key === "ArrowLeft" ? -1 : 1)];
+              const visible = layout.order.filter(key => layout.visible.includes(key) && !excluded.includes(key)), target = visible[visible.indexOf(id) + (event.key === "ArrowLeft" ? -1 : 1)];
               if (target) move(id, target);
             } else if (editable && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
               event.preventDefault(); event.stopPropagation();

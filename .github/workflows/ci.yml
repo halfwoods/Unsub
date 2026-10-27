@@ -31,6 +31,9 @@ env:
   VCPKG_COMMIT: c76c06644034521fb761a39f8f52d8e87d1103d5
 
 jobs:
+  linux-packages:
+    uses: ./.github/workflows/linux-packages.yml
+
   check:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -63,7 +66,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit
       - run: node --test src/import/test/*.test.mjs
-      - run: node --test src/browser/test/*.test.mjs
+      - run: node --test src/browser/test/*.test.mjs src/devices/test/*.test.mjs
       - run: node --test src/visualizer/test/*.test.mjs
       - run: node --test src/compat/test/*.test.mjs
       - run: python3 -m unittest discover -s scripts/test -p 'test_*.py'

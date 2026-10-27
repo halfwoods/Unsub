@@ -140,3 +140,6 @@
 /* break-word is supported by High Sierra and keeps long paths inside sheets. */
 .no-flex-gap .welcome-folder-path,
 .no-flex-gap .info-where { overflow-wrap: break-word; }
+
+.no-focus-visible .coverflow-stage:focus, .no-focus-visible .coverflow-slider:focus { outline: 2px solid var(--selection-bg, #3875d7); outline-offset: -2px; }
+.no-focus-visible .copy-videos :focus { outline: 2px solid #347bc5; outline-offset: 1px; }

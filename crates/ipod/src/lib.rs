@@ -17,6 +17,7 @@ mod sysinfo;
 mod time;
 mod usb;
 mod verify;
+pub mod video;
 
 pub use database::{Database, IpodMediaKind, IpodPlaylist, IpodTrack, Usage, read_database};
 pub use device::{DatabaseFormat, Ipod, open};

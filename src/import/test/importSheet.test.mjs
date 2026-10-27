@@ -19,8 +19,8 @@ const modules = {
 // Keep the real Zustand actions and substitute only native inspection and local preferences.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (context.parentURL === storeUrl && specifier === "../browser/browseScope") {
-      return { url: new URL("../../browser/browseScope.ts", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === storeUrl && ["../browser/browseScope", "../browser/albumKeys"].includes(specifier)) {
+      return { url: new URL(`../../browser/${specifier.split("/").at(-1)}.ts`, import.meta.url).href, shortCircuit: true };
     }
     if (context.parentURL === storeUrl && modules[specifier]) {
       return { url: `data:text/javascript,${encodeURIComponent(modules[specifier])}`, shortCircuit: true };

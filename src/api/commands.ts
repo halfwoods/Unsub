@@ -14,6 +14,8 @@ import type {
   CleanUpRules,
   ComposerSummary,
   Device,
+  DeviceVideos,
+  VideoExportPreview,
   DirectoryStation,
   DoubleClickAction,
   ElsewherePreview,
@@ -177,6 +179,12 @@ export const deviceRescuePreview = (deviceId: string, scope: RescueScope, option
 /** Copies in the background, in the place of a sync: its progress and end come as the sync's events. */
 export const deviceRescue = (deviceId: string, scope: RescueScope, options: RescueOptions) =>
   invoke<void>("device_rescue", { deviceId, scope, options });
+
+export const deviceVideos = (deviceId: string) => invoke<DeviceVideos>("device_videos", { deviceId });
+export const deviceVideoExportPreview = (deviceId: string, ids: string[], destination: string) =>
+  invoke<VideoExportPreview>("device_video_export_preview", { deviceId, ids, destination });
+export const deviceVideoExport = (deviceId: string, ids: string[], destination: string) =>
+  invoke<void>("device_video_export", { deviceId, ids, destination });
 
 export const cdList = () => invoke<AudioCd[]>("cd_list");
 export const cdTracks = (discId: string) => invoke<Track[]>("cd_tracks", { discId });

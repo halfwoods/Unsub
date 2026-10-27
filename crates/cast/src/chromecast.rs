@@ -286,14 +286,27 @@ pub(crate) trait Wire: Read + Write + Send {
 
 impl Wire for TcpStream {
     fn set_read_timeout(&mut self, timeout: Duration) -> io::Result<()> {
-        TcpStream::set_read_timeout(self, Some(timeout))
+        set_socket_read_timeout(self, timeout)
     }
 }
 
 impl Wire for StreamOwned<ClientConnection, TcpStream> {
     fn set_read_timeout(&mut self, timeout: Duration) -> io::Result<()> {
-        self.sock.set_read_timeout(Some(timeout))
+        set_socket_read_timeout(&self.sock, timeout)
     }
+}
+
+// Darwin can reject SO_RCVTIMEO with EINVAL after a TCP reset, before read
+// gets a chance to report it. SO_ERROR retains the actual connection failure.
+// Keep an ordinary option error unchanged when no socket error is available.
+fn set_socket_read_timeout(socket: &TcpStream, timeout: Duration) -> io::Result<()> {
+    socket
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| socket_option_error(error, socket.take_error()))
+}
+
+fn socket_option_error(error: io::Error, pending: io::Result<Option<io::Error>>) -> io::Error {
+    pending.ok().flatten().unwrap_or(error)
 }
 
 /// Accepts the certificate a Cast device presents. Each has one of its own, signed by a Google
@@ -1165,6 +1178,20 @@ mod tests {
         cast.absorb(&ping).unwrap();
         thread::sleep(Duration::from_millis(50));
         assert!(fake.types().contains(&"PONG".to_owned()));
+    }
+
+    #[test]
+    fn a_failed_socket_option_preserves_the_pending_connection_error() {
+        let option_error = || io::Error::new(io::ErrorKind::InvalidInput, "socket option rejected");
+        let reset = io::Error::new(io::ErrorKind::ConnectionReset, "peer reset");
+        let error = socket_option_error(option_error(), Ok(Some(reset)));
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionReset);
+        assert!(Error::Io(error).is_lost());
+        for pending in [Ok(None), Err(io::Error::from(io::ErrorKind::Other))] {
+            let error = socket_option_error(option_error(), pending);
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(!Error::Io(error).is_lost());
+        }
     }
 
     #[test]

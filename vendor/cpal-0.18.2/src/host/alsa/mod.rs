@@ -37,6 +37,7 @@ use crate::{
 };
 
 mod enumerate;
+mod startup_timing;
 
 // ALSA Buffer Size Behavior
 // =========================
@@ -854,10 +855,16 @@ struct StreamWorkerContext {
     descriptors: Box<[libc::pollfd]>,
     transfer_buffer: Box<[u8]>,
     poll_timeout: i32,
+    startup_timing: Option<startup_timing::StartupTiming>,
 }
 
 impl StreamWorkerContext {
-    fn new(poll_timeout: &Option<Duration>, stream: &StreamInner, rx: &TriggerReceiver) -> Self {
+    fn new(
+        poll_timeout: &Option<Duration>,
+        stream: &StreamInner,
+        rx: &TriggerReceiver,
+        output: bool,
+    ) -> Self {
         let poll_timeout: i32 = if let Some(d) = poll_timeout {
             // Round up: a nonzero sub-millisecond timeout must not floor to 0 (a non-blocking poll),
             // but an explicit Duration::ZERO stays 0 so a non-blocking poll can still be requested.
@@ -902,6 +909,7 @@ impl StreamWorkerContext {
             descriptors,
             transfer_buffer,
             poll_timeout,
+            startup_timing: output.then(startup_timing::StartupTiming::default),
         }
     }
 }
@@ -924,7 +932,7 @@ fn input_stream_worker(
         }
     }
 
-    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
+    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx, false);
     loop {
         if stream.dropping.load(Ordering::Acquire) {
             return;
@@ -981,7 +989,7 @@ fn output_stream_worker(
         }
     }
 
-    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
+    let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx, true);
 
     loop {
         if stream.dropping.load(Ordering::Acquire) {
@@ -1123,16 +1131,50 @@ fn poll_for_period(
     }
     // POLLERR signals an xrun or suspend; avail_delay() below returns an error accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
-    let (avail_frames, delay_frames) = match stream.handle.avail_delay() {
-        // Suspend: try hardware resume first; fall back to prepare() if unsupported.
-        // BSD compat: check via PCM state rather than the Linux-specific ESTRPIPE errno.
-        Err(_) if matches!(stream.handle.state(), alsa::pcm::State::Suspended) => {
-            return try_resume(&stream.handle);
+    let (avail_frames, delay_frames) = loop {
+        if stream.dropping.load(Ordering::Acquire) {
+            return Ok(Poll::Pending);
         }
-        // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
-        Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
-        res => res,
-    }?;
+        let result = stream.handle.avail_delay();
+        // Older ALSA Pulse plugins incorrectly turn transient PA_ERR_NODATA into
+        // EIO before their first latency update. Upstream waits on the same stream:
+        // https://github.com/alsa-project/alsa-plugins/commit/811c2ce69d1265ace42a05ef045ca1b4ed72e01c
+        // Retry only output startup with healthy state/availability, bounded to 1s.
+        // Stay inside this query loop so a missing poll wakeup cannot extend the bound.
+        if let (Err(error), Some(timing)) = (&result, &mut ctxt.startup_timing) {
+            let io_error = error.errno() == libc::EIO;
+            let healthy = io_error
+                && matches!(
+                    stream.handle.state(),
+                    alsa::pcm::State::Prepared | alsa::pcm::State::Running
+                );
+            let available = if healthy {
+                stream.handle.avail_update().ok()
+            } else {
+                None
+            };
+            if timing.retry(std::time::Instant::now(), io_error, healthy, available) {
+                thread::sleep(startup_timing::RETRY_INTERVAL);
+                continue;
+            }
+        }
+        break match result {
+            Ok(frames) => {
+                if let Some(timing) = &mut ctxt.startup_timing {
+                    timing.measured();
+                }
+                Ok(frames)
+            }
+            // Suspend: try hardware resume first; fall back to prepare() if unsupported.
+            // BSD compat: check via PCM state rather than the Linux-specific ESTRPIPE errno.
+            Err(_) if matches!(stream.handle.state(), alsa::pcm::State::Suspended) => {
+                return try_resume(&stream.handle);
+            }
+            // Xrun: recover via prepare() (+ start() for capture, handled by the worker).
+            Err(err) if err.errno() == libc::EPIPE => return Err(ErrorKind::Xrun.into()),
+            res => res,
+        }?;
+    };
     // ALSA can have spurious wakeups where poll returns but avail < avail_min.
     // This is documented to occur with dmix (timer-driven) and other plugins.
     // Verify we have room for at least one full period before processing.

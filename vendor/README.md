@@ -1,4 +1,4 @@
-# macOS compatibility patches
+# Platform compatibility patches
 
 These crates are copied from their published crates.io distributions, with the same versions
 and their original license files. `Cargo.toml` uses `[patch.crates-io]` so every consumer shares
@@ -34,3 +34,35 @@ run these tests, and audit the final Intel executable for strong imports of
 
 The other upstream optional APIs remain unchanged. Enabling additional APIs (for example
 certificate timestamp setters introduced in 10.14.2) requires another compatibility audit.
+
+## ALSA Pulse startup compatibility
+
+CPAL's ALSA output path retries an initial `snd_pcm_avail_delay` EIO for at most one
+second, on the same stream, only while the PCM is Prepared/Running and a separate
+availability query succeeds with a nonnegative result. It waits 5 ms between attempts,
+checks for stream disposal, and stops retrying after the first successful timing query.
+Input streams, later errors, unavailable devices and persistent failures retain their
+normal error handling. No timing values are fabricated.
+
+This accommodates [alsa-plugins issue 65](https://github.com/alsa-project/alsa-plugins/issues/65):
+older Pulse plugins compare negative `PA_ERR_NODATA` with a positive constant and return
+EIO while initial latency is unavailable. The [upstream correction](https://github.com/alsa-project/alsa-plugins/commit/811c2ce69d1265ace42a05ef045ca1b4ed72e01c)
+waits for the same stream's asynchronous timing update. The compatibility retry is bounded
+because EIO can also represent a real device failure. Reassess it when the supported
+distributions ship the corrected plugin.
+
+Run the ALSA regressions on Linux with its development libraries installed:
+
+```sh
+cargo test --manifest-path vendor/cpal-0.18.2/Cargo.toml --lib startup_timing
+```
+
+The pure deadline/error-policy tests can also run without audio hardware or Linux:
+
+```sh
+rustc --edition 2021 --test vendor/cpal-0.18.2/src/host/alsa/startup_timing.rs -o /tmp/unsub-alsa-startup-tests
+/tmp/unsub-alsa-startup-tests
+```
+
+The package smoke matrix additionally exercises the real distro Pulse plugins and audio
+output; policy tests alone do not establish runtime compatibility.

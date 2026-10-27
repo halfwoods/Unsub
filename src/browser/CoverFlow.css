@@ -1,6 +1,7 @@
 .coverflow {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -49,7 +50,7 @@
   left: 0;
   right: 0;
   text-align: center;
-  pointer-events: none;
+  padding: 0 16px;
   z-index: 200;
 }
 
@@ -86,3 +87,7 @@
   background: linear-gradient(to bottom, #8d8d8d, #5c5c5c 50%, #474747 51%, #5e5e5e);
   transition: left 200ms ease-out;
 }
+
+.coverflow-caption-title, .coverflow-caption-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coverflow-stage:focus-visible, .coverflow-slider:focus-visible { outline: 2px solid var(--selection-bg, #3875d7); outline-offset: -2px; }
+.coverflow-empty { padding: 40px 16px; text-align: center; color: #a7a7a7; }

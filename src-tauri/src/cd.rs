@@ -414,7 +414,7 @@ pub fn cd_import(app: AppHandle, state: State<'_, DevicesState>, disc_id: String
         format: format.into(),
         dest_dir: app
             .state::<LibraryState>()
-            .media_folder(&app.path().audio_dir().map_err(|e| CommandError::from(e.to_string()))?.join("Unsub"))?,
+            .media_folder(&crate::user_paths::music(&app).map_err(|e| CommandError::from(e.to_string()))?.join("Unsub"))?,
         verify_accuraterip: verify,
         tracks: Some(numbers),
     };

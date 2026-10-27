@@ -36,7 +36,7 @@ pub fn welcome_done(state: State<'_, LibraryState>) -> CommandResult<()> {
 pub async fn welcome_folders(app: AppHandle, state: State<'_, LibraryState>) -> CommandResult<Vec<WelcomeFolder>> {
     let paths = app.path();
     let home = paths.home_dir().map_err(|e| CommandError::from(e.to_string()))?;
-    let music = paths.audio_dir().map_err(|e| CommandError::from(e.to_string()))?;
+    let music = crate::user_paths::music(&app).map_err(|e| CommandError::from(e.to_string()))?;
     let media_folder = state.queries().media_settings()?.folder;
     Ok(offered_folders(music, home.join(ICLOUD_MUSIC), media_folder.as_deref()))
 }
