@@ -71,7 +71,7 @@ export function CopyVideos({ device, onClose }: { device: Device; onClose: () =>
       <h2 id="copy-videos-title">Copy Videos from “{device.name}”</h2>
       <p>Save original files and their metadata to a folder. The iPod stays unchanged; videos are not added to your music library.</p>
       {state.listing?.warning && <p role="status">{state.listing.warning}</p>}
-      {state.listing?.fromFiles && <p>Reading files directly because the iPod database is unavailable. Names and categories may be incomplete.</p>}
+      {state.listing?.fromFiles && !state.listing.warning && <p>Reading files directly because the iPod database is unavailable. Names and categories may be incomplete.</p>}
       <div className="copy-videos-choices">
         <button className="push-button" disabled={disabled || state.loading || items.length === 0} onClick={() => session.select(items.map(item => item.id))}>Select All</button>
         <button className="push-button" disabled={disabled || state.loading || selected.size === 0} onClick={() => session.select([])}>Select None</button>

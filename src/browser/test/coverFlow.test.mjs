@@ -54,3 +54,28 @@ test("Cover Flow renders at most 19 covers in a large library and prevents nativ
   stage.props.onKeyDown({key:"ArrowRight",preventDefault:()=>{prevented=true;}});
   assert.equal(prevented,true); assert.deepEqual(moves,[5001]);
 });
+
+
+test("Enter plays the centered album after arrows even when focus remains on the old cover", () => {
+  globalThis.centerKey = null;
+  const played = [];
+  globalThis.state = { albums:[{key:"compilation"},{key:"album001"}], tracks:[], selection:new Set(), selectionAnchor:null, selectRow:()=>{}, playAlbum:key=>played.push(key) };
+  const element = CoverFlow().props.children[0];
+  let center = 0;
+  const renderStage = () => element.type({...element.props,center,onCenter:i=>{center=i;}});
+  let stage = renderStage();
+  const oldFocusedCover = stage.props.children[0].props.children[0];
+  stage.props.onKeyDown({key:"ArrowRight",target:oldFocusedCover,currentTarget:stage,preventDefault:()=>{}});
+  assert.equal(center,1);
+  stage = renderStage();
+  const stillFocusedCover = stage.props.children[0].props.children[0];
+  assert.equal(stillFocusedCover.props.onKeyDown,undefined, "cover must let Enter bubble to the stage");
+  let prevented = false;
+  stage.props.onKeyDown({key:"Enter",target:stillFocusedCover,currentTarget:stage,preventDefault:()=>{prevented=true;}});
+  assert.equal(prevented,true);
+  assert.deepEqual(played,["album001"]);
+  for (const target of [stage, stage.props.children.at(-1)]) {
+    stage.props.onKeyDown({key:"Enter",target,currentTarget:stage,preventDefault:()=>{}});
+  }
+  assert.deepEqual(played,["album001","album001","album001"]);
+});

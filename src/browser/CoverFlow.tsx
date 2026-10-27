@@ -77,7 +77,11 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
           e.preventDefault();
           onCenter(clamp(e.key === "Home" ? 0 : e.key === "End" ? albums.length - 1 : center + (e.key === "ArrowLeft" ? -1 : 1)));
         }
-        if (e.key === "Enter" && e.target === e.currentTarget && current) void useApp.getState().playAlbum(current.key);
+        // Arrow navigation can leave DOM focus on the previous cover. Always play the centered album.
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (current) void useApp.getState().playAlbum(current.key);
+        }
       }}
     >
       <div className="coverflow-floor" style={{ height: cover * 1.1, top: height * 0.1 }}>
@@ -91,7 +95,6 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
               tabIndex={i === center ? 0 : -1}
               aria-current={i === center ? "true" : undefined}
               onDoubleClick={() => void useApp.getState().playAlbum(album.key)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); void useApp.getState().playAlbum(album.key); } }}
               style={{ width: cover, height: cover, transform: placement(offset, cover), zIndex: 100 - Math.abs(offset) }}
               // Ctrl-click on a Mac is a context click that WebKit reports as a click too, which would reset the song selection.
               onClick={(e) => !isContextClick(e) && onCenter(i)}
