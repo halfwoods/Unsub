@@ -25,6 +25,7 @@ mod sync;
 #[cfg(test)]
 mod test_support;
 mod updates;
+mod user_paths;
 mod video_export;
 mod visualizer;
 mod welcome;
@@ -73,8 +74,10 @@ pub fn run() {
                 app.manage(smoke::Ready::default());
             }
             let data_dir = app.path().app_data_dir()?;
+            let music_dir = user_paths::music(app.handle())?;
+            let downloads_dir = user_paths::downloads(app.handle())?;
             if let Some(config) = &smoke_config {
-                for path in [&data_dir, &app.path().app_cache_dir()?, &app.path().audio_dir()?, &app.path().download_dir()?] {
+                for path in [&data_dir, &app.path().app_cache_dir()?, &music_dir, &downloads_dir] {
                     config.check_path(path)?;
                 }
                 if std::fs::read_dir(&data_dir)?.next().is_some() {
@@ -87,7 +90,7 @@ pub fn run() {
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json"), data_dir.join("StreamedSongs.json")));
-            app.state::<LibraryState>().media_folder(&app.path().audio_dir()?.join("Unsub"))?;
+            app.state::<LibraryState>().media_folder(&music_dir.join("Unsub"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
@@ -103,10 +106,10 @@ pub fn run() {
             if !smoke {
                 sync::tidy(app.handle());
             }
-            let episodes_dir = app.path().audio_dir()?.join("Unsub").join("Podcasts");
+            let episodes_dir = music_dir.join("Unsub").join("Podcasts");
             app.manage(PodcastsState::open(&data_dir, episodes_dir)?);
-            let purchases_dir = app.path().audio_dir()?.join("Unsub").join("Purchases");
-            app.manage(PurchasesState::open(&data_dir, purchases_dir, app.path().download_dir()?)?);
+            let purchases_dir = music_dir.join("Unsub").join("Purchases");
+            app.manage(PurchasesState::open(&data_dir, purchases_dir, downloads_dir)?);
             if !smoke {
                 PurchasesState::apply(app.handle());
             }
