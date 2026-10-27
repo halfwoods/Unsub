@@ -46,13 +46,14 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 <sub>The artists and albums in these screenshots are fictional.</sub>
 
-## What's new in 0.6.0
+## What's new in 0.7.0
 
-- **Gaslight visualizer.** Glowing spectrum ridges and fading trails, with Ember, Aurora and Inverted colors, saved controls and optional autopilot. Choose **View › Visualizer › Gaslight**.
-- **Experimental High Sierra compatibility.** The standard Intel download now targets macOS 10.13.6 with Safari 13.1.2; no separate legacy edition is needed. Build and binary checks pass, but it has not yet been tested on an actual High Sierra Mac. Apple Silicon still requires macOS 11 or later.
-- **Better visualizer keyboard controls.** Arrow keys and Escape retain focus after fullscreen transitions, and visualizer shortcuts respect open dialogs and menus.
+- **Experimental Linux packages.** AppImage and Debian downloads for x86_64, with bundled audio codecs. Automated checks passed on Ubuntu 22.04/24.04 and Debian 12.
+- **Copy videos from an iPod.** Save original movies, music videos and other video records, plus a metadata report, using **Copy Videos…** on the device Summary. Protected files remain protected. Video playback and syncing are not included.
+- **Artwork and Cover Flow fixes.** Consistent album grouping, saved columns, aligned scrolling and reliable keyboard navigation through large libraries.
+- **Reliability fixes.** Video export resumes existing verified copies, and Chromecast disconnects are recognized correctly on macOS.
 
-[Read the 0.6.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.6.0) or [download the latest version](#download).
+[Read the 0.7.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.7.0) or [download the latest version](#download). The Gaslight visualizer and experimental Intel High Sierra compatibility from [0.6.0](https://github.com/halfwoods/Unsub/releases/tag/v0.6.0) are included.
 
 Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.0): customizable metadata columns, artist browsing, the classic Column Browser, saved view presets and **Go to Current Song** (`Cmd+L` on Mac, `Ctrl+L` on Windows/Linux).
 
@@ -73,14 +74,13 @@ Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.
 - **A visualizer** that actually reacts to the music.
 - **Streams to your phone.** A Subsonic-compatible server is built in, so phone apps can play your library from your own computer. No middleman.
 
-Upcoming changes are described in the [draft 0.7.0 notes](docs/RELEASE_NOTES_0.7.0.md): Linux packages, original iPod video export and artwork-view fixes. They are not in the current public download.
-
 ## Download
 
 These links always download the newest version. The [download page](https://halfwoods.com/unsub/) picks the right one for you; older versions and release notes are on [Releases](https://github.com/halfwoods/Unsub/releases).
 
 - **Mac** (Apple Silicon: macOS 11+; Intel: macOS 11+ with experimental support for fully updated High Sierra 10.13.6 and later): **[Apple chip](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_arm64.dmg)** or **[Intel](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.dmg)**. Open the `.dmg` and drag Unsub to Applications. It's signed and notarized, so it opens like any other app.
 - **Windows** (10 or 11, 64-bit): **[installer](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64-setup.exe)**, or the [MSI](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x64_en-US.msi) if you prefer. The Windows build isn't code-signed yet (certificates cost money), so you'll see “Windows protected your PC”. Choose **More info › Run anyway**.
+- **Linux — experimental** (x86_64, glibc 2.35+, WebKitGTK 4.1): **[AppImage](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_x86_64.AppImage)** or **[Debian package](https://github.com/halfwoods/Unsub/releases/latest/download/Unsub_amd64.deb)**. Automated startup, import and playback checks passed on Ubuntu 22.04/24.04 and Debian 12. Installed desktop updates and administrator prompts remain untested; use these downloads if in-app updating is unavailable.
 
 Unsub updates itself from new releases, and only when you let it.
 
@@ -443,7 +443,7 @@ Because that's the version worth copying.
 Yes. GPL-3.0-or-later: you can read it, change it and share it.
 
 **Linux?**
-Linux x86_64 packaging is being added for the next release: AppImage and Debian (`.deb`), targeting Ubuntu 22.04/24.04 and Debian 12. The current public 0.6.0 release has no Linux download. See the [draft 0.7.0 notes](docs/RELEASE_NOTES_0.7.0.md) and [package validation plan](docs/LINUX_VIDEO_ARTWORK_PLAN.md).
+Experimental Linux x86_64 AppImage and Debian (`.deb`) packages are available in 0.7.0. Automated checks cover Ubuntu 22.04/24.04 and Debian 12. Installed desktop updates/PolicyKit and physical audio hardware remain unverified. See the [release notes](docs/RELEASE_NOTES_0.7.0.md) and [validation record](docs/LINUX_VIDEO_ARTWORK_PLAN.md).
 
 **High Sierra?**
 Version 0.6.0 adds experimental High Sierra support to the standard Intel download; there is no
