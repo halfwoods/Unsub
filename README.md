@@ -73,6 +73,8 @@ Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.
 - **A visualizer** that actually reacts to the music.
 - **Streams to your phone.** A Subsonic-compatible server is built in, so phone apps can play your library from your own computer. No middleman.
 
+Upcoming changes are described in the [draft 0.7.0 notes](docs/RELEASE_NOTES_0.7.0.md): Linux packages, original iPod video export and artwork-view fixes. They are not in the current public download.
+
 ## Download
 
 These links always download the newest version. The [download page](https://halfwoods.com/unsub/) picks the right one for you; older versions and release notes are on [Releases](https://github.com/halfwoods/Unsub/releases).
@@ -441,7 +443,7 @@ Because that's the version worth copying.
 Yes. GPL-3.0-or-later: you can read it, change it and share it.
 
 **Linux?**
-It builds and passes its tests on Linux, but isn't packaged yet. Pull requests welcome.
+Linux x86_64 packaging is being added for the next release: AppImage and Debian (`.deb`), targeting Ubuntu 22.04/24.04 and Debian 12. The current public 0.6.0 release has no Linux download. See the [draft 0.7.0 notes](docs/RELEASE_NOTES_0.7.0.md) and [package validation plan](docs/LINUX_VIDEO_ARTWORK_PLAN.md).
 
 **High Sierra?**
 Version 0.6.0 adds experimental High Sierra support to the standard Intel download; there is no
