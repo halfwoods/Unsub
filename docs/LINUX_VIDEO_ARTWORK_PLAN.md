@@ -1,6 +1,6 @@
 # Linux downloads, iPod video recovery, and artwork-view fixes
 
-Status: implementation in progress, 2026-10-27. Approved conversational plan; user requested implementation. Base `origin/main` is `f376db6`; checkout was clean, `git pull --ff-only` completed, then branch `mac-mini/linux-video-artwork` was created. Disk now has 44 GiB free, so no cleanup was performed.
+Status: implementation complete, 2026-10-27. Automated package and available native verification passed as recorded below; manual release gates remain. Approved conversational plan; user requested implementation. Base `origin/main` is `f376db6`; checkout was clean, `git pull --ff-only` completed, then branch `mac-mini/linux-video-artwork` was created. The initial disk check showed 44 GiB free, so no cleanup was performed.
 
 ## Outcomes and boundaries
 
