@@ -905,6 +905,12 @@ mod tests {
         );
         assert_eq!(fs::read(&path).unwrap(), original);
         catalog.items[0].bytes = Some(original.len() as u64);
+        // Keep the in-flight handle outside the marker directory: Windows refuses
+        // to rename a directory containing an open file. Removing the marker still
+        // simulates device loss between chunks while that handle remains readable.
+        let in_flight = device.mount_path.join("in-flight.m4v");
+        fs::copy(&path, &in_flight).unwrap();
+        catalog.items[0].path = in_flight.clone();
         let marker = device.mount_path.join("iPod_Control");
         let detached = device.mount_path.join("detached");
         let report = export(
@@ -924,6 +930,7 @@ mod tests {
         assert!(report.disconnected);
         assert_eq!(report.items[0].status, "failed");
         assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(fs::read(&in_flight).unwrap(), original);
         assert!(
             fs::read_dir(destination(&device, target.path()).unwrap())
                 .unwrap()
