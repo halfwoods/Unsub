@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tauri::Manager;
+use tauri::{Listener, Manager};
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -92,12 +92,25 @@ pub fn smoke_frontend_ready(app: tauri::AppHandle) {
 }
 
 pub fn start(app: tauri::AppHandle, config: Config) {
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+    let captured = std::sync::Arc::clone(&events);
+    let listener = app.listen(crate::playback::PLAYER_EVENT, move |event| {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload())
+            && matches!(value.get("type").and_then(|kind| kind.as_str()), Some("error" | "notice"))
+        {
+            let mut events = captured.lock().unwrap();
+            if events.len() < 32 {
+                events.push(value);
+            }
+        }
+    });
     std::thread::spawn(move || {
         let result = exercise(&app, &config);
+        app.unlisten(listener);
         let success = result.is_ok();
         let report = match result {
             Ok(status) => serde_json::json!({"success":true,"frontendReady":true,"imported":true,"playback":status}),
-            Err(error) => serde_json::json!({"success":false,"error":error}),
+            Err(error) => serde_json::json!({"success":false,"error":error,"playbackEvents":events.lock().unwrap().clone()}),
         };
         let written = std::fs::write(&config.report, serde_json::to_vec_pretty(&report).unwrap());
         if let Err(error) = &written {
