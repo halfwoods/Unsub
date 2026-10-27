@@ -10,7 +10,8 @@ audio=libasound2; ssl=libssl3; gtk=libgtk-3-0
 if apt-cache show libasound2t64 >/dev/null 2>&1; then audio=libasound2t64; ssl=libssl3t64; gtk=libgtk-3-0t64; fi
 apt-get install -y --no-install-recommends xvfb xauth dbus-x11 pulseaudio libasound2-plugins python3 ca-certificates libwebkit2gtk-4.1-0 "$gtk" "$audio" libdbus-1-3 libayatana-appindicator3-1 "$ssl" libbz2-1.0 zlib1g file binutils
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+# The caller uses a disposable --rm container. Its teardown reaps WebKit/PulseAudio
+# before removing the profile; deleting it here can race their final cache writes.
 case "$kind" in
   deb) apt-get install -y "$artifact"; executable=/usr/bin/unsub ;;
   appimage) chmod +x "$artifact"; (cd "$work" && "$artifact" --appimage-extract >/dev/null); executable="$work/squashfs-root/AppRun" ;;
