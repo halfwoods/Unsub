@@ -22,17 +22,17 @@ done < <("$ROOT/scripts/build-ffmpeg-macos.sh" --print-sources)
 export CFLAGS='-O2 -fPIC'
 export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
 export LD_LIBRARY_PATH="$PREFIX/lib"
-cd "$WORK"/lame-*
+cd "$WORK"/lame-*/
 # Obsolete exported declaration fails newer toolchains; same change as macOS recipe.
 sed -i '/lame_init_old/d' include/libmp3lame.sym
 ./configure --prefix="$PREFIX" --disable-dependency-tracking --disable-debug --disable-frontend --disable-static --enable-shared
 make -j"$(nproc)" && make install
 cp COPYING "$PREFIX/share/licenses/LAME-COPYING"
-cd "$WORK"/opus-*
+cd "$WORK"/opus-*/
 ./configure --prefix="$PREFIX" --disable-dependency-tracking --disable-doc --disable-extra-programs --disable-static --enable-shared
 make -j"$(nproc)" && make install
 cp COPYING "$PREFIX/share/licenses/Opus-COPYING"
-cd "$WORK"/ffmpeg-*
+cd "$WORK"/ffmpeg-*/
 ./configure --prefix="$PREFIX" --enable-shared --disable-static --disable-programs --disable-doc --disable-debug \
   --disable-avdevice --disable-avfilter --disable-swscale --disable-network --disable-autodetect \
   --enable-pthreads --enable-zlib --enable-bzlib --disable-iconv --enable-libmp3lame --enable-libopus \

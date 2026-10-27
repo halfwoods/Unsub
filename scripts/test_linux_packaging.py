@@ -16,6 +16,17 @@ class LinuxPackagingTests(unittest.TestCase):
         self.assertEqual(mac, linux)
         self.assertEqual(len(linux.splitlines()), 3)
 
+    def test_source_directory_selection_ignores_archives(self):
+        script = (ROOT / 'scripts/build-ffmpeg-linux.sh').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            for family in ('lame', 'opus', 'ffmpeg'):
+                name = f'{family}-1.0'
+                (Path(directory) / name).mkdir()
+                (Path(directory) / f'{name}.tar.gz').touch()
+                line = next(line for line in script.splitlines() if line.startswith(f'cd "$WORK"/{family}-'))
+                selected = subprocess.check_output(['bash', '-c', f'WORK="$1"; {line}; pwd', '_', directory], text=True).strip()
+                self.assertEqual(Path(selected).resolve(), (Path(directory) / name).resolve())
+
     def test_private_library_layout_and_dependencies(self):
         config = json.loads((ROOT / '.github/tauri/linux-release.conf.json').read_text())['bundle']
         self.assertEqual(set(config['targets']), {'appimage', 'deb'})
