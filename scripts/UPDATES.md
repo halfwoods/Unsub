@@ -124,7 +124,7 @@ a generated WAV fixture, Xvfb and a PulseAudio null sink. The opt-in packaged sm
 report successful import, playback and frontend readiness before exiting. No host library or
 physical iPod is mounted. Release drafting waits for all six smoke jobs.
 
-Run a rehearsal after pushing a branch:
+Run an unsigned rehearsal after pushing a branch (CI also runs this for the PR):
 
 ```sh
 gh workflow run linux-packages.yml --ref mac-mini/linux-video-artwork
@@ -132,6 +132,18 @@ gh run list --workflow linux-packages.yml --limit 3
 gh run watch <run-id> --exit-status
 gh run download <run-id> --name linux
 ```
+
+The existing Release workflow can run just Linux on a branch, including real updater signatures,
+without creating a tag or publishing assets:
+
+```sh
+gh workflow run release.yml --ref mac-mini/linux-video-artwork -f sign=true -f linux-only=true
+```
+
+`linux-only` defaults to false and cannot skip platforms on a tag push. The signed rehearsal
+verifies both payload signatures against the app's public key using minisign, rejects a modified
+copy of each package, and rejects a manifest version that differs from the signed version. It
+still does not perform an installed old-to-new update or interactive privilege elevation.
 
 Local macOS checks cover the scripts/configuration and manifest regression fixtures only:
 `python3 -m unittest scripts/test_linux_packaging.py`. They do **not** prove Linux installation,
