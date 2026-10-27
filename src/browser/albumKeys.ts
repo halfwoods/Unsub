@@ -42,3 +42,15 @@ export function albumRowWindow(rows: number, groupTop: number, scrollTop: number
   const end = Math.max(start, Math.min(rows, Math.ceil((scrollTop + viewportHeight - groupTop) / rowHeight) + 5));
   return { start, end };
 }
+
+/** A playlist can contain the same track more than once; preserve the active occurrence. */
+export function remapTrackAnchor(previous: Track[], next: Track[], anchor: number | null): number | null {
+  if (anchor === null || !previous[anchor]) return null;
+  const id = previous[anchor].id;
+  let occurrence = 0;
+  for (let index = 0; index < anchor; index++) if (previous[index].id === id) occurrence++;
+  for (let index = 0; index < next.length; index++) {
+    if (next[index].id === id && occurrence-- === 0) return index;
+  }
+  return null;
+}

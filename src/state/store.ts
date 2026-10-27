@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { orderAlbumTracks } from "../browser/albumKeys";
+import { orderAlbumTracks, remapTrackAnchor } from "../browser/albumKeys";
 import { layoutFor, isLayoutSource } from "../preferences/libraryViews";
 import { useLibraryViews } from "../preferences/libraryViewStore";
 import { browseQuery, browserQueries, EMPTY_BROWSER, narrowBrowser, playlistPositionQuery, withoutBrowse, type BrowseStep, type BrowserFilters } from "../browser/browseScope";
@@ -478,10 +478,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   // Album List only makes sense in album order, so iTunes switches the sort to it.
   setViewMode: (viewMode) => {
-    const { query, viewMode: previousView, source, playlists } = get();
+    const { query, viewMode: previousView, source, playlists, tracks: previousTracks, selectionAnchor } = get();
     const saved = layoutFor(useLibraryViews.getState().prefs, source, playlists.some(p => p.id === playlistIdOf(source) && p.kind === "regular"));
     const grouped = query.sort === "album" || query.sort === "albumArtist" || query.sort === "artist";
-    set({ viewMode, tracks: viewMode === "albumList" ? orderAlbumTracks(get().tracks) : get().tracks, songReveal: null, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false }
+    const tracks = viewMode === "albumList" ? orderAlbumTracks(previousTracks) : previousTracks;
+    set({ viewMode, tracks, selectionAnchor: remapTrackAnchor(previousTracks, tracks, selectionAnchor), songReveal: null, query: viewMode === "albumList" && !grouped ? { ...query, sort: "album", descending: false }
       : previousView === "albumList" && viewMode !== "albumList" ? { ...query, sort: saved.sort, descending: saved.descending } : query });
     useLibraryViews.getState().setBrowsing({ viewMode });
     void get().refresh();
@@ -506,7 +507,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   refresh: async () => {
-    const { query, source } = get();
+    const { query, source, tracks: previousTracks, selectionAnchor: previousAnchor, selection: previousSelection } = get();
     // Never offer old-scope rows for playback or edits while a narrower request is pending.
     if (get().loadedQuery !== query) set({ tracks: [], stats: null, albums: [], artists: [], genres: [], composers: [] });
     const device = parseDeviceSource(source);
@@ -544,7 +545,13 @@ export const useApp = create<AppState>((set, get) => ({
     ]);
     // Drop stale responses when the user typed or switched source mid-flight.
     if (get().query !== query || get().source !== source || get().viewMode !== viewMode || get().gridGroup !== gridGroup) return;
-    set({ tracks: viewMode === "albumList" ? orderAlbumTracks(tracks) : tracks, stats, albums, artists, genres, composers, browserFacets, loadedQuery: query });
+    const nextTracks = viewMode === "albumList" ? orderAlbumTracks(tracks) : tracks;
+    const current = get();
+    // A query change temporarily removes rows. Keep its captured occurrence only if
+    // selection has not changed meanwhile; explicit anchor resets must stay reset.
+    const anchorTracks = current.tracks.length ? current.tracks
+      : current.selectionAnchor === previousAnchor && current.selection === previousSelection ? previousTracks : [];
+    set({ tracks: nextTracks, selectionAnchor: remapTrackAnchor(anchorTracks, nextTracks, current.selectionAnchor), stats, albums, artists, genres, composers, browserFacets, loadedQuery: query });
     } catch (error) {
       if (get().query === query && get().source === source) get().showNotice(`Couldn't load library: ${String(error)}`);
     }
