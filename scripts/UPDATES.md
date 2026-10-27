@@ -152,3 +152,7 @@ checks do not exercise a physical audio device, compositor, mounted iPod or inte
 agent. Before publishing the first Linux release, record the successful workflow run and manually
 rehearse a signed old-to-new update on both formats on a Linux desktop, including tampered payload
 and signed-version rejection. A configured workflow is not a completed rehearsal.
+
+## 0.7.0 publication decision
+
+On 2026-10-27, the maintainer authorized publication after all testing possible without a Linux desktop. The installed Linux update/PolicyKit rehearsal is deferred, not marked passed. Linux is explicitly experimental, with manual package downloads as the fallback. CI and tagged release workflow 40482329413 passed, including all six Linux runtime checks. All six updater payload signatures, seven manifest entries and installer aliases were verified. Actual Linux payload tampering and incorrect signed-version claims were rejected. No package signing or validation controls were bypassed.
