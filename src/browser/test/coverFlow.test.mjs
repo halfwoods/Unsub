@@ -29,6 +29,10 @@ registerHooks({
   },
 });
 const { CoverFlow } = await import(component);
+globalThis.Element = class Element {
+  constructor(className = "") { this.className = className; }
+  closest(selector) { return selector === `.${this.className}` ? this : null; }
+};
 test("Cover Flow follows the active song, preserves multiselection and retains album identity after filtering", () => {
   const calls = [];
   globalThis.state = { albums:[{key:"a"},{key:"b"},{key:"c"}], tracks:[{id:1,albumGroup:"a"},{id:2,albumGroup:"b"},{id:3,albumGroup:"c"}], selection:new Set([1,3]), selectionAnchor:2, selectRow:(...args)=>calls.push(args) };
@@ -78,4 +82,28 @@ test("Enter plays the centered album after arrows even when focus remains on the
     stage.props.onKeyDown({key:"Enter",target,currentTarget:stage,preventDefault:()=>{}});
   }
   assert.deepEqual(played,["album001","album001","album001"]);
+});
+
+test("cover keyboard navigation retains stage focus when End removes the old cover and preserves slider focus", () => {
+  globalThis.centerKey = null;
+  const played = [];
+  globalThis.state = { albums:Array.from({length:30},(_,i)=>({key:String(i),album:String(i),albumArtist:"Artist"})), tracks:[], selection:new Set(), selectionAnchor:null, selectRow:()=>{}, playAlbum:key=>played.push(key) };
+  const element = CoverFlow().props.children[0];
+  let center = 0;
+  const render = () => element.type({...element.props,center,onCenter:i=>{center=i;}});
+  const oldCover = new Element("coverflow-cover");
+  const slider = new Element("coverflow-slider");
+  let focused = oldCover;
+  const stageNode = new Element("coverflow-stage");
+  stageNode.focus = options => { assert.deepEqual(options,{preventScroll:true}); focused=stageNode; };
+  const press = key => render().props.onKeyDown({key,target:focused,currentTarget:stageNode,preventDefault:()=>{}});
+  press("End");
+  assert.equal(center,29);
+  assert.equal(focused,stageNode,"focus must leave the old cover before it unmounts");
+  assert.ok(render().props.children[0].props.children.every(cover=>cover.props["aria-label"] !== "0 by Artist"));
+  press("ArrowLeft"); press("Enter");
+  assert.equal(center,28); assert.deepEqual(played,["28"]);
+  focused=slider;
+  press("Home");
+  assert.equal(center,0); assert.equal(focused,slider);
 });

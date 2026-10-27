@@ -75,6 +75,11 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
       onKeyDown={(e) => {
         if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
           e.preventDefault();
+          // A cover can leave the rendered neighborhood on the next move. Keep
+          // keyboard focus on the stable stage before that button unmounts.
+          if (e.target instanceof Element && e.target.closest(".coverflow-cover")) {
+            e.currentTarget.focus({ preventScroll: true });
+          }
           onCenter(clamp(e.key === "Home" ? 0 : e.key === "End" ? albums.length - 1 : center + (e.key === "ArrowLeft" ? -1 : 1)));
         }
         // Arrow navigation can leave DOM focus on the previous cover. Always play the centered album.
