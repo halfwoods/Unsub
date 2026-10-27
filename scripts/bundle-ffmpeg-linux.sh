@@ -19,6 +19,7 @@ for family in avcodec avformat avutil swresample mp3lame opus; do
 done
 cp -R "$PREFIX/share/licenses/." "$STAGE/linux/licenses/"
 cp "$ROOT/scripts/THIRD_PARTY.md" "$STAGE/linux/licenses/THIRD_PARTY.md"
+cp "$ROOT/LICENSE" "$STAGE/linux/licenses/Unsub-LICENSE"
 # Preserve notices for distribution dependencies linuxdeploy may copy into the AppImage.
 # The complete installed-package inventory is a conservative superset of the runtime closure.
 mkdir -p "$STAGE/linux/licenses/ubuntu"
