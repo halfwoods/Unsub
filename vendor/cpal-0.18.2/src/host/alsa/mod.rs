@@ -1132,6 +1132,9 @@ fn poll_for_period(
     // POLLERR signals an xrun or suspend; avail_delay() below returns an error accordingly.
     // POLLIN/POLLOUT: data is ready, fall through to process it.
     let (avail_frames, delay_frames) = loop {
+        if stream.dropping.load(Ordering::Acquire) {
+            return Ok(Poll::Pending);
+        }
         let result = stream.handle.avail_delay();
         // Older ALSA Pulse plugins incorrectly turn transient PA_ERR_NODATA into
         // EIO before their first latency update. Upstream waits on the same stream:
@@ -1151,9 +1154,6 @@ fn poll_for_period(
                 None
             };
             if timing.retry(std::time::Instant::now(), io_error, healthy, available) {
-                if stream.dropping.load(Ordering::Acquire) {
-                    return Ok(Poll::Pending);
-                }
                 thread::sleep(startup_timing::RETRY_INTERVAL);
                 continue;
             }
