@@ -33,7 +33,7 @@ PY
 chown -R smoke:smoke "$work"
 set +e
 runuser -u smoke -- env UNSUB_SMOKE_TEST=1 HOME="$work/profile" XDG_CONFIG_HOME="$work/profile/config" XDG_DATA_HOME="$work/profile/data" XDG_CACHE_HOME="$work/profile/cache" XDG_STATE_HOME="$work/profile/state" XDG_RUNTIME_DIR="$work/profile/runtime" LIBGL_ALWAYS_SOFTWARE=1 \
-  dbus-run-session -- bash -c 'pulseaudio --start --exit-idle-time=-1; pactl load-module module-null-sink sink_name=unsub_test; pactl set-default-sink unsub_test; timeout 90s xvfb-run -a "$1" --smoke-test "$2/fixture.wav" --smoke-report "$2/report.json"' _ "$executable" "$work/profile"
+  dbus-run-session -- bash -c 'set -euo pipefail; pulseaudio --start --exit-idle-time=-1; pactl load-module module-null-sink sink_name=unsub_test; pactl set-default-sink unsub_test; timeout 90s xvfb-run -a "$1" --smoke-test "$2/fixture.wav" --smoke-report "$2/report.json"' _ "$executable" "$work/profile"
 app_status=$?
 set -e
 echo "Packaged application exit status: $app_status"

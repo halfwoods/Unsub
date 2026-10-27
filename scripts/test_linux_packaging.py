@@ -3,6 +3,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -67,7 +68,7 @@ else: print('RUNPATH [$ORIGIN/../lib]')
         guard = "if: github.event_name != 'workflow_dispatch' || !inputs.linux-only"
         for job in ('macos', 'windows'):
             self.assertIn(f'  {job}:\n    {guard}', workflow)
-        self.assertIn("  publish:\n    name: Draft release\n    if: github.ref_type == 'tag'", workflow)
+        self.assertIn("  publish:\n    name: Draft release\n    if: github.event_name == 'push' && github.ref_type == 'tag'", workflow)
         self.assertIn('      linux-only:\n        description: Rehearse Linux packages only (never publish a release)\n        type: boolean\n        default: false', workflow)
         self.assertIn('    needs: [macos, windows, linux]', workflow)
 
@@ -89,6 +90,32 @@ else: print('RUNPATH [$ORIGIN/../lib]')
             self.assertEqual(config['linux'][kind]['files']['/usr/lib/unsub'], 'ffmpeg-bundle/linux/lib')
             self.assertIn('/usr/share/doc/unsub/licenses', config['linux'][kind]['files'])
         self.assertFalse(any('libav' in dep for dep in config['linux']['deb']['depends']))
+        self.assertIn('libc6 (>= 2.35)', config['linux']['deb']['depends'])
+
+    def test_smoke_audio_setup_failure_prevents_application_launch(self):
+        script = (ROOT / 'scripts/linux-package-smoke.sh').read_text()
+        command = shlex.split(script.split('dbus-run-session -- bash -c ', 1)[1])[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / 'launched'
+            stubs = {
+                'pulseaudio': 'test "$FAIL_AT" != pulseaudio',
+                'pactl': 'test "$FAIL_AT" != "$1"',
+                'timeout': 'touch "$SMOKE_LAUNCH_MARKER"',
+            }
+            for name, body in stubs.items():
+                path = root / name
+                path.write_text('#!/bin/sh\n' + body + '\n')
+                path.chmod(0o755)
+            env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}', SMOKE_LAUNCH_MARKER=str(marker))
+            args = ['bash', '-c', command, '_', '/fixture/app', '/fixture/profile']
+            for failure in ('pulseaudio', 'load-module', 'set-default-sink'):
+                with self.subTest(failure=failure):
+                    result = subprocess.run(args, env=dict(env, FAIL_AT=failure), capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(marker.exists())
+            self.assertEqual(subprocess.run(args, env=dict(env, FAIL_AT=''), capture_output=True).returncode, 0)
+            self.assertTrue(marker.exists())
 
     def test_bundle_specific_signed_version_manifest(self):
         with tempfile.TemporaryDirectory() as directory:

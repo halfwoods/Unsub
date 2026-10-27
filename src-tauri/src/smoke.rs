@@ -56,7 +56,7 @@ fn parse(args: Vec<String>, env: impl Fn(&str) -> Option<PathBuf>, linux: bool) 
     if !fixture.is_file()
         || !child(&fixture, &home)
         || (parent != home && !child(&parent, &home))
-        || report.exists()
+        || report.symlink_metadata().is_ok()
         || report.file_name().is_none()
     {
         return Err("Fixture and new report must be inside smoke HOME".into());
@@ -112,12 +112,19 @@ pub fn start(app: tauri::AppHandle, config: Config) {
             Ok(status) => serde_json::json!({"success":true,"frontendReady":true,"imported":true,"playback":status}),
             Err(error) => serde_json::json!({"success":false,"error":error,"playbackEvents":events.lock().unwrap().clone()}),
         };
-        let written = std::fs::write(&config.report, serde_json::to_vec_pretty(&report).unwrap());
+        let written = write_report(&config.report, &report);
         if let Err(error) = &written {
             eprintln!("Smoke report: {error}");
         }
         app.exit(if success && written.is_ok() { 0 } else { 1 });
     });
+}
+
+fn write_report(path: &Path, report: &serde_json::Value) -> std::io::Result<()> {
+    // Never truncate a file or follow a symlink introduced since argument validation.
+    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    serde_json::to_writer_pretty(&file, report).map_err(std::io::Error::other)?;
+    file.sync_all()
 }
 
 fn exercise(app: &tauri::AppHandle, config: &Config) -> Result<unsub_playback::PlaybackStatus, String> {
@@ -203,8 +210,36 @@ mod tests {
         env.insert("XDG_CACHE_HOME", std::env::temp_dir());
         assert!(parse(args.clone(), |key| env.get(key).cloned(), true).is_err());
         env.insert("XDG_CACHE_HOME", home.join("XDG_CACHE_HOME"));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(home.join("absent"), &report).unwrap();
+            assert!(parse(args.clone(), |key| env.get(key).cloned(), true).is_err());
+            std::fs::remove_file(&report).unwrap();
+        }
         std::fs::write(&report, b"existing").unwrap();
         assert!(parse(args, |key| env.get(key).cloned(), true).is_err());
+    }
+    #[test]
+    fn report_creation_never_overwrites_an_existing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let report = root.path().join("report.json");
+        let result = serde_json::json!({"success":true});
+        write_report(&report, &result).unwrap();
+        let original = std::fs::read(&report).unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&original).unwrap(), result);
+        assert_eq!(write_report(&report, &serde_json::json!({"success":false})).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(report).unwrap(), original);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn report_creation_rejects_a_dangling_symlink() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("must-not-be-created");
+        let report = root.path().join("report.json");
+        std::os::unix::fs::symlink(&target, &report).unwrap();
+        assert!(write_report(&report, &serde_json::json!({"success":true})).is_err());
+        assert!(!target.exists());
     }
     #[cfg(unix)]
     #[test]

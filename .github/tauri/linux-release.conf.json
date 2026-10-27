@@ -10,7 +10,7 @@
         }
       },
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libasound2", "libdbus-1-3", "libayatana-appindicator3-1", "libssl3", "libbz2-1.0", "zlib1g"],
+        "depends": ["libc6 (>= 2.35)", "libwebkit2gtk-4.1-0", "libgtk-3-0", "libasound2", "libdbus-1-3", "libayatana-appindicator3-1", "libssl3", "libbz2-1.0", "zlib1g"],
         "recommends": ["policykit-1"],
         "section": "sound",
         "files": {

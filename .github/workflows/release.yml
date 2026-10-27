@@ -390,7 +390,7 @@ jobs:
 
   publish:
     name: Draft release
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     permissions:
