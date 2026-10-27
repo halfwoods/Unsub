@@ -67,3 +67,21 @@ Final acceptance requires tests for compilations, same-title albums, normalizati
 ## Remaining release gates
 
 Implementation and available automated/native verification are complete. Before publishing the first Linux release, manually rehearse signed installed old-to-new updates for both formats, including interactive PolicyKit and failure/cancellation behavior. Container playback uses a null sink; physical Linux audio hardware, a real iPod video recovery and actual High Sierra execution were not available for verification. These are explicit limits, not claims of completed hardware or desktop-update testing.
+
+## PR #8 review — 2026-10-27
+
+Reviewed the PR against this plan, including API/source scoping, export confinement and resume, duplicate playlist occurrences, virtualization, keyboard focus, Linux dependency closure, signatures and release gates. Review changes started from the latest default branch on `mac-mini/review-linux-video-artwork`, with the existing PR commits fast-forwarded into it; fixes update PR #8 rather than opening a duplicate.
+
+| Finding | Resolution | Evidence |
+| --- | --- | --- |
+| Video resume stopped at the first absent collision filename, duplicating later valid copies | Index generated names by stable video ID and extension once per operation; retain complete source/output SHA-256 verification | Regression covers deleted base file, surviving suffixed copy, changed title, low-space preview and unchanged bytes; 296 iPod tests passed |
+| Cover Flow could lose keyboard focus when a virtualized cover disappeared | Move cover-origin navigation focus to the stable stage before changing center; preserve slider focus | Automated End/Left/Enter and slider regression; native 12,000-track QA passed End → Left → Enter at 820×480 |
+| Manual full-platform rehearsal on a tag could create a release draft | Publish job now requires a tag push event | Packaging regression checks the event and ref guard |
+| Debian installer did not enforce the audited glibc minimum | Declare libc6 >= 2.35 | Dependency regression; actual package ABI audits remain in CI |
+| Failed PulseAudio setup could fall through into the smoke app | Fail fast inside the nested shell | Actual-shell tests cover all three setup failures and successful launch |
+| macOS could mask a Chromecast TCP reset with a socket-timeout InvalidInput error | On failed timeout setup, preserve the pending socket error when present; otherwise retain the original option error | Reproduced locally and in arm64 CI; 132 Cast tests and 2,000 consecutive real-socket hangup checks passed; original disconnect assertion retained |
+| Smoke report could overwrite an intervening file or follow a dangling leaf symlink | Reject existing leaf entries and atomically create a new report | Six smoke tests passed, including unchanged-file and dangling-symlink regressions |
+
+Frontend suite: 170 passed, one existing benchmark skipped. Production frontend/native debug bundle passed. Seven Linux packaging tests and formatting checks passed. Native QA used only the separate generated-fixture profile; the QA app was closed afterward. Review did not run on a physical iPod or High Sierra. Existing installed-update and hardware release gates above remain in effect.
+
+The full local Rust workspace passed 2,620 tests with seven ignored before the final Cast helper change; afterward all 132 Cast tests passed, including its new classification regression. Prior-head CI 40475571907 passed Linux, Intel macOS and all six package runtime checks but exposed the arm64 Cast failure addressed here. Updated-head CI is tracked by PR #8; earlier green runs are not evidence for untested later revisions.
