@@ -65,6 +65,10 @@ pub enum SortKey {
     Album,
     AlbumArtist,
     Genre,
+    Composer,
+    TrackNumber,
+    DiscNumber,
+    Skips,
     Year,
     Rating,
     Plays,
@@ -91,6 +95,15 @@ pub struct TrackQuery {
     pub ids: Option<Vec<i64>>,
     /// Restricts the list to one playlist's contents. Combines with the other filters.
     pub playlist: Option<i64>,
+    /// Exact, library-owned grouping identities. Never interpreted as text search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composer: Option<String>,
 }
 
 impl Default for TrackQuery {
@@ -102,6 +115,10 @@ impl Default for TrackQuery {
             descending: false,
             ids: None,
             playlist: None,
+            artist_group: None,
+            album_group: None,
+            genre: None,
+            composer: None,
         }
     }
 }
@@ -320,6 +337,16 @@ pub struct ArtistSummary {
     pub name: String,
     pub album_count: u32,
     pub track_count: u32,
+    /// At most four albums in the current scope; artwork stays on this computer.
+    pub artwork_track_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserFacets {
+    pub genres: Vec<GenreSummary>,
+    pub artists: Vec<ArtistSummary>,
+    pub albums: Vec<AlbumSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

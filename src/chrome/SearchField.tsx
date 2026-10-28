@@ -35,6 +35,7 @@ export function SearchField() {
         type="text"
         value={text}
         placeholder={PLACEHOLDER[source] ?? "Search"}
+        aria-label={PLACEHOLDER[source] ?? "Search songs"}
         spellCheck={false}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setText("")}

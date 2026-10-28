@@ -4,7 +4,7 @@ import { libraryEditTracks, libraryLyrics, libraryTrack } from "../api/commands"
 import type { ArtworkChange, LyricsSource, MediaKind, Track, TrackEdits } from "../api/types";
 import { Artwork } from "../browser/Artwork";
 import { useApp } from "../state/store";
-import { dbOnlyNotice, formatBytes, formatClock } from "../util/format";
+import { dbOnlyNotice, formatAudioKind, formatBitRate, formatBytes, formatClock, formatMetadataDate, formatSampleRate } from "../util/format";
 import "./GetInfo.css";
 
 type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics";
@@ -41,15 +41,15 @@ const KINDS: { value: MediaKind; label: string }[] = [
   { value: "audiobook", label: "Audiobook" },
 ];
 
-const formatDate = (unix: number | null) => (unix ? new Date(unix * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—");
+const formatDate = (unix: number | null) => formatMetadataDate(unix) || "—";
 
 function Summary({ track }: { track: Track }) {
   const facts: [string, string][] = [
-    ["Kind", `${track.codec} audio file`],
+    ["Kind", formatAudioKind(track.codec) || "—"],
     ["Duration", formatClock(track.durationMs)],
     ["Size", formatBytes(track.fileSize)],
-    ["Bit Rate", track.bitrateKbps ? `${track.bitrateKbps} kbps` : "—"],
-    ["Sample Rate", track.sampleRate ? `${(track.sampleRate / 1000).toLocaleString()} kHz` : "—"],
+    ["Bit Rate", formatBitRate(track.bitrateKbps) || "—"],
+    ["Sample Rate", formatSampleRate(track.sampleRate) || "—"],
     ["Bit Depth", track.bitDepth ? `${track.bitDepth}-bit` : "—"],
     ["Channels", track.channels === 1 ? "Mono" : track.channels === 2 ? "Stereo" : track.channels ? `${track.channels} channels` : "—"],
     ["Date Modified", formatDate(track.dateModified)],

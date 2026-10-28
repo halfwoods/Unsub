@@ -9,6 +9,10 @@ export type SortKey =
   | "album"
   | "albumArtist"
   | "genre"
+  | "composer"
+  | "trackNumber"
+  | "discNumber"
+  | "skips"
   | "year"
   | "rating"
   | "plays"
@@ -29,6 +33,10 @@ export interface TrackQuery {
   playlist?: number | null;
   /** Restricts the list to these songs, e.g. Display Duplicates' finds. */
   ids?: number[] | null;
+  artistGroup?: string | null;
+  albumGroup?: string | null;
+  genre?: string | null;
+  composer?: string | null;
 }
 
 export interface Track {
@@ -597,6 +605,13 @@ export interface ArtistSummary {
   name: string;
   albumCount: number;
   trackCount: number;
+  artworkTrackIds: number[];
+}
+
+export interface BrowserFacets {
+  genres: GenreSummary[];
+  artists: ArtistSummary[];
+  albums: AlbumSummary[];
 }
 
 export type PlaylistKind = "regular" | "smart" | "folder";

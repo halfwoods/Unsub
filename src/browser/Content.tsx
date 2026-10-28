@@ -12,6 +12,8 @@ import { AlbumGrid } from "./AlbumGrid";
 import { AlbumList } from "./AlbumList";
 import { CoverFlow } from "./CoverFlow";
 import { SongList } from "./SongList";
+import { BrowseNavigation } from "./BrowseNavigation";
+import { hasBrowseFilters } from "./browseScope";
 import "./Content.css";
 
 // iTunes' intro placards for an empty library.
@@ -28,10 +30,13 @@ const PLACARDS: Partial<Record<string, { title: string; body: string }>> = {
 
 function Songs() {
   const viewMode = useApp((s) => s.viewMode);
-  if (viewMode === "albumList") return <AlbumList />;
-  if (viewMode === "grid") return <AlbumGrid />;
-  if (viewMode === "coverFlow") return <CoverFlow />;
-  return <SongList />;
+  const history = useApp((s) => s.browseHistory);
+  return <div className="library-songs" onKeyDown={(e) => {
+    if (e.altKey && e.key === "ArrowLeft" && history.length) { e.preventDefault(); useApp.getState().backBrowse(); }
+  }}>
+    <BrowseNavigation />
+    {viewMode === "albumList" ? <AlbumList /> : viewMode === "grid" ? <AlbumGrid /> : viewMode === "coverFlow" ? <CoverFlow /> : <SongList />}
+  </div>;
 }
 
 function DuplicatesBar({ exact }: { exact: boolean }) {
@@ -52,7 +57,7 @@ export function Content() {
   const players = useApp((s) => s.players);
   const shared = useApp((s) => s.shared);
   const hasTracks = useApp((s) => s.tracks.length > 0);
-  const searching = useApp((s) => s.query.search !== null);
+  const searching = useApp((s) => s.query.search !== null || hasBrowseFilters(s.query));
   const loaded = useApp((s) => s.stats !== null);
   const duplicates = useApp((s) => s.duplicates);
   const welcoming = useApp((s) => s.welcoming);

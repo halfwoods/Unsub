@@ -1,5 +1,15 @@
 import type { CleanUpDone, EditReport } from "../api/types";
 
+export const formatMetadataNumber = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? "" : value.toLocaleString();
+export function formatMetadataDate(unix: number | null | undefined): string {
+  if (!unix || !Number.isFinite(unix)) return "";
+  const date = new Date(unix * 1000);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+export const formatBitRate = (value: number | null) => value ? `${formatMetadataNumber(value)} kbps` : "";
+export const formatSampleRate = (value: number | null) => value ? `${formatMetadataNumber(value / 1000)} kHz` : "";
+export const formatAudioKind = (codec: string) => codec ? `${codec.toUpperCase()} audio file` : "";
+
 /** "3:07", or "1:02:07" past an hour, the way the LCD and Time column show it. */
 export function formatClock(ms: number): string {
   const total = Math.floor(ms / 1000);

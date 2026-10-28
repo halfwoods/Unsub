@@ -219,6 +219,22 @@ pub(crate) fn selection(
         let values: Vec<Value> = ids.iter().copied().map(Value::Integer).collect();
         selection.params.push(Box::new(Rc::new(values)));
     }
+    for (column, value) in [
+        ("artist_group", &query.artist_group),
+        ("album_group", &query.album_group),
+        ("fold(genre)", &query.genre),
+        ("fold(composer)", &query.composer),
+    ] {
+        if let Some(value) = value {
+            selection.clauses.push(format!("{column} = ?"));
+            let value = if column.starts_with("fold(") {
+                fold(value)
+            } else {
+                value.clone()
+            };
+            selection.params.push(Box::new(value));
+        }
+    }
     Ok(selection)
 }
 
@@ -243,6 +259,10 @@ fn order_by(sort: SortKey, descending: bool, lists_items: bool) -> String {
             &["key_album", "disc_number", "track_number"],
         ),
         SortKey::Genre => ("key_genre", BY_ARTIST),
+        SortKey::Composer => ("NULLIF(fold(composer), '')", BY_ARTIST),
+        SortKey::TrackNumber => ("track_number", &["disc_number", "key_album", "key_title"]),
+        SortKey::DiscNumber => ("disc_number", &["track_number", "key_album", "key_title"]),
+        SortKey::Skips => ("skip_count", BY_ARTIST),
         SortKey::Name => ("key_title", BY_ARTIST),
         SortKey::Time => ("duration_ms", BY_ARTIST),
         SortKey::Year => ("year", BY_ARTIST),

@@ -1,0 +1,26 @@
+.sheet.view-options-sheet { min-width: 0; width: 520px; max-width: 92%; padding: 16px 18px 14px; }
+.view-options-sheet h2 { margin: 0 0 6px; font-size: 14px; }
+.view-options-sheet p { margin: 6px 0 10px; line-height: 1.45; color: #555; }
+.view-options-presets, .view-options-save, .view-options-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.view-options-presets { margin: 12px 0; }
+.view-options-presets select { margin-left: 6px; max-width: 240px; }
+.view-options-search { width: 100%; height: 24px; margin-bottom: 7px; }
+.view-options-sheet input:not([type=checkbox]) { border: 1px solid #aaa; border-radius: 3px; padding: 3px 6px; background: white; color: #222; font: inherit; }
+.view-options-columns { max-height: 245px; overflow: auto; border: 1px solid #aaa; background: #fff; }
+.view-options-column { display: flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 7px; }
+.view-options-column:nth-child(even) { background: var(--list-stripe); }
+.view-options-column label { display: flex; align-items: center; flex: 1; gap: 6px; min-width: 0; }
+.view-options-column input[type=number] { width: 59px; }
+.view-width-unit { color: #666; font-size: 10px; }
+.view-move-button { width: 24px; height: 22px; border: 1px solid #aaa; border-radius: 3px; background: linear-gradient(#fff, #e5e5e5); }
+.view-move-button:disabled { opacity: .4; }
+.view-options-sheet input[type=checkbox] { accent-color: #4a86d4; }
+.view-options-save { margin: 12px 0 8px; }
+.view-options-save > input { flex: 1; min-width: 100px; }
+.view-options-apply { border: 1px solid #bbb; padding: 8px; margin-top: 6px; }
+.view-options-playlists { display: grid; max-height: 105px; overflow: auto; margin-bottom: 8px; gap: 5px; }
+.view-options-playlists label { overflow-wrap: anywhere; }
+.view-options-sheet .view-options-message { min-height: 16px; margin: 9px 0; font-size: 10px; }
+.view-options-footer { border-top: 1px solid #ccc; padding-top: 10px; }
+.view-options-footer > button:last-child { margin-left: auto; }
+.view-options-sort { color: #666; font-size: 10px; }

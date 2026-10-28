@@ -168,6 +168,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         "View",
         true,
         &[
+            &MenuItem::with_id(app, "show-view-options", "Show View Options…", true, Some("CmdOrCtrl+J"))?,
+            &MenuItem::with_id(app, "toggle-column-browser", "Show/Hide Column Browser", true, Some("CmdOrCtrl+B"))?,
+            &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, SHOW_VISUALIZER.0, SHOW_VISUALIZER.1, true, SHOW_VISUALIZER.2)?,
             &visualizer_styles,
             &PredefinedMenuItem::separator(app)?,
@@ -262,6 +265,8 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
         window::show(app);
         window::toggle_full_screen(app);
     } else if id == PREFERENCES.0
+        || id == "show-view-options"
+        || id == "toggle-column-browser"
         || id == EQUALIZER.0
         || id == IMPORT_MUSIC
         || id == IMPORT_XML

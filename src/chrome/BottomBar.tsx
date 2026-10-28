@@ -59,7 +59,7 @@ export function BottomBar() {
         <Icon d={ARTWORK} label="Show artwork" on={showArtwork} onClick={toggleArtwork} />
       </div>
       <div className="bottom-status">
-        {stats && stats.count > 0
+        {stats
           ? `${pluralize(stats.count, one, many)}, ${formatTotalDuration(stats.totalDurationMs)}, ${formatBytes(stats.totalBytes)}`
           : ""}
       </div>

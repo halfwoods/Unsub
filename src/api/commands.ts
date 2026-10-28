@@ -83,6 +83,8 @@ import type {
 export const libraryTracks = (query: TrackQuery) => invoke<Track[]>("library_tracks", { query });
 export const libraryAlbums = (query: TrackQuery) => invoke<AlbumSummary[]>("library_albums", { query });
 export const libraryArtists = (query: TrackQuery) => invoke<ArtistSummary[]>("library_artists", { query });
+export const libraryArtistAlbums = (key: string, query: TrackQuery) => invoke<AlbumSummary[]>("library_artist_albums", { key, query });
+export const libraryBrowserFacets = (query: TrackQuery) => invoke<import("./types").BrowserFacets>("library_browser_facets", { query });
 export const libraryAlbumTracks = (key: string) => invoke<Track[]>("library_album_tracks", { key });
 export const libraryGenres = (query: TrackQuery) => invoke<GenreSummary[]>("library_genres", { query });
 export const libraryComposers = (query: TrackQuery) => invoke<ComposerSummary[]>("library_composers", { query });
@@ -374,6 +376,8 @@ export const onCdRip = (handler: (status: CdRipStatus | null) => void): Promise<
   listen<CdRipStatus | null>("cd://rip", (e) => handler(e.payload));
 
 export type MenuAction =
+  | "show-view-options"
+  | "toggle-column-browser"
   | "play-pause"
   | "next"
   | "previous"

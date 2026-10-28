@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { libraryAddToPlaylist, libraryMoveInPlaylist } from "../api/commands";
 import { DEVICE_TRACKS_MIME, TRACKS_MIME, type DeviceDrag } from "../sidebar/PlaylistRows";
 import { CdImportStatus } from "../cd/Cd";
@@ -13,7 +13,10 @@ import {
   useApp,
 } from "../state/store";
 import { isContextClick } from "../util/platform";
-import { CD_COLUMNS, COLUMNS, gridTemplate, POSITION_COLUMN, SHARED_COLUMNS } from "./columns";
+import { ALL_COLUMNS, CD_COLUMNS, columnText, gridTemplate, POSITION_COLUMN, STATUS_COLUMN_WIDTH } from "./columns";
+import { allowedColumn, clampColumnWidth, COLUMN_SPECS, layoutForSource, moveColumn, type ColumnId } from "../preferences/libraryViews";
+import { hasBrowseFilters, readViewScroll, saveViewScroll, scopeKey } from "./browseScope";
+import { ColumnBrowser } from "./ColumnBrowser";
 import { showCdSongMenu, showDeviceSongMenu, showMenu, showSongMenu } from "./songMenu";
 import "./SongList.css";
 
@@ -52,6 +55,15 @@ export function SongList() {
   const { sortBy, selectRow, playRow, deleteSelection, refresh, refreshPlaylists } = useApp.getState();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const rowHeight = useApp((s) => s.rowHeight);
+  const source = useApp((s) => s.source);
+  const prefs = useApp((s) => s.viewPrefs);
+  const loading = useApp((s) => s.loading);
+  const loadError = useApp((s) => s.loadError);
+  const setColumnLayout = useApp((s) => s.setColumnLayout);
+  const layout = useMemo(() => layoutForSource(prefs, source, isRegularPlaylist), [prefs, source, isRegularPlaylist]);
+  const viewKey = scopeKey(source, "list", "songs", query);
+  const dragColumn = useRef<ColumnId | null>(null);
+  const suppressSort = useRef(false);
 
   const cdId = useApp((s) => cdIdOf(s.source));
   const isCd = cdId !== null;
@@ -59,11 +71,17 @@ export function SongList() {
   // An iPod's songs can't be edited, but they can be copied into the library.
   const deviceId = useApp((s) => parseDeviceSource(s.source)?.deviceId ?? null);
   const columns = useMemo(
-    () => (isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : isRegularPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS),
-    [isCd, isShared, isRegularPlaylist],
+    () => isCd ? CD_COLUMNS : [
+      ...(isRegularPlaylist ? [POSITION_COLUMN] : []),
+      ...layout.order.filter((id) => layout.visible.includes(id) && allowedColumn(id, source)).map((id) => {
+        const column = ALL_COLUMNS.find((c) => c.id === id)!;
+        return { ...column, width: layout.widths[id] ?? column.width };
+      }),
+    ],
+    [isCd, isRegularPlaylist, layout, source],
   );
   // Reordering only makes sense while the playlist is shown in its own order.
-  const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null;
+  const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null && !query.ids && !hasBrowseFilters(query) && !loading;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -71,13 +89,71 @@ export function SongList() {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 24,
+    scrollMargin: 18,
+    scrollPaddingStart: 18,
   });
+
+  useLayoutEffect(() => {
+    if (!loading && scrollRef.current) scrollRef.current.scrollTop = readViewScroll(viewKey);
+  }, [viewKey, loading]);
 
   useEffect(() => {
     if (anchor !== null) virtualizer.scrollToIndex(anchor, { align: "auto" });
   }, [anchor, virtualizer]);
 
   useEffect(() => virtualizer.measure(), [rowHeight, virtualizer]);
+
+  const setWidth = (id: ColumnId, width: number) => {
+    const state = useApp.getState();
+    const current = layoutForSource(state.viewPrefs, state.source, isRegularPlaylist);
+    state.setColumnLayout({ ...current, widths: { ...current.widths, [id]: clampColumnWidth(width, id) } });
+  };
+  const autoSize = (id: ColumnId) => {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.font = getComputedStyle(scrollRef.current!).font;
+    let width = context.measureText(COLUMN_SPECS.find((c) => c.id === id)!.title).width + 28;
+    const step = Math.max(1, Math.floor(tracks.length / 1000));
+    for (let i = 0; i < tracks.length; i += step) width = Math.max(width, context.measureText(columnText(id, tracks[i])).width + 14);
+    setWidth(id, id === "enabled" ? 28 : id === "rating" ? 74 : width);
+  };
+  const resizeColumn = (e: PointerEvent<HTMLSpanElement>, id: ColumnId, width: number) => {
+    e.preventDefault(); e.stopPropagation();
+    const start = e.clientX;
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const move = (event: globalThis.PointerEvent) => {
+      if (Math.abs(event.clientX - start) > 2) suppressSort.current = true;
+      setWidth(id, width + event.clientX - start);
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      requestAnimationFrame(() => { suppressSort.current = false; });
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  };
+  const columnMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    if (isCd) return;
+    void showMenu([
+      ...COLUMN_SPECS.filter((c) => allowedColumn(c.id, source)).map((c) => ({
+        text: c.title, checked: layout.visible.includes(c.id), enabled: c.id !== "name",
+        action: () => {
+          const state = useApp.getState();
+          const current = layoutForSource(state.viewPrefs, source, isRegularPlaylist);
+          state.setColumnLayout({ ...current, visible: current.visible.includes(c.id) ? current.visible.filter((id) => id !== c.id) : [...current.visible, c.id] });
+        },
+      })),
+      { item: "Separator" },
+      { text: "Show View Options…", action: () => useApp.setState({ viewOptionsOpen: true }) },
+      { text: "Restore Defaults", action: () => useApp.getState().restoreColumnLayout() },
+    ]);
+  };
 
   const selectedPositions = () => tracks.flatMap((t, i) => (selection.has(t.id) ? [i] : []));
 
@@ -86,6 +162,7 @@ export function SongList() {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const from = anchor ?? -1;
@@ -146,36 +223,81 @@ export function SongList() {
   };
 
   return (
-    <div className="song-list" style={{ "--grid": gridTemplate(columns) } as CSSProperties}>
-      <div className="song-list-header" role="row">
-        <div className="song-list-header-cell" />
-        {columns.map((c) => {
-          const sorted = c.sort === query.sort;
-          return (
-            <button
-              key={c.id}
-              role="columnheader"
-              aria-sort={sorted ? (query.descending ? "descending" : "ascending") : "none"}
-              className={sorted ? "song-list-header-cell song-list-header-cell--sorted" : "song-list-header-cell"}
-              style={{ justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}
-              onClick={() => c.sort && sortBy(c.sort)}
-            >
-              <span className="song-list-header-title">{c.title}</span>
-              {sorted && <SortArrow descending={query.descending} />}
-            </button>
-          );
-        })}
-      </div>
+    <div className="song-list" style={{ "--grid": gridTemplate(columns), "--table-width": `${STATUS_COLUMN_WIDTH + columns.reduce((sum, c) => sum + c.width, 0)}px` } as CSSProperties}>
+      <ColumnBrowser />
       <div
         ref={scrollRef}
         className="song-list-body"
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onScroll={(e) => { if (!loading) saveViewScroll(viewKey, e.currentTarget.scrollTop); }}
         onDragLeave={(e) => e.currentTarget === e.target && setDropIndex(null)}
         onDrop={onDrop}
         role="grid"
+        aria-label="Songs"
+        aria-busy={loading}
         aria-rowcount={tracks.length}
       >
+      <div className="song-table-surface">
+      <div className="song-list-header" role="row" onContextMenu={columnMenu}>
+        <div className="song-list-header-cell" />
+        {columns.map((c) => {
+          const sorted = c.sort === query.sort;
+          return (
+            <div
+              key={c.id}
+              role="columnheader"
+              aria-sort={sorted ? (query.descending ? "descending" : "ascending") : "none"}
+              aria-label={c.title || "Checked"}
+              tabIndex={0}
+              className={sorted ? "song-list-header-cell song-list-header-cell--sorted" : "song-list-header-cell"}
+              style={{ justifyContent: c.align === "right" ? "flex-end" : "flex-start" }}
+              draggable={!isCd && c.id !== "position"}
+              onDragStart={(e) => {
+                if ((e.target as HTMLElement).closest(".column-resizer")) { e.preventDefault(); return; }
+                dragColumn.current = c.id as ColumnId;
+                suppressSort.current = true;
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("application/x-unsub-column", c.id);
+              }}
+              onDragOver={(e) => { if (dragColumn.current && c.id !== "position") e.preventDefault(); }}
+              onDrop={(e) => {
+                if (!dragColumn.current || c.id === "position") return;
+                e.preventDefault(); e.stopPropagation();
+                setColumnLayout(moveColumn(layout, dragColumn.current, c.id as ColumnId));
+                dragColumn.current = null;
+              }}
+              onDragEnd={() => { dragColumn.current = null; requestAnimationFrame(() => { suppressSort.current = false; }); }}
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest(".column-resizer")) return;
+                if (suppressSort.current) { suppressSort.current = false; return; }
+                if (c.sort) sortBy(c.sort);
+              }}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (c.sort) sortBy(c.sort); }
+                if (e.key === "F10" && e.shiftKey && !isCd) { e.preventDefault(); useApp.setState({ viewOptionsOpen: true }); }
+              }}
+            >
+              <span className="song-list-header-title">{c.title}</span>
+              {sorted && <SortArrow descending={query.descending} />}
+              {!isCd && c.id !== "position" && <span
+                role="separator" aria-orientation="vertical" aria-label={`Resize ${c.title || "Checked"}`}
+                aria-valuenow={c.width} aria-valuemin={c.id === "enabled" ? 22 : 28} aria-valuemax={900} tabIndex={0}
+                className="column-resizer"
+                onPointerDown={(e) => resizeColumn(e, c.id as ColumnId, c.width)}
+                onDoubleClick={(e) => { e.stopPropagation(); autoSize(c.id as ColumnId); }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); setWidth(c.id as ColumnId, c.width + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 20 : 5)); }
+                  if (e.key === "Enter") { e.preventDefault(); autoSize(c.id as ColumnId); }
+                }}
+              />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="song-list-rows">
         <div className="song-list-stripes" />
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((row) => {
@@ -189,7 +311,7 @@ export function SongList() {
                 role="row"
                 aria-selected={selected}
                 className={classes.join(" ")}
-                style={{ transform: `translateY(${row.start}px)` }}
+                style={{ transform: `translateY(${row.start - 18}px)` }}
                 draggable
                 onDragStart={(e) => onDragStart(e, row.index)}
                 onDragOver={(e) => onDragOver(e, row.index)}
@@ -219,8 +341,8 @@ export function SongList() {
                   )}
                 </div>
                 {columns.map((c) => (
-                  <div key={c.id} className="song-cell" style={{ textAlign: c.align ?? "left" }}>
-                    {c.render(track, selected, row.index)}
+                  <div key={c.id} role="gridcell" className="song-cell" title={isShared && c.id === "skips" ? undefined : columnText(c.id, track)} style={{ textAlign: c.align ?? "left" }}>
+                    {isShared && c.id === "skips" ? "" : c.render(track, selected, row.index)}
                   </div>
                 ))}
               </div>
@@ -228,6 +350,9 @@ export function SongList() {
           })}
           {dropIndex !== null && <div className="song-drop-line" style={{ top: dropIndex * rowHeight - 1 }} />}
         </div>
+        {tracks.length === 0 && <div className="song-empty" role="status">{loading ? "Loading songs…" : loadError ? "Couldn't load songs. Try refreshing this view." : "No songs match this view."}</div>}
+      </div>
+      </div>
       </div>
     </div>
   );

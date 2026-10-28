@@ -43,10 +43,10 @@ pub use loudness::{
 };
 pub use lyrics::{Lyrics, LyricsSource};
 pub use model::{
-    AddSummary, AlbumSummary, ArtistSummary, Artwork, ComposerSummary, CopyIn, ExternalStats,
-    ExternalTrack, GenreSummary, LibraryStats, MatchOutcome, MatchQuality, MediaKind, Mix,
-    Playlist, PlaylistKind, ScanProgress, ScanSummary, SortKey, Track, TrackMatch, TrackOverrides,
-    TrackQuery,
+    AddSummary, AlbumSummary, ArtistSummary, Artwork, BrowserFacets, ComposerSummary, CopyIn,
+    ExternalStats, ExternalTrack, GenreSummary, LibraryStats, MatchOutcome, MatchQuality,
+    MediaKind, Mix, Playlist, PlaylistKind, ScanProgress, ScanSummary, SortKey, Track, TrackMatch,
+    TrackOverrides, TrackQuery,
 };
 pub use normalize::{album_key, fold, is_generic_title, song_key};
 pub use organize::{MediaSettings, OrganizeProgress, OrganizeReport, write_beside};

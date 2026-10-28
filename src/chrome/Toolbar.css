@@ -48,3 +48,8 @@
   align-items: center;
   gap: 14px;
 }
+
+@media (max-width: 960px) {
+  .toolbar-lcd { left: 330px; right: 300px; }
+  .toolbar-lcd .lcd { min-width: 0; }
+}

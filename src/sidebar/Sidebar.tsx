@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useState, type MouseEvent, type ReactNode } from "react";
 import { artworkUrl, cdEject, deviceEject, partyAdd, playerEject, remoteForget } from "../api/commands";
 import type { Device } from "../api/types";
 import { cdSource, deviceSource, playerSource, playSourceOf, sharedSource, useApp, type SourceId } from "../state/store";
@@ -90,7 +90,7 @@ function Row({
   onDropTracks?: (trackIds: number[]) => void;
   onDropDeviceTracks?: (drag: DeviceDrag) => void;
 }) {
-  const selected = useApp((s) => s.source === id);
+  const selected = useApp((s) => s.source === id && id !== "music");
   const setSource = useApp((s) => s.setSource);
   const [dropTarget, setDropTarget] = useState(false);
   const rowMenu = useRowMenu(menu);
@@ -140,6 +140,21 @@ function Section({ heading, children, footer }: { heading: string; children: Rea
       {footer}
     </section>
   );
+}
+
+function MusicViews() {
+  const source = useApp((s) => s.source);
+  const mode = useApp((s) => s.viewMode);
+  const group = useApp((s) => s.gridGroup);
+  const open = useApp((s) => s.openMusicView);
+  return <li role="presentation" className="sidebar-music-views">
+    <div role="group" aria-label="Music views">
+      {(["songs", "albums", "artists"] as const).map((view) => <button
+        key={view} className="sidebar-music-view"
+        aria-pressed={source === "music" && (view === "songs" ? mode === "list" || mode === "albumList" || mode === "coverFlow" : mode === "grid" && group === view)}
+        onClick={() => open(view)}>{view[0].toUpperCase() + view.slice(1)}</button>)}
+    </div>
+  </li>;
 }
 
 /** Mirrors iTunes 10: the device row opens Summary; expanding it lists what's on the iPod. */
@@ -249,6 +264,7 @@ export function Sidebar() {
             )}
           >
             {section.items.map((item) => (
+              <Fragment key={item.id}>
               <Row
                 key={item.id}
                 {...item}
@@ -256,6 +272,8 @@ export function Sidebar() {
                 onDropDeviceTracks={item.id === "music" ? ({ deviceId, ids }) => copySongsToLibrary(deviceId, ids) : undefined}
                 menu={item.id === "podcasts" ? showPodcastsMenu : undefined}
               />
+              {item.id === "music" && <MusicViews />}
+              </Fragment>
             ))}
           </Section>
         ))}

@@ -4,6 +4,7 @@
   "version": "0.4.2",
   "type": "module",
   "scripts": {
+    "test": "node --test src/import/test/*.test.mjs src/browser/test/*.test.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

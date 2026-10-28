@@ -6,8 +6,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use unsub_library::{
-    AlbumSummary, ArtistSummary, Chapter, CleanUpChange, CleanUpRules, ComposerSummary, EditReport, GenreSummary, Library, LibraryStats,
-    Lyrics, MediaSettings, Mix, OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits, TrackQuery,
+    AlbumSummary, ArtistSummary, BrowserFacets, Chapter, CleanUpChange, CleanUpRules, ComposerSummary, EditReport, GenreSummary, Library,
+    LibraryStats, Lyrics, MediaSettings, Mix, OrganizeReport, Playlist, PlaylistKind, ScanSummary, SmartRules, Track, TrackEdits,
+    TrackQuery,
 };
 
 use crate::error::{CommandError, CommandResult};
@@ -152,6 +153,16 @@ pub fn library_albums(state: State<'_, LibraryState>, query: TrackQuery) -> Comm
 #[tauri::command]
 pub fn library_artists(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<Vec<ArtistSummary>> {
     Ok(state.queries().artists(&query)?)
+}
+
+#[tauri::command]
+pub fn library_artist_albums(state: State<'_, LibraryState>, key: String, query: TrackQuery) -> CommandResult<Vec<AlbumSummary>> {
+    Ok(state.queries().artist_albums_in(&key, &query)?)
+}
+
+#[tauri::command]
+pub fn library_browser_facets(state: State<'_, LibraryState>, query: TrackQuery) -> CommandResult<BrowserFacets> {
+    Ok(state.queries().browser_facets(&query)?)
 }
 
 #[tauri::command]

@@ -340,6 +340,18 @@ A new library comes with a few: 90’s Music, Classical Music, My Top Rated, Rec
 </details>
 
 <details>
+<summary><b>Song columns, artists and the Column Browser</b></summary>
+
+Choose **Songs**, **Albums** or **Artists** beneath Music. The four toolbar buttons still switch the classic layouts. Artist tiles use covers from your library, with initials when there is no artwork. Double-click an artist to browse albums by year, then an album to show its songs. **Back** and the breadcrumbs restore the preceding view; **Play** and **Shuffle** use the current search and playlist scope.
+
+Right-click a song heading to show or hide columns, or choose **View › Show View Options…** (⌘J on Mac, Ctrl+J elsewhere) for a searchable checklist. Drag headings to reorder them, drag their dividers to resize, and double-click a divider to fit its contents. A focused divider also accepts Left/Right, Shift+Left/Right for larger changes, and Return to fit. View Options provides width fields and move buttons for keyboard operation.
+
+The layout menu includes **Listening**, **Library Cleanup** and **Audio Quality**. **Save Layout** keeps your own arrangements. Changes in Music set the library default; changes in a playlist create an override. **Apply Layout to Other Playlists…** copies the current layout only to the playlists you tick. **Restore Defaults** resets the library layout, or makes a playlist inherit it again. These preferences are saved on this computer and never change music files.
+
+Choose **Show Column Browser** above the song table, or **View › Show/Hide Column Browser**, for Genre → Artist → Album filtering. Search and playlist membership combine with these choices. **Clear Filters** resets the browser choices while keeping the search. Hiding the browser clears its choices. CDs retain their fixed disc-order columns; device and shared-library lists remain read-only.
+</details>
+
+<details>
 <summary><b>Visualizer</b></summary>
 
 1. Choose **View › Show Visualizer** (`Cmd+T`) to toggle it.

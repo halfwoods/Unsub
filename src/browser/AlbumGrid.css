@@ -1,6 +1,7 @@
 .album-grid {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #ffffff;
@@ -10,7 +11,10 @@
 .album-grid-bar {
   position: relative;
   flex: none;
-  height: 24px;
+  min-height: 26px;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 3px 10px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -24,16 +28,27 @@
 }
 
 .album-grid-size {
-  position: absolute;
-  right: 12px;
   width: 90px;
   accent-color: #7d7d7d;
 }
 
 .album-grid-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: scroll;
 }
+
+.artist-mosaic { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; overflow: hidden; background: linear-gradient(#b6bec9, #8994a3); }
+.artist-mosaic[data-covers="0"], .artist-mosaic[data-covers="1"] { grid-template-columns: 1fr; }
+.artist-mosaic[data-covers="3"] > img:first-child { grid-row: span 2; }
+.artist-mosaic img { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.artist-initials { place-self: center; font-size: 48px; color: white; font-weight: bold; }
+.grid-selection-bar { display: flex; align-items: center; gap: 7px; min-height: 29px; flex: none; padding: 3px 12px; border-bottom: 1px solid #ccc; background: #f6f6f6; }
+.grid-selection-bar > span:first-child { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.grid-selection-bar .push-button { min-width: 45px; padding: 0 10px; height: 20px; }
+.grid-chronology { color: #777; font-size: 10px; white-space: nowrap; }
+.album-tile:focus-visible { outline: 2px solid #4b83c4; outline-offset: 5px; }
+.grid-empty { padding: 12px 20px; color: #666; }
 
 .album-grid-row {
   position: absolute;

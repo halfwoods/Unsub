@@ -1,23 +1,26 @@
 .song-list {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--list-bg);
 }
 
 .song-list-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   flex: none;
   display: grid;
   grid-template-columns: var(--grid);
   height: var(--list-header);
   border-bottom: 1px solid var(--list-header-edge);
-  /* Reserve the scrollbar gutter so header cells line up with row cells. */
-  padding-right: 15px;
   background: linear-gradient(to bottom, var(--list-header-a), var(--list-header-b));
 }
 
 .song-list-header-cell {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -53,10 +56,32 @@
 .song-list-body {
   position: relative;
   flex: 1;
-  overflow-y: scroll;
-  overflow-x: hidden;
+  min-height: 0;
+  overflow: auto;
   outline: none;
 }
+
+.song-table-surface {
+  min-width: var(--table-width);
+  min-height: 100%;
+  background: repeating-linear-gradient(to bottom, var(--list-bg) 0 var(--list-row), var(--list-stripe) var(--list-row) calc(var(--list-row) * 2));
+  background-position-y: 18px;
+}
+
+.song-list-rows { position: relative; }
+.song-empty { padding: 28px 16px; color: #666; }
+.column-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+}
+.column-resizer:focus-visible { background: #7ca7db; outline: 1px solid #3069ae; }
+.song-list-header-cell:focus-visible { outline: 2px solid #4b83c4; outline-offset: -2px; }
 
 /* iTunes keeps the stripes going below the last song. */
 .song-list-stripes {
