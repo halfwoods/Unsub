@@ -30,6 +30,7 @@ mod video_export;
 mod visualizer;
 mod welcome;
 mod window;
+mod window_state;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -86,6 +87,7 @@ pub fn run() {
             }
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);
+            window_state::restore(app.handle(), data_dir.join("Window.json"));
             app.manage(CollectionState::load(data_dir.join("AppleMusicSnapshot.json"), data_dir.join("StreamedSongs.json")));
             app.state::<LibraryState>().media_folder(&music_dir.join("Unsub"))?;
             let library_path = app.state::<LibraryState>().db_path().to_path_buf();
@@ -294,8 +296,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Unsub")
         .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { .. } => window_state::save(app),
             // A speaker left playing would carry on from a server that is gone, then go quiet.
             tauri::RunEvent::Exit => {
+                window_state::save(app);
                 if let Some(cast) = app.try_state::<cast::CastState>() {
                     cast.end();
                 }

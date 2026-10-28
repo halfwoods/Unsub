@@ -187,6 +187,13 @@ fn gapless_tracks_reach_the_device_back_to_back_through_one_stream() {
     });
     rig.until_stopped();
 
+    assert!(
+        rig.seen
+            .iter()
+            .any(|event| matches!(event, PlayerEvent::StateChanged(status)
+            if status.state == PlaybackState::Playing && status.track_id == Some(2))),
+        "listeners receive the new track's status at the automatic handoff"
+    );
     let both = [decode("sine.flac"), decode("sine.mp3")].concat();
     assert_played(&rig.heard(), &both, 0, 2_000);
     assert_eq!(rig.opened().len(), 1, "no reopen between gapless tracks");

@@ -54,6 +54,7 @@ pub fn keep_full_screen_item_ours() {
 }
 
 pub fn on_event(window: &Window, event: &WindowEvent) {
+    crate::window_state::on_event(window, event);
     match event {
         // The player outlives its window on macOS: music plays on, the Dock icon or the Window menu brings the window back,
         // and only Quit quits. Quitting doesn't go through here, so what runs on exit still runs.

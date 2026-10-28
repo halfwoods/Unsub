@@ -933,12 +933,21 @@ export const useApp = create<AppState>((set, get) => ({
         break;
       }
       case "trackStarted": {
-        set({ liveStation: null, liveLink: null });
-        const known = get().playingTracks.find((t) => t.id === event.trackId);
-        if (known) set({ nowPlaying: known });
-        else void api.libraryTrack(event.trackId).then((t) => set({ nowPlaying: t }));
-        set({ chapters: { trackId: event.trackId, list: [] } });
-        if (get().playingSource.type === "library") {
+        const source = get().playingSource;
+        const known = get().playingTracks.find((t) => t.id === event.trackId) ?? null;
+        // Gapless playback starts the next track without changing play/pause state.
+        // The list's speaker follows playback.trackId, so move it on this event too.
+        set((s) => ({
+          playback: { ...s.playback, trackId: event.trackId, positionMs: 0, durationMs: known?.durationMs ?? 0 },
+          nowPlaying: known,
+          liveStation: null,
+          liveLink: null,
+          chapters: { trackId: event.trackId, list: [] },
+        }));
+        if (!known) void api.libraryTrack(event.trackId).then((t) => {
+          if (get().playback.trackId === event.trackId && sameSource(get().playingSource, source)) set({ nowPlaying: t });
+        });
+        if (source.type === "library") {
           void api.libraryChapters(event.trackId).then((list) => {
             // A CTOC keeps the file's own order, which needn't be time order.
             if (get().chapters?.trackId === event.trackId) set({ chapters: { trackId: event.trackId, list: [...list].sort((a, b) => a.startMs - b.startMs) } });

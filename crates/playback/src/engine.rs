@@ -859,7 +859,8 @@ impl Engine {
         };
 
         let consumed = session.output.consumed();
-        if let Some(transition) = session.timeline.advance(consumed) {
+        let transition = session.timeline.advance(consumed);
+        if let Some(transition) = &transition {
             (self.emit)(PlayerEvent::TrackEnded {
                 track_id: transition.ended,
             });
@@ -886,7 +887,12 @@ impl Engine {
             self.buffering_changed(step, id);
         }
 
-        self.publish();
+        if transition.is_some() {
+            // A gapless handoff keeps playing, but the track and its status have changed.
+            self.announce();
+        } else {
+            self.publish();
+        }
         if self.state == PlaybackState::Playing && Instant::now() >= self.next_position_event {
             let status = self.status();
             if let Some(track_id) = status.track_id {
