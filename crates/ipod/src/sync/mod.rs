@@ -24,6 +24,7 @@ mod plan;
 mod play_deltas;
 mod rescue;
 mod restore;
+mod video_add;
 
 use std::path::PathBuf;
 
@@ -47,6 +48,10 @@ pub use rescue::{
     is_copy_protected, read_rescue,
 };
 pub use restore::restore_backup;
+pub use video_add::{
+    VideoAddPlan, VideoAddResult, VideoSyncTrack, apply_video_additions, plan_video_additions,
+    video_add_supported,
+};
 
 /// A library track as the sync sees it. Tags describe the track on the iPod; the audio file comes
 /// from `source_path`, via the `prepare` step of [`apply_sync`].

@@ -162,6 +162,70 @@ pub(super) fn copy_into(source: &Path, placed: Placed) -> io::Result<()> {
     copied
 }
 
+/// Copies inspected video bytes, checking cancellation between bounded chunks and content
+/// identity before a database may refer to them. False means cancelled and the partial is gone.
+pub(super) fn copy_verified(
+    source: &Path,
+    placed: Placed,
+    expected_size: u64,
+    expected_sha256: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<bool> {
+    use sha2::{Digest, Sha256};
+    let Placed { mut file, path } = placed;
+    let copied = (|| {
+        let mut source = File::open(source)?;
+        let metadata = source.metadata()?;
+        if !metadata.is_file()
+            || metadata.len() == 0
+            || metadata.len() > u64::from(u32::MAX)
+            || metadata.len() != expected_size
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "video source changed; inspect it again",
+            ));
+        }
+        let mut hash = Sha256::new();
+        let mut buffer = vec![0; 512 * 1024];
+        let mut bytes = 0u64;
+        loop {
+            if cancelled() {
+                return Ok(false);
+            }
+            let read = source.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            bytes = bytes.saturating_add(read as u64);
+            if bytes > metadata.len() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "video changed while copying; inspect it again",
+                ));
+            }
+            file.write_all(&buffer[..read])?;
+            hash.update(&buffer[..read]);
+        }
+        if bytes != metadata.len() || format!("{:x}", hash.finalize()) != expected_sha256 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "video changed since inspection; inspect it again",
+            ));
+        }
+        if cancelled() {
+            return Ok(false);
+        }
+        file.sync_all()?;
+        Ok(true)
+    })();
+    if !matches!(copied, Ok(true)) {
+        drop(file);
+        let _ = fs::remove_file(&path);
+    }
+    copied
+}
+
 /// The list of music files a sync is in the middle of copying, one path per line relative to the
 /// mount. It exists only between the first copy of a batch and that batch's commit, so if one is
 /// found at the start of a sync, the one before it died with music on the iPod no database lists.
@@ -332,11 +396,65 @@ fn walk_for_entry<F: Read + Seek>(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::io::Cursor;
 
     use super::*;
     use crate::device::DatabaseFormat;
     use crate::models::{IpodFamily, IpodModel, SyncSupport};
+
+    #[test]
+    fn verified_video_copy_cancels_between_chunks_and_removes_partial_destination() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.m4v");
+        let destination = dir.path().join("placed.m4v");
+        let bytes = vec![7u8; 2 * 1024 * 1024];
+        fs::write(&source, &bytes).unwrap();
+        let calls = Cell::new(0);
+        let copied = copy_verified(
+            &source,
+            Placed {
+                file: File::create(&destination).unwrap(),
+                path: destination.clone(),
+            },
+            bytes.len() as u64,
+            &format!("{:x}", Sha256::digest(&bytes)),
+            &|| {
+                calls.set(calls.get() + 1);
+                calls.get() > 2
+            },
+        )
+        .unwrap();
+        assert!(!copied);
+        assert!(!destination.exists());
+        assert_eq!(fs::read(source).unwrap(), bytes);
+    }
+
+    #[test]
+    fn verified_video_copy_rejects_mutation_without_leaving_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.m4v");
+        let destination = dir.path().join("placed.m4v");
+        fs::write(&source, b"changed bytes").unwrap();
+        let result = copy_verified(
+            &source,
+            Placed {
+                file: File::create(&destination).unwrap(),
+                path: destination.clone(),
+            },
+            13,
+            &"0".repeat(64),
+            &|| false,
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("changed since inspection")
+        );
+        assert!(!destination.exists());
+    }
 
     fn ipod_of(model_number: Option<&str>, capacity_gb: u64) -> Ipod {
         Ipod {
