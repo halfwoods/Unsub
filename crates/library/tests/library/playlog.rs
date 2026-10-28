@@ -77,7 +77,13 @@ fn plays_from_elsewhere_count_once_however_often_the_history_is_imported() {
     );
     assert_eq!(
         library.recent_plays(0).unwrap(),
-        [(halo, 9_000), (zombie, 2_000), (halo, 2_000), (halo, 1_000)]
+        [
+            (halo, 9_000),
+            // Imports order timestamp ties by ID; filesystem scan order can assign either ID first.
+            (halo.max(zombie), 2_000),
+            (halo.min(zombie), 2_000),
+            (halo, 1_000)
+        ]
     );
 }
 

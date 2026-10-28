@@ -15,9 +15,13 @@ use crate::{classic_7g, opened, sample_database, sample_playlists, sample_tracks
 
 pub const DB_FILE: &str = "iPod_Control/iTunes/iTunesDB";
 
-/// More than any disk has free, so a file claiming it cannot fit. NTFS caps a file at 16 TiB less
-/// 64 KiB, so on Windows it is smaller, and twice it still has to be allowed.
-pub const HUGE: u64 = if cfg!(windows) { 1 << 42 } else { 1 << 50 };
+/// More than the test host has free, so a file claiming it cannot fit. NTFS and common Linux
+/// filesystems cap individual files around 16 TiB, so both this fixture and twice it must fit.
+pub const HUGE: u64 = if cfg!(any(windows, target_os = "linux")) {
+    1 << 42
+} else {
+    1 << 50
+};
 
 /// A sparse file claiming `len` bytes: it has a real size to the sync but uses no disk, so
 /// "the iPod is nearly full" can be staged on a machine with plenty of room.
