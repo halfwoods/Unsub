@@ -1,6 +1,6 @@
 # Add videos to an iPod
 
-Status: implemented and locally validated on `mac-mini/ipod-video-sync`, based on `main` after 0.7.0. PR delivery only; no merge or release authorized for this change.
+Status: implemented and locally validated on `mac-mini/ipod-video-sync`, based on `main` after 0.7.0. Delivered as [PR #12](https://github.com/halfwoods/Unsub/pull/12); cross-platform CI pending. No merge or release authorized for this change.
 
 ## Outcome and decisions
 
@@ -28,7 +28,7 @@ Apple specifications: [Classic late 2009](https://support.apple.com/en-us/112601
 | Tauri preview and job integration | All 267 app tests passed, including real-stream preview → copy → repeat-preview, source preservation, DRM, source-path and preview cancellation tests | Complete |
 | Classic Add Videos interface | 181 frontend tests passed, one existing skip; production build and native fixture-only checks below | Complete; hardware/platform limits below |
 | Integrated review and documentation | Format/diff checks passed; Clippy passed with three existing newer-toolchain lints allowed; README distinguishes released export from upcoming addition | Complete |
-| Delivery | Small commits and PR; no merge, tag or release | Ready for PR |
+| Delivery | Small commits pushed and [PR #12](https://github.com/halfwoods/Unsub/pull/12) opened as a draft; no merge, tag or release | Complete |
 
 ## Validation record — 2026-10-28
 
