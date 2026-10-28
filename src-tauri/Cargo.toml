@@ -40,6 +40,7 @@ unsub-cast.workspace = true
 unsub-elsewhere.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 
 # macOS only: ask for microphone access up front, since a refusal is otherwise just silence; and read the
 # system's choice of what a title-bar double-click does.

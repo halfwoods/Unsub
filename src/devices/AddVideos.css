@@ -1,0 +1,9 @@
+.add-videos-category { display: flex; align-items: center; margin: 8px 0; }
+.add-videos-category label { margin-right: 8px; }
+.add-video-row { align-items: flex-start; }
+.add-video-row > button { margin-top: 2px; }
+.add-video-row .add-video-reason { white-space: normal; overflow-wrap: break-word; }
+.add-video-row .add-video-reason--error { color: #a33c20; }
+.add-videos .add-videos-empty { margin: 12px; color: #666; }
+.add-videos .copy-videos-choices { flex-wrap: wrap; }
+.add-videos .copy-videos-choices > span { white-space: normal; }

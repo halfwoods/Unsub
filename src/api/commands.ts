@@ -16,6 +16,8 @@ import type {
   Device,
   DeviceVideos,
   VideoExportPreview,
+  VideoAddKind,
+  VideoAddPreview,
   DirectoryStation,
   DoubleClickAction,
   ElsewherePreview,
@@ -185,6 +187,12 @@ export const deviceVideoExportPreview = (deviceId: string, ids: string[], destin
   invoke<VideoExportPreview>("device_video_export_preview", { deviceId, ids, destination });
 export const deviceVideoExport = (deviceId: string, ids: string[], destination: string) =>
   invoke<void>("device_video_export", { deviceId, ids, destination });
+export const deviceVideoAddPreview = (deviceId: string, paths: string[], kind: VideoAddKind, requestId: string) =>
+  invoke<VideoAddPreview>("device_video_add_preview", { deviceId, paths, kind, requestId });
+export const deviceVideoAddCancelPreview = (requestId: string) =>
+  invoke<void>("device_video_add_cancel_preview", { requestId });
+export const deviceVideoAdd = (deviceId: string, paths: string[], kind: VideoAddKind) =>
+  invoke<void>("device_video_add", { deviceId, paths, kind });
 
 export const cdList = () => invoke<AudioCd[]>("cd_list");
 export const cdTracks = (discId: string) => invoke<Track[]>("cd_tracks", { discId });
