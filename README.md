@@ -46,7 +46,15 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 <sub>The artists and albums in these screenshots are fictional.</sub>
 
-## What's new in 0.7.0
+## What's new in 0.8.0
+
+- **Add videos to an iPod.** Choose **Add Videos…** on its Summary to copy compatible local movies or music videos. Review compatibility and space first; files are copied without conversion. Physical iPod playback remains unverified.
+- **Playing indicator follows the music.** When a song ends and the next begins automatically, the speaker indicator moves to the correct row, including gapless playback.
+- **Window size is remembered.** Your window dimensions and maximized state are restored when you reopen Unsub.
+
+[Read the 0.8.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0) or [download the latest version](#download).
+
+## Included from 0.7.0
 
 - **Experimental Linux packages.** AppImage and Debian downloads for x86_64, with bundled audio codecs. Automated checks passed on Ubuntu 22.04/24.04 and Debian 12.
 - **Copy videos from an iPod.** Save original movies, music videos and other video records, plus a metadata report, using **Copy Videos…** on the device Summary. Protected files remain protected. Video playback and syncing are not included.

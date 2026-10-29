@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "cssparser-macros"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
@@ -1304,7 +1304,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "enumflags2"
-version = "0.7.12"
+version = "0.8.02"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
 dependencies = [
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "enumflags2_derive"
-version = "0.7.12"
+version = "0.8.02"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
 dependencies = [
@@ -2582,7 +2582,7 @@ dependencies = [
 
 [[package]]
 name = "jsonptr"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5a3cc660ba5d72bce0b3bb295bf20847ccbb40fd423f3f05b61273672e561fe"
 dependencies = [
@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "rustls-platform-verifier"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
 dependencies = [
@@ -5728,7 +5728,7 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unsub"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "block2",
  "fastrand",
@@ -5764,7 +5764,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-applemusic"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -5779,7 +5779,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-cast"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "getrandom 0.3.4",
  "mdns-sd",
@@ -5794,7 +5794,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-cdrip"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "claxon",
@@ -5816,7 +5816,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-devicesync"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fs4",
  "serde",
@@ -5828,7 +5828,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-elsewhere"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5839,7 +5839,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-ipod"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "flate2",
@@ -5858,7 +5858,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-library"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "image",
  "lofty",
@@ -5874,7 +5874,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-playback"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "coreaudio-rs",
  "cpal",
@@ -5894,7 +5894,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-podcasts"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "atom_syndication",
  "diligent-date-parser",
@@ -5912,7 +5912,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-purchases"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "filetime",
  "lofty",
@@ -5931,7 +5931,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-radio"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aes",
  "cbc",
@@ -5945,7 +5945,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-remote"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "filetime",
  "form_urlencoded",
@@ -5961,7 +5961,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-subsonic"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "axum",
  "form_urlencoded",
@@ -5983,7 +5983,7 @@ dependencies = [
 
 [[package]]
 name = "unsub-visualize"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cpal",
  "realfft",
