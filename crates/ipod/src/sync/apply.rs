@@ -4,15 +4,17 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Local;
 
 use super::commit::{self, Staged};
 use super::files::{self, Rng};
-use super::mapping::{MappedImage, MappedPlaylist, MappedTrack, Mapping};
+use super::mapping::{MappedImage, MappedPlaylist, MappedTrack, MappedVideo, Mapping};
 use super::on_the_go;
 use super::plan::{Space, artwork_bytes, freed_bytes, reserve_bytes, space};
+use super::video_add::{VideoAddResult, VideoSyncTrack};
 use super::{
     Prepared, SyncPlan, SyncPlaylist, SyncProgress, SyncStage, SyncTrack, checksum_key,
     require_blank_or_database, require_guid_matches, shuffle_format,
@@ -75,12 +77,48 @@ pub fn apply_sync(
     cover: &mut dyn FnMut(i64) -> Option<Vec<u8>>,
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<Database> {
-    let mut job = Job::start(ipod, plan, tracks, playlists)?;
+    let mut job = Job::start(ipod, plan, tracks, playlists, None)?;
     let outcome = job.run(prepare, cover, progress);
     if outcome.is_err() {
         job.roll_back();
     }
     outcome
+}
+
+pub(super) fn apply_video_additions(
+    ipod: &Ipod,
+    plan: &SyncPlan,
+    videos: &[VideoSyncTrack],
+    duplicates: usize,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(SyncProgress),
+) -> Result<VideoAddResult> {
+    let tracks: Vec<_> = videos.iter().map(|video| video.track.clone()).collect();
+    let mut job = Job::start(ipod, plan, &tracks, &[], Some((videos, cancel)))?;
+    let before = job.raw.tracks.len();
+    let result = job.run(
+        &mut |track| {
+            Ok(if cancel.load(Ordering::Relaxed) {
+                Prepared::Stop
+            } else {
+                track.source_path.clone().into()
+            })
+        },
+        &mut |_| None,
+        progress,
+    );
+    match result {
+        Ok(database) => Ok(VideoAddResult {
+            added: database.tracks.len().saturating_sub(before),
+            database,
+            duplicates,
+            cancelled: job.cancelled,
+        }),
+        Err(error) => {
+            job.roll_back();
+            Err(error)
+        }
+    }
 }
 
 /// The database file as it was when the sync began, to notice anyone else changing it meanwhile.
@@ -165,6 +203,10 @@ struct Job<'a> {
     /// says the file really is.
     sources: HashMap<i64, Cow<'a, SyncTrack>>,
     playlists: &'a [SyncPlaylist],
+    /// An additive operation has no music ownership and never edits existing playlists/artwork.
+    videos: Option<HashMap<i64, &'a VideoSyncTrack>>,
+    cancel: Option<&'a AtomicBool>,
+    cancelled: bool,
     /// What this iPod can do with album art; `None` if nothing is written for it.
     artwork: Option<Artwork>,
     /// The iTunesSD to keep in step with the iTunesDB, if this iPod is a shuffle.
@@ -220,6 +262,7 @@ impl<'a> Job<'a> {
         plan: &'a SyncPlan,
         tracks: &'a [SyncTrack],
         playlists: &'a [SyncPlaylist],
+        videos: Option<(&'a [VideoSyncTrack], &'a AtomicBool)>,
     ) -> Result<Self> {
         let checksum = checksum_key(ipod)?;
         let mount = ipod.mount_path.as_path();
@@ -261,7 +304,19 @@ impl<'a> Job<'a> {
             plan,
             sources,
             playlists,
-            artwork: Artwork::for_device(mount, ipod.model.as_ref()),
+            videos: videos.map(|(videos, _)| {
+                videos
+                    .iter()
+                    .map(|video| (video.track.library_id, video))
+                    .collect()
+            }),
+            cancel: videos.map(|(_, cancel)| cancel),
+            cancelled: false,
+            artwork: if videos.is_some() {
+                None
+            } else {
+                Artwork::for_device(mount, ipod.model.as_ref())
+            },
             shadow,
             removals_first: false,
             blank: false,
@@ -330,7 +385,7 @@ impl<'a> Job<'a> {
             let on_ipod = dbid_of
                 .get(library_id)
                 .is_some_and(|dbid| present.contains(dbid));
-            if !self.sources.contains_key(library_id) || on_ipod {
+            if !self.sources.contains_key(library_id) || (on_ipod && self.videos.is_none()) {
                 return conflict(format!(
                     "track {library_id} cannot be added: it is already on the iPod or not in the library"
                 ));
@@ -441,7 +496,8 @@ impl<'a> Job<'a> {
             self.mapping_tracks_present(),
             self.mapping.playlists.clone(),
             self.mapping.artwork.clone(),
-        );
+        )
+        .with_video_copies(self.mapping_videos_present());
         progress(SyncProgress {
             stage: SyncStage::WritingDatabase,
             done: 0,
@@ -473,7 +529,8 @@ impl<'a> Job<'a> {
             self.mapping_tracks_present(),
             self.mapping.playlists.clone(),
             self.mapping.artwork.clone(),
-        );
+        )
+        .with_video_copies(self.mapping_videos_present());
         progress(SyncProgress {
             stage: SyncStage::WritingDatabase,
             done: 0,
@@ -555,6 +612,10 @@ impl<'a> Job<'a> {
             .copied()
             .collect();
         let copied = self.copy_new_music(prepare, progress, from)?;
+        if self.videos.is_some() && copied.stopped && copied.added.is_empty() {
+            files::clear_pending(self.mount);
+            return Ok(Committed::Last(crate::read_database(self.ipod)?));
+        }
         let added = copied.added.len();
         // Removing songs is the last thing a sync does: a stop, or a failure after a checkpoint,
         // leaves every one of them where it was.
@@ -703,11 +764,14 @@ impl<'a> Job<'a> {
             .max()
             .map_or(FIRST_TRACK_ID, |max| max + 1);
         let mut used_dbids: HashSet<u64> = self.raw.tracks.iter().map(RawTrack::dbid).collect();
-        let header_len = self
+        let mut header_len = self
             .raw
             .tracks
             .first()
             .map_or(DEFAULT_TRACK_HEADER_LEN, |track| track.header.len());
+        if self.videos.is_some() {
+            header_len = header_len.max(DEFAULT_TRACK_HEADER_LEN);
+        }
         let database_tag = u64_at(&self.raw.header, DATABASE_TAG_AT).unwrap_or(0);
         let total = self.plan.add.len() as u64;
 
@@ -727,6 +791,7 @@ impl<'a> Job<'a> {
             let prepared = match prepared {
                 Prepared::Skip => continue,
                 Prepared::Stop => {
+                    self.cancelled = self.videos.is_some();
                     return Ok(Copied {
                         added,
                         next: self.plan.add.len(),
@@ -770,8 +835,30 @@ impl<'a> Job<'a> {
             let destination = placed.path.clone();
             files::note_pending(self.mount, &destination);
             self.copied.push(destination.clone());
-            files::copy_into(&prepared, placed)
-                .map_err(|source| Error::io(&destination, source))?;
+            if let Some(video) = self
+                .videos
+                .as_ref()
+                .and_then(|videos| videos.get(library_id))
+            {
+                let complete =
+                    files::copy_verified(&prepared, placed, size, &video.sha256, &|| {
+                        self.cancel
+                            .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+                    })
+                    .map_err(|source| Error::io(&destination, source))?;
+                if !complete {
+                    self.copied.pop();
+                    self.cancelled = true;
+                    return Ok(Copied {
+                        added,
+                        next: self.plan.add.len(),
+                        stopped: true,
+                    });
+                }
+            } else {
+                files::copy_into(&prepared, placed)
+                    .map_err(|source| Error::io(&destination, source))?;
+            }
 
             let dbid = loop {
                 let candidate = rng.next();
@@ -794,10 +881,18 @@ impl<'a> Job<'a> {
                 extension,
             };
             next_id += 1;
+            let mut raw_track = RawTrack::create(header_len, &origin, &metadata(track), &Local);
+            if let Some(video) = self
+                .videos
+                .as_ref()
+                .and_then(|videos| videos.get(library_id))
+            {
+                raw_track.set_video_kind(video.kind);
+            }
             added.push(Added {
                 library_id: *library_id,
                 dbid,
-                track: RawTrack::create(header_len, &origin, &metadata(track), &Local),
+                track: raw_track,
             });
             bytes += size;
             if added.len() >= CHECKPOINT_SONGS || bytes >= CHECKPOINT_BYTES {
@@ -840,6 +935,16 @@ impl<'a> Job<'a> {
             .collect()
     }
 
+    fn mapping_videos_present(&self) -> Vec<MappedVideo> {
+        let present: HashSet<u64> = self.raw.tracks.iter().map(RawTrack::dbid).collect();
+        self.mapping
+            .video_copies
+            .iter()
+            .filter(|mapped| present.contains(&mapped.dbid))
+            .cloned()
+            .collect()
+    }
+
     /// Applies the plan to the in-memory database. Returns the files to delete once the commit has
     /// succeeded and the bookkeeping file to commit with it.
     fn edit_database(&mut self, added: Vec<Added>, remove: bool) -> (Vec<PathBuf>, Mapping) {
@@ -874,6 +979,7 @@ impl<'a> Job<'a> {
         let mut master_additions = Vec::new();
         let mut podcast_additions = Vec::new();
         let mut new_mappings = Vec::new();
+        let mut video_mappings = self.mapping_videos_present();
         for Added {
             library_id,
             dbid,
@@ -893,14 +999,25 @@ impl<'a> Job<'a> {
             } else {
                 master_additions.push(id);
             }
-            new_mappings.push(MappedTrack {
-                library_id,
-                dbid,
-                artwork_key: self
-                    .artwork
-                    .as_ref()
-                    .and(self.sources[&library_id].artwork_key),
-            });
+            if let Some(video) = self
+                .videos
+                .as_ref()
+                .and_then(|videos| videos.get(&library_id))
+            {
+                video_mappings.push(MappedVideo {
+                    sha256: video.sha256.clone(),
+                    dbid,
+                });
+            } else {
+                new_mappings.push(MappedTrack {
+                    library_id,
+                    dbid,
+                    artwork_key: self
+                        .artwork
+                        .as_ref()
+                        .and(self.sources[&library_id].artwork_key),
+                });
+            }
             self.raw.tracks.push(track);
         }
         for playlist in &mut self.raw.playlists {
@@ -925,7 +1042,11 @@ impl<'a> Job<'a> {
             }
         }
         tracks.extend(new_mappings);
-        let playlists = self.edit_playlists(&tracks);
+        let playlists = if self.videos.is_some() {
+            self.mapping.playlists.clone()
+        } else {
+            self.edit_playlists(&tracks)
+        };
         let images = match &self.written_artwork {
             Some(written) => written
                 .images
@@ -937,7 +1058,10 @@ impl<'a> Job<'a> {
                 .collect(),
             None => self.mapping.artwork.clone(),
         };
-        (removed_files, Mapping::new(tracks, playlists, images))
+        (
+            removed_files,
+            Mapping::new(tracks, playlists, images).with_video_copies(video_mappings),
+        )
     }
 
     /// Replaces the playlists this app owns with `self.playlists`; others are not touched.

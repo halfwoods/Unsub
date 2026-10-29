@@ -251,6 +251,7 @@ interface AppState {
   /** The iPod whose Copy to Library sheet is open. */
   copyFromDevice: string | null;
   videosFromDevice: string | null;
+  videosToDevice: string | null;
   connectingToServer: boolean;
   openingStream: boolean;
   importingElsewhere: boolean;
@@ -409,6 +410,7 @@ export const useApp = create<AppState>((set, get) => ({
   settingUpPlayer: false,
   copyFromDevice: null,
   videosFromDevice: null,
+  videosToDevice: null,
   connectingToServer: false,
   openingStream: false,
   importingElsewhere: false,
@@ -457,6 +459,7 @@ export const useApp = create<AppState>((set, get) => ({
     const layout = isLayoutSource(source) ? layoutFor(useLibraryViews.getState().prefs, source, regular) : null;
     set((s) => ({
       source,
+      videosToDevice: device?.deviceId === s.videosToDevice ? s.videosToDevice : null,
       songReveal: null,
       query: { ...withoutBrowse(s.query), kind, search: null, playlist, ids: null, ...sortForView(layout?.sort ?? "artist", layout?.descending ?? false, s.viewMode) },
       browsePath: [],
@@ -705,7 +708,8 @@ export const useApp = create<AppState>((set, get) => ({
     const [devices, players] = await Promise.all([api.devicesList(), api.playersList()]);
     // The sheet goes with its iPod, which must not bring it back when plugged in again.
     set((s) => ({ devices, players, copyFromDevice: devices.some((d) => d.id === s.copyFromDevice) ? s.copyFromDevice : null,
-      videosFromDevice: devices.some((d) => d.id === s.videosFromDevice) ? s.videosFromDevice : null }));
+      videosFromDevice: devices.some((d) => d.id === s.videosFromDevice) ? s.videosFromDevice : null,
+      videosToDevice: devices.some((d) => d.id === s.videosToDevice) ? s.videosToDevice : null }));
     // Like iTunes, unplugging the iPod you're looking at drops you back to Music.
     const device = parseDeviceSource(get().source);
     const player = playerIdOf(get().source);

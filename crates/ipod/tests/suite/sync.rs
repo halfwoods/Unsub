@@ -224,3 +224,4 @@ mod restore;
 mod shuffle;
 mod structure;
 mod swap;
+mod video_add;

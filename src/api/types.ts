@@ -423,7 +423,7 @@ export interface DeviceSyncStatus {
   deviceId: string;
   // iPods report preparing, downloading and writingDatabase; players report skipped and playlists. Copy to Library
   // reports rescuing, which takes the place of a sync.
-  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists" | "rescuing" | "exportingVideos";
+  stage: "preparing" | "downloading" | "copying" | "writingDatabase" | "cleaning" | "skipped" | "playlists" | "rescuing" | "exportingVideos" | "addingVideos";
   done: number;
   total: number;
   current: string;
@@ -453,6 +453,26 @@ export interface VideoExportPreview {
   protected: number;
   unknownProtection: number;
   folder: string;
+}
+
+export type VideoAddKind = "movie" | "musicVideo";
+export interface VideoAddItem {
+  path: string;
+  title: string;
+  bytes: number | null;
+  durationMs: number | null;
+  /** A compatibility problem; null means this file is eligible. */
+  reason: string | null;
+  alreadyPresent: boolean;
+}
+export interface VideoAddPreview {
+  items: VideoAddItem[];
+  /** Space needed by eligible files that are not already on the iPod. */
+  bytes: number;
+  freeBytes: number;
+  fits: boolean;
+  supported: boolean;
+  warning: string | null;
 }
 
 export interface RescueOptions {

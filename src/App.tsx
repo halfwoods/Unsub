@@ -41,6 +41,7 @@ import { BottomBar } from "./chrome/BottomBar";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
 import { CopyVideos } from "./devices/CopyVideos";
+import { AddVideos } from "./devices/AddVideos";
 import { SetUpPlayer } from "./devices/SetUpPlayer";
 import { applyEqualizer, EqualizerPanel } from "./equalizer/EqualizerPanel";
 import { ImportElsewhere } from "./import/ImportElsewhere";
@@ -310,6 +311,7 @@ export default function App() {
   const importingElsewhere = useApp((s) => s.importingElsewhere);
   const copyFromDevice = useApp((s) => s.devices.find((d) => d.id === s.copyFromDevice));
   const videosFromDevice = useApp((s) => s.devices.find((d) => d.id === s.videosFromDevice));
+  const videosToDevice = useApp((s) => s.devices.find((d) => d.id === s.videosToDevice));
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
@@ -340,6 +342,7 @@ export default function App() {
       {settingUpPlayer && <SetUpPlayer />}
       {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
       {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
+      {videosToDevice && <AddVideos key={videosToDevice.id} device={videosToDevice} onClose={() => useApp.setState({ videosToDevice: null })} />}
       {connectingToServer && <ConnectToServer />}
       {openingStream && <OpenStream />}
       {importSheet && <ImportSheet preview={importSheet} />}

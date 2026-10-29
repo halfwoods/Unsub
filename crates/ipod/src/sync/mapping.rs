@@ -25,6 +25,17 @@ pub(super) struct Mapping {
     /// refers to it, remove it. Absent in files written before artwork was supported.
     #[serde(default)]
     pub(super) artwork: Vec<MappedImage>,
+    /// Additive video copies are separate from music ownership: an ordinary music sync must
+    /// never remove them when they are absent from its selected library tracks.
+    #[serde(default)]
+    pub(super) video_copies: Vec<MappedVideo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct MappedVideo {
+    pub(super) sha256: String,
+    pub(super) dbid: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,7 +76,13 @@ impl Mapping {
             tracks,
             playlists,
             artwork,
+            video_copies: Vec::new(),
         }
+    }
+
+    pub(super) fn with_video_copies(mut self, videos: Vec<MappedVideo>) -> Self {
+        self.video_copies = videos;
+        self
     }
 
     pub(super) fn path(mount: &Path) -> PathBuf {

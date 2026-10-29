@@ -28,6 +28,7 @@ mod symphonia_source;
 mod tap;
 mod timeline;
 mod transcode;
+pub mod video;
 #[cfg(windows)]
 mod wasapi_exclusive;
 

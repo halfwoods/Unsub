@@ -118,7 +118,12 @@ pub fn restore_backup(ipod: &Ipod) -> Result<()> {
     staged_files.push((mapping_path.as_path(), reconciled.to_json()?));
     commit::commit_all(commit::stage_all(&staged_files)?)?;
 
-    let owned: HashSet<u64> = mapping.tracks.iter().map(|mapped| mapped.dbid).collect();
+    let owned: HashSet<u64> = mapping
+        .tracks
+        .iter()
+        .map(|mapped| mapped.dbid)
+        .chain(mapping.video_copies.iter().map(|mapped| mapped.dbid))
+        .collect();
     let still_listed: HashSet<&PathBuf> = restored_music.values().collect();
     for (dbid, file) in live_music.iter().flatten() {
         if owned.contains(dbid)
@@ -163,5 +168,12 @@ fn reconcile(mapping: &Mapping, restored: &RawDb, live: Option<&RawDb>) -> Mappi
         .filter(|playlist| playlist_ids.contains(&playlist.id))
         .cloned()
         .collect();
-    Mapping::new(tracks, playlists, mapping.artwork.clone())
+    Mapping::new(tracks, playlists, mapping.artwork.clone()).with_video_copies(
+        mapping
+            .video_copies
+            .iter()
+            .filter(|video| restored_links.contains_key(&video.dbid))
+            .cloned()
+            .collect(),
+    )
 }

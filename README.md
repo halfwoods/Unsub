@@ -46,7 +46,15 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 <sub>The artists and albums in these screenshots are fictional.</sub>
 
-## What's new in 0.7.0
+## What's new in 0.8.0
+
+- **Add videos to an iPod.** Choose **Add Videos…** on its Summary to copy compatible local movies or music videos. Review compatibility and space first; files are copied without conversion. Physical iPod playback remains unverified.
+- **Playing indicator follows the music.** When a song ends and the next begins automatically, the speaker indicator moves to the correct row, including gapless playback.
+- **Window size is remembered.** Your window dimensions and maximized state are restored when you reopen Unsub.
+
+[Read the 0.8.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0) or [download the latest version](#download).
+
+## Included from 0.7.0
 
 - **Experimental Linux packages.** AppImage and Debian downloads for x86_64, with bundled audio codecs. Automated checks passed on Ubuntu 22.04/24.04 and Debian 12.
 - **Copy videos from an iPod.** Save original movies, music videos and other video records, plus a metadata report, using **Copy Videos…** on the device Summary. Protected files remain protected. Video playback and syncing are not included.
@@ -56,6 +64,8 @@ Then someone decided you should pay every month, forever, to rent the music you 
 [Read the 0.7.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.7.0) or [download the latest version](#download). The Gaslight visualizer and experimental Intel High Sierra compatibility from [0.6.0](https://github.com/halfwoods/Unsub/releases/tag/v0.6.0) are included.
 
 Also included from [0.5.0](https://github.com/halfwoods/Unsub/releases/tag/v0.5.0): customizable metadata columns, artist browsing, the classic Column Browser, saved view presets and **Go to Current Song** (`Cmd+L` on Mac, `Ctrl+L` on Windows/Linux).
+
+**Add Videos…** in 0.8.0 copies compatible local movies and music videos onto supported writable video iPods, including the 7th-generation Classic. Physical iPod playback remains unverified. See the [implementation and validation plan](docs/IPOD_VIDEO_SYNC_PLAN.md).
 
 ## What it does
 
@@ -254,6 +264,19 @@ Limits:
 Songs are copied into your media folder as `Album Artist/Album/NN Title`, whatever the copy setting says. Playlists land in a folder named *From* and the iPod's name. The iPod itself isn't changed.
 
 Limits: copy-protected songs stay behind. The sheet says these are songs bought from the iTunes Store before 2009. A copy and a sync can't run at the same time. This works on iPods Unsub can read but can't sync, nano 5th generation included.
+</details>
+
+<details>
+<summary><b>Add movies or music videos to an iPod</b></summary>
+
+1. Select your iPod under **Devices**, then click **Add Videos…** on its Summary.
+2. Choose **Movies** or **Music Videos**, then **Choose Files…** to select local MP4, M4V or MOV files.
+3. Review the compatibility and space checks. Unsupported files show why they need conversion. Previously added copies are skipped.
+4. Click **Add Videos**. The progress display can stop a copy; completed copies remain usable. Original files, existing iPod songs and playlists stay in place. Later music syncs preserve videos added this way.
+
+Files must already fit the iPod's video limits: H.264 Baseline or MPEG-4 Simple Profile, with optional AAC-LC mono/stereo audio up to 160 kbps and 48 kHz. Classic and supported video nanos accept up to 640×480 at 30 fps and 2.5 Mbps. The original video iPods use conservative limits: H.264 up to 320×240, 768 kbps and Level 1.3, or MPEG-4 Simple up to 480×480 and 2.5 Mbps. Unknown or incompatible formats need conversion in another app first; Unsub does not transcode videos. Protected videos cannot be added. The existing model, database and device-GUID restrictions still apply.
+
+This feature is tested with generated videos and disposable iPod databases. Playback on physical iPods still needs hardware verification.
 </details>
 
 <details>
