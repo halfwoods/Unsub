@@ -30,8 +30,8 @@ pub use sync::{
     SyncProgress, SyncStage, SyncTrack, VideoAddPlan, VideoAddResult, VideoSyncTrack, apply_sync,
     apply_video_additions, artwork_supported, clear_on_the_go, clear_play_counts, ensure_room,
     free_space, holds_protected_audio, is_copy_protected, plan_sync, plan_video_additions,
-    read_on_the_go, read_play_counts_for_sync_back, read_rescue, restore_backup,
-    video_add_supported,
+    plan_video_additions_with_cancel, read_on_the_go, read_play_counts_for_sync_back, read_rescue,
+    restore_backup, video_add_supported,
 };
 pub use verify::{
     ArtworkCheck, ChecksumCheck, ChunkCount, FieldDifference, HeaderChange, RecordDifference,

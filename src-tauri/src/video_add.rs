@@ -235,7 +235,7 @@ fn preview_with_cancel(ipod: &Ipod, paths: &[String], kind: VideoKind, cancel: &
     if cancel.load(Ordering::Relaxed) {
         return Err(error("Video checks were replaced by a new selection."));
     }
-    let plan = unsub_ipod::plan_video_additions(ipod, &tracks).map_err(error)?;
+    let plan = unsub_ipod::plan_video_additions_with_cancel(ipod, &tracks, cancel).map_err(error)?;
     for id in &plan.duplicate {
         if let Some(item) = preview.items.get_mut(*id as usize) {
             item.already_present = true;
@@ -401,13 +401,23 @@ mod tests {
         assert!(result.items[1].reason.is_some());
         assert!(!ipod.mount_path.join("iPod_Control/iTunes/iTunesDB").exists(), "preview must not write");
         let track = inspect_source(&ipod, &valid, VideoKind::MusicVideo, 0, &cancel).unwrap();
-        let added = unsub_ipod::apply_video_additions(&ipod, &[track], &cancel, &mut |_| {}).unwrap();
+        let added = unsub_ipod::apply_video_additions(&ipod, std::slice::from_ref(&track), &cancel, &mut |_| {}).unwrap();
         assert_eq!(added.added, 1);
         assert_eq!(added.database.tracks[0].video_kind, Some(VideoKind::MusicVideo));
         assert_eq!(fingerprint(Path::new(&valid), &cancel).unwrap(), before);
-        let repeat = preview(&ipod, &[valid], VideoKind::Movie).unwrap();
+        let repeat = preview(&ipod, std::slice::from_ref(&valid), VideoKind::Movie).unwrap();
         assert!(repeat.items[0].already_present);
         assert_eq!(repeat.bytes, 0);
+        let copied = &added.database.tracks[0].path;
+        let bytes = fs::read(copied).unwrap();
+        fs::write(copied, vec![0; bytes.len()]).unwrap();
+        let retry = preview(&ipod, std::slice::from_ref(&valid), VideoKind::Movie).unwrap();
+        assert!(!retry.items[0].already_present, "damaged copies must not block a fresh copy");
+        assert!(retry.items[0].reason.is_none());
+        assert_eq!(retry.bytes, bytes.len() as u64);
+        let repaired = unsub_ipod::apply_video_additions(&ipod, &[track], &cancel, &mut |_| {}).unwrap();
+        assert_eq!((repaired.added, repaired.duplicates), (1, 0));
+        assert!(preview(&ipod, &[valid], VideoKind::Movie).unwrap().items[0].already_present);
     }
 
     #[test]

@@ -432,7 +432,7 @@ pub struct Report {
     pub disconnected: bool,
     pub items: Vec<Outcome>,
 }
-fn hash_file(path: &Path, cancel: &AtomicBool) -> io::Result<String> {
+pub(crate) fn hash_file(path: &Path, cancel: &AtomicBool) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 128 * 1024];
@@ -440,7 +440,7 @@ fn hash_file(path: &Path, cancel: &AtomicBool) -> io::Result<String> {
         if cancel.load(Ordering::Relaxed) {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
-                "Export cancelled",
+                "Video operation cancelled",
             ));
         }
         let n = file.read(&mut buffer)?;

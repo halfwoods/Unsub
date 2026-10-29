@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use sha2::{Digest, Sha256};
 use unsub_ipod::video::VideoKind;
 use unsub_ipod::{
-    VideoSyncTrack, apply_video_additions, plan_video_additions, restore_backup,
-    video_add_supported,
+    VideoSyncTrack, apply_video_additions, plan_video_additions, plan_video_additions_with_cancel,
+    restore_backup, video_add_supported,
 };
 
 use super::*;
@@ -257,6 +257,75 @@ fn missing_copied_video_is_eligible_for_retry_and_corrupt_or_protected_sources_a
         fs::write(&one.track.source_path, video_bytes(entry, 1)).unwrap();
         assert!(plan_video_additions(&opened(&fake), std::slice::from_ref(&one)).is_err());
     }
+}
+
+#[test]
+fn same_size_changed_video_copy_does_not_block_adding_the_original_again() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let one = video(library.path(), 1, VideoKind::Movie);
+    add(&fake, std::slice::from_ref(&one));
+    let copied = track_path(&fake, "Video 1");
+    let mut damaged = fs::read(&copied).unwrap();
+    *damaged.last_mut().unwrap() ^= 0xff;
+    fs::write(&copied, &damaged).unwrap();
+    let plan = plan_video_additions(&opened(&fake), std::slice::from_ref(&one)).unwrap();
+    assert_eq!(
+        plan.add,
+        [1],
+        "a stored hash cannot prove that the copy is intact"
+    );
+    assert!(plan.duplicate.is_empty());
+    let repaired = add(&fake, std::slice::from_ref(&one));
+    assert_eq!((repaired.added, repaired.duplicates), (1, 0));
+    assert_eq!(
+        fs::read(&copied).unwrap(),
+        damaged,
+        "adding remains non-destructive"
+    );
+    let original = fs::read(&one.track.source_path).unwrap();
+    assert!(
+        repaired
+            .database
+            .tracks
+            .iter()
+            .any(|track| { fs::read(&track.path).is_ok_and(|bytes| bytes == original) })
+    );
+    let retry = add(&fake, std::slice::from_ref(&one));
+    assert_eq!((retry.added, retry.duplicates), (0, 1));
+}
+
+#[test]
+fn cancelling_duplicate_verification_keeps_the_database_and_mapping_unchanged() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let one = video(library.path(), 1, VideoKind::Movie);
+    add(&fake, std::slice::from_ref(&one));
+    let before = db_bytes(&fake);
+    let before_mapping = mapping(&fake);
+    let cancel = AtomicBool::new(true);
+    assert!(
+        plan_video_additions_with_cancel(&opened(&fake), std::slice::from_ref(&one), &cancel)
+            .is_err()
+    );
+    let stopped = apply_video_additions(
+        &opened(&fake),
+        std::slice::from_ref(&one),
+        &cancel,
+        &mut |_| {},
+    )
+    .unwrap();
+    assert!(stopped.cancelled);
+    assert_eq!(stopped.added, 0);
+    assert_eq!(db_bytes(&fake), before);
+    assert_eq!(mapping(&fake), before_mapping);
+    cancel.store(false, Ordering::Relaxed);
+    assert_eq!(
+        plan_video_additions_with_cancel(&opened(&fake), &[one], &cancel)
+            .unwrap()
+            .duplicate,
+        [1]
+    );
 }
 
 #[test]

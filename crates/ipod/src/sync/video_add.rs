@@ -1,5 +1,5 @@
 //! Add-only video copies, deliberately outside normal music synchronization ownership.
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -12,7 +12,7 @@ use super::{
     require_guid_matches,
 };
 use crate::device::{database_exists, database_path};
-use crate::video::{Protection, VideoKind, sample_protection};
+use crate::video::{Protection, VideoKind, hash_file, sample_protection};
 use crate::{Database, Error, Ipod, IpodFamily, IpodMediaKind, Result, read_database};
 
 /// A local video already inspected for the destination's codec and playback limits by the caller.
@@ -68,6 +68,23 @@ pub fn video_add_supported(ipod: &Ipod) -> Result<()> {
 /// Inspect an additive batch and available space. Nothing is removed to make room. Duplicate
 /// content copied by this feature is skipped only while its database entry and file remain.
 pub fn plan_video_additions(ipod: &Ipod, videos: &[VideoSyncTrack]) -> Result<VideoAddPlan> {
+    plan_video_additions_with_cancel(ipod, videos, &AtomicBool::new(false))
+}
+
+/// The cancellable form of [`plan_video_additions`], including verification of existing copies.
+pub fn plan_video_additions_with_cancel(
+    ipod: &Ipod,
+    videos: &[VideoSyncTrack],
+    cancel: &AtomicBool,
+) -> Result<VideoAddPlan> {
+    let check_cancelled = || {
+        if cancel.load(Ordering::Relaxed) {
+            Err(Error::SyncRefused("video checking cancelled".into()))
+        } else {
+            Ok(())
+        }
+    };
+    check_cancelled()?;
     video_add_supported(ipod)?;
     if videos.len() > 500 {
         return Err(Error::SyncRefused(
@@ -76,27 +93,41 @@ pub fn plan_video_additions(ipod: &Ipod, videos: &[VideoSyncTrack]) -> Result<Vi
     }
     let current = read_database(ipod)?;
     let mapping = Mapping::load(&ipod.mount_path)?;
-    let live: HashSet<u64> = current
+    let live: HashMap<_, _> = current
         .tracks
         .iter()
-        .filter(|track| {
-            track.video_kind.is_some()
-                && fs::metadata(&track.path)
-                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() == track.file_size)
-        })
-        .map(|track| track.dbid)
+        .filter(|track| track.video_kind.is_some())
+        .map(|track| (track.dbid, track))
         .collect();
-    let mut hashes: HashSet<String> = mapping
-        .video_copies
-        .iter()
-        .filter(|copy| live.contains(&copy.dbid))
-        .map(|copy| copy.sha256.clone())
-        .collect();
+    let requested: HashSet<_> = videos.iter().map(|video| video.sha256.as_str()).collect();
+    let mut hashes = HashSet::new();
+    for copy in &mapping.video_copies {
+        check_cancelled()?;
+        if !requested.contains(copy.sha256.as_str()) || hashes.contains(&copy.sha256) {
+            continue;
+        }
+        let Some(track) = live.get(&copy.dbid) else {
+            continue;
+        };
+        if !fs::metadata(&track.path)
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() == track.file_size)
+        {
+            continue;
+        }
+        // A stored fingerprint and matching length cannot establish that the device copy is
+        // still intact. Read only copies matching this selection, never the whole video library.
+        let digest = hash_file(&track.path, cancel);
+        check_cancelled()?;
+        if digest.is_ok_and(|digest| digest == copy.sha256) {
+            hashes.insert(copy.sha256.clone());
+        }
+    }
     let mount =
         fs::canonicalize(&ipod.mount_path).map_err(|source| Error::io(&ipod.mount_path, source))?;
     let mut ids = HashSet::new();
     let (mut add, mut duplicate, mut bytes_needed) = (Vec::new(), Vec::new(), 0u64);
     for video in videos {
+        check_cancelled()?;
         let source = &video.track.source_path;
         if !ids.insert(video.track.library_id) {
             return Err(Error::SyncRefused(
@@ -179,7 +210,17 @@ pub fn apply_video_additions(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<VideoAddResult> {
-    let planned = plan_video_additions(ipod, videos)?;
+    let planned = match plan_video_additions_with_cancel(ipod, videos, cancel) {
+        Err(_) if cancel.load(Ordering::Relaxed) => {
+            return Ok(VideoAddResult {
+                database: read_database(ipod)?,
+                added: 0,
+                duplicates: 0,
+                cancelled: true,
+            });
+        }
+        result => result?,
+    };
     if planned.add.is_empty() || cancel.load(Ordering::Relaxed) {
         return Ok(VideoAddResult {
             database: read_database(ipod)?,

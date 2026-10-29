@@ -2,6 +2,7 @@
 
 Updated: 2026-10-29
 
+- Follow-up review found and reproduced one iPod Add Videos defect: a same-size modified device copy incorrectly blocked retrying the original. Content verification with cancellable planning and regression coverage is implemented on `mac-mini/review-081`; broad validation and release are pending.
 - [Unsub 0.8.0 is published](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0), including the automatic playing-indicator and window-size fixes plus reviewed Add Videos for iPods.
 - [PR #13](https://github.com/halfwoods/Unsub/pull/13) merged as `6e42b83`; feature [PR #12](https://github.com/halfwoods/Unsub/pull/12) is merged. Tag `v0.8.0` points to `fc47fc4` and matches the merged source tree.
 - Integrated verification: 186 frontend tests and 2,653 Rust tests passed; one frontend skip and seven Rust ignores are existing. All cross-platform [candidate CI](https://github.com/halfwoods/Unsub/actions/runs/40845953528) checks passed.
