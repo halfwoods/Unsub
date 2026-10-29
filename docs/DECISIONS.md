@@ -7,3 +7,5 @@
 2026-10-29 · Publish 0.8.0 with the reviewed iPod video feature after exact-tag CI, native fixture checks and signed-asset verification passed · fulfills the expanded release request while disclosing hardware limits · rejected: claiming physical iPod playback from simulated-device tests (no physical iPod was available).
 
 2026-10-29 · Verify matching iPod video copies by content before classifying duplicates, with cancellation throughout planning · a same-size damaged copy otherwise prevents retrying the original · rejected: trusting stored hashes and file size (does not establish current content), hashing the entire device library (unnecessary USB reads).
+
+2026-10-29 · Publish 0.8.1 after the reproduced video-duplicate fix passed a second review, exact-tag cross-platform CI and signed-asset/public-updater verification · delivers the requested follow-up patch with the original playback/window fixes retained · rejected: publishing the draft before checking all updater payloads and aliases (incomplete delivery evidence).
