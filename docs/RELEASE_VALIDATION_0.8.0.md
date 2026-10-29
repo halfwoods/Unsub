@@ -1,6 +1,6 @@
 # Unsub 0.8.0 validation
 
-Reviewed production/test code: `db39472` on `mac-mini/release-080`. Later documentation commits do not change executable code. The candidate includes PR #10 and the implementation from PR #12, plus two additional video safety tests.
+Published tag `v0.8.0` points to `fc47fc4`; reviewed production/test code is `db39472` on `mac-mini/release-080`, with later commits changing Markdown only. Release PR #13 merged as `6e42b83`, whose tree matched the tag. The release includes PR #10 and the implementation from PR #12, plus two additional video safety tests.
 
 ## Plan-aware iPod review
 
@@ -22,9 +22,9 @@ No production-code defect requiring a change was identified in this review. Adde
 - Integrated Rust workspace: 2,653 passed, zero runtime-test failures; seven existing ignored tests. The initial application doctest compilation reported missing Tauri crates while the native QA build was running; a sequential `cargo test -p unsub --doc --locked` recheck passed.
 - Targeted video-add integration: all 11 passed, including the new commit-failure and competing-writer tests.
 - Playback indicator regression fails against pre-fix 0.7.0 code (track ID remains 1) and passes against the candidate (track ID becomes 2).
-- Packaging/compatibility scripts: 13 tests passed; Linux packaging/manifest regressions: seven passed.
+- Packaging/compatibility scripts: 13 tests passed; Linux packaging/manifest regressions: seven passed. The no-FFmpeg video build compiled and passed all three applicable tests.
 - Local Clippy passed with warnings denied except the three documented pre-existing Rust 1.99 lint categories (`chunks_exact_to_as_chunks`, `unnecessary_sort_by`, `collapsible_match`). CI uses pinned Rust 1.93.1 with warnings denied and no allowances.
-- Original PR #12 cross-platform CI passed: https://github.com/halfwoods/Unsub/actions/runs/40685008515. Integrated candidate CI: https://github.com/halfwoods/Unsub/actions/runs/40844544012 (publication waits for completion).
+- Original PR #12 cross-platform CI passed: https://github.com/halfwoods/Unsub/actions/runs/40685008515. Final integrated candidate CI passed on the exact tagged head: https://github.com/halfwoods/Unsub/actions/runs/40845953528 (Mac arm64/Intel, Windows, Linux and six package smoke checks). Earlier run 40844544012 was superseded by the documentation push; it is not the final evidence.
 
 ## Native macOS verification — 2026-10-29
 
@@ -40,4 +40,12 @@ Evidence logs, generated fixtures and the disposable disk image are under `/priv
 
 ## Release packaging
 
-Pending: signed release workflow, final asset/signature/manifest checks, and publication. This section will be updated after those steps complete.
+[Unsub 0.8.0](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0) was published on 2026-10-29 after [release workflow 40846623387](https://github.com/halfwoods/Unsub/actions/runs/40846623387) completed successfully on the exact tagged head. It contains 25 assets, including all installer formats, updater signatures, fixed download aliases, the manifest and matching bundled-library source archives.
+
+- Downloaded and independently verified both Mac DMGs and update archives: version-bound updater signatures, deep strict Apple signatures, Gatekeeper acceptance as Notarized Developer ID, stapled tickets, correct architecture and minimum deployment target (arm64 11.0; Intel 10.13.6).
+- Extracted the unmodified signed Apple Silicon update archive, launched its app in a fresh profile, inspected the rendered welcome window at the restored 950×600 dimensions, then quit and confirmed the same saved size. This was a fresh-profile startup check; playback behavior was exercised in the isolated native QA build described above.
+- Signed Linux packages passed all six clean-distribution package smoke checks. Local verification of the actual release payloads accepted both valid signatures and rejected tampering and incorrect version claims.
+- Downloaded the complete draft release and verified all seven updater platform entries, six unique payload signatures and their trusted version 0.8.0, six alias-to-versioned-installer hash matches, and all three bundled-library source checksums. Final Mac/Linux assets matched the files independently audited before draft creation. Windows MSI metadata declared x64; the NSIS bootstrapper was a valid self-extracting installer.
+- Published only after these checks. The unauthenticated public `releases/latest/download/latest.json` response exactly matched the verified draft manifest, announcing 0.8.0 with all seven platform entries. The website's download script reads GitHub's latest published release and fixed installer aliases, so no website edit was required.
+
+The published source and capability files contain no QA driver or extra test permissions. All temporary test images were detached and test profiles archived. Hardware and installed-desktop-update limitations listed above remain unverified rather than being treated as passed.
