@@ -23,6 +23,17 @@ The second review inspected the complete fix, exports, cancellation propagation,
 
 ## Release gates and remaining limits
 
-Publication requires successful candidate CI and signed packaging, followed by manifest, version-bound signature, download-alias and bundled-source checks. The release workflow creates a draft first.
+[Candidate CI 40855778280](https://github.com/halfwoods/Unsub/actions/runs/40855778280) passed on tagged commit `32bcf8b`, including both Mac architectures, Windows, Linux and all six Linux package smoke checks. [PR #15](https://github.com/halfwoods/Unsub/pull/15) merged as `b4d72df`; its tree exactly matches `v0.8.1`.
+
+An earlier prepatch main run failed an existing cloud-details test on Windows. That test and the full Windows suite passed on this exact candidate; the older failure is not reported as a new product defect or as a successful run.
+
+[Signed release workflow 40856102673](https://github.com/halfwoods/Unsub/actions/runs/40856102673) passed. [Unsub 0.8.1](https://github.com/halfwoods/Unsub/releases/tag/v0.8.1) was published on 2026-10-29 at 11:07:12 UTC after all gates below passed.
+
+- Both Mac DMGs and updater archives independently passed version-bound updater signatures, deep strict Apple signatures, Gatekeeper acceptance as Notarized Developer ID, stapled-ticket validation and architecture/deployment-target checks (arm64 11.0; Intel 10.13.6). Each DMG's executable and bundled libraries matched its updater archive. Both read-only test images were detached.
+- Both signed Linux packages passed independent signature/version checks and all six clean-distribution smoke checks. The workflow also verified payload tampering and incorrect signed versions were rejected.
+- Downloaded all 25 draft assets. Verified all seven manifest platform entries, six unique payload signatures and trusted version 0.8.1, six fixed download aliases and all three bundled-library source checksums. The final Mac/Linux assets matched the independently audited workflow downloads. A locally tampered AppImage was rejected. Windows MSI metadata declares x64; the NSIS file is a valid self-extracting Windows installer.
+- After publication, unauthenticated public latest-release metadata announced 0.8.1 with all 25 assets. The public updater response exactly matched the audited manifest, and all six latest-download aliases redirected to 0.8.1 with the expected file sizes. The existing website follows those latest-release links automatically.
+
+Evidence logs and downloaded artifacts are under `/private/tmp/unsub-081-qa`. Production sources and capability files contain no QA instrumentation.
 
 No frontend interaction or window/playback implementation changed in this patch. Their 0.8.0 native checks remain documented in [the earlier record](RELEASE_VALIDATION_0.8.0.md). Physical iPod playback/cable failures, Windows/Linux desktop interaction, actual High Sierra and installed Linux desktop updating/PolicyKit remain unverified. Checking an existing large duplicate now reads that matching file over USB; checks can be cancelled.
