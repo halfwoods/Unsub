@@ -1,6 +1,6 @@
 # Add videos to an iPod
 
-Status: implemented in [PR #12](https://github.com/halfwoods/Unsub/pull/12), with successful cross-platform CI [40685008515](https://github.com/halfwoods/Unsub/actions/runs/40685008515). On 2026-10-29 the user requested a thorough review and inclusion in the next release if ready. Plan-aware review and integrated local/native validation passed on `mac-mini/release-080`; [the 0.8.0 validation record](RELEASE_VALIDATION_0.8.0.md) documents coverage and hardware limits. Release CI and signed packaging remain pending.
+Status: implemented in [PR #12](https://github.com/halfwoods/Unsub/pull/12), with successful cross-platform CI [40685008515](https://github.com/halfwoods/Unsub/actions/runs/40685008515). On 2026-10-29 the user requested a thorough review and inclusion in the next release if ready. Plan-aware review and integrated local/native validation passed on `mac-mini/release-080`; [the 0.8.0 validation record](RELEASE_VALIDATION_0.8.0.md) documents coverage and hardware limits. All integrated cross-platform CI and signed packaging checks passed. Published in [Unsub 0.8.0](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0) on 2026-10-29; PR #12 is merged through release PR #13. Physical iPod playback remains unverified.
 
 ## Outcome and decisions
 
