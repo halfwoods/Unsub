@@ -286,7 +286,7 @@ export function Lcd() {
     const { stage, done, total, current } = deviceSync;
     const rescuing = stage === "rescuing" || stage === "exportingVideos";
     // Before the first song there is nothing to count yet, only the iPod being read.
-    const subtitle = rescuing
+    const subtitle = rescuing || stage === "addingVideos"
       ? total === 0
         ? current
         : `${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`
@@ -301,7 +301,7 @@ export function Lcd() {
               : `${stage === "downloading" ? "Downloading from iCloud" : "Copying"} ${Math.min(done + 1, total).toLocaleString()} of ${total.toLocaleString()}: ${current}`;
     return (
       <ProgressLcd
-        title={stage === "exportingVideos" ? `Copying videos from “${syncingName}”` : rescuing ? `Copying from “${syncingName}”` : `Syncing “${syncingName}”`}
+        title={stage === "addingVideos" ? `Adding videos to “${syncingName}”` : stage === "exportingVideos" ? `Copying videos from “${syncingName}”` : rescuing ? `Copying from “${syncingName}”` : `Syncing “${syncingName}”`}
         subtitle={subtitle}
         fraction={total > 0 ? done / total : null}
         // Only the iPod database's commit can't be stopped halfway.

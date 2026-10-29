@@ -109,6 +109,12 @@ function SummaryTab({ device, settings, update }: { device: Device; settings: Sy
           </button>
           <span className="prefs-note">Save movies and music videos to a folder. Original files on the iPod stay unchanged.</span>
         </div>
+        <div className="device-rescue">
+          <button className="push-button" disabled={busy} onClick={() => useApp.setState({ videosToDevice: device.id })}>
+            Add Videos…
+          </button>
+          <span className="prefs-note">Add compatible movies and music videos to this iPod without changing its existing media.</span>
+        </div>
       </section>
       <section className="device-box">
         <h2>Options</h2>
@@ -326,7 +332,7 @@ function SyncPage({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const syncing = useApp((s) => s.deviceSync !== null);
-  const copying = useApp((s) => s.deviceSync?.stage === "rescuing" || s.deviceSync?.stage === "exportingVideos");
+  const copying = useApp((s) => s.deviceSync?.stage === "rescuing" || s.deviceSync?.stage === "exportingVideos" || s.deviceSync?.stage === "addingVideos");
   const showNotice = useApp((s) => s.showNotice);
 
   useEffect(() => {

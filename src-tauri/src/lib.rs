@@ -26,6 +26,7 @@ mod sync;
 mod test_support;
 mod updates;
 mod user_paths;
+mod video_add;
 mod video_export;
 mod visualizer;
 mod welcome;
@@ -94,6 +95,7 @@ pub fn run() {
             app.manage(SharingState::load(data_dir.join("Sharing.json"), library_path, artwork_cache));
             app.manage(remote::RemoteState::load(data_dir.join("Remote.json"), app.path().app_cache_dir()?.join("Shared Songs")));
             app.manage(DevicesState::default());
+            app.manage(video_add::PreviewState::default());
             app.manage(jobs::Jobs::default());
             app.manage(details::DetailsState::default());
             app.manage(import::ImportState::default());
@@ -264,6 +266,9 @@ pub fn run() {
             video_export::device_videos,
             video_export::device_video_export_preview,
             video_export::device_video_export,
+            video_add::device_video_add_preview,
+            video_add::device_video_add_cancel_preview,
+            video_add::device_video_add,
             updates::updates_status,
             updates::updates_set_auto_check,
             updates::updates_dismiss,

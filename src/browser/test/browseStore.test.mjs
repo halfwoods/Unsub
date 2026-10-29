@@ -23,6 +23,8 @@ const commandMock = `
   export const playerSetShuffle = async () => {};
   export const libraryRemoveFromPlaylist = async (id, positions) => { state().removed.push({id,positions}); };
   export const libraryPlaylists = async () => state().playlists;
+  export const devicesList = async () => state().devices;
+  export const playersList = async () => [];
 `;
 registerHooks({ resolve(specifier, context, next) {
   if (context.parentURL === storeUrl && specifier === "../api/commands") return { url: `data:text/javascript,${encodeURIComponent(commandMock)}`, shortCircuit: true };
@@ -44,7 +46,7 @@ beforeEach(async () => {
   const tracks = [{ id: 1, enabled: true, kind: "music", missing: false }, { id: 1, enabled: true, kind: "music", missing: false }, { id: 2, enabled: false, kind: "music", missing: false }];
   globalThis.__browseTest = { tracks, queries: [], albumQueries: [], artistAlbumQueries: [], albumTrackQueries: [], queues: [], removed: [],
     trackLookups: [], deviceQueries: [], remoteQueries: [], cdQueries: [], notices: [], deviceRead: async () => [],
-    playlists: [{ id: 42, name: "Mix", kind: "regular" }], read: async () => tracks };
+    devices: [], playlists: [{ id: 42, name: "Mix", kind: "regular" }], read: async () => tracks };
   useApp.setState(initial, true);
   useLibraryViews.setState({ prefs: initialPrefs });
   useApp.setState({ playlists: globalThis.__browseTest.playlists, showNotice: message => globalThis.__browseTest.notices.push(message) });
@@ -92,6 +94,32 @@ test("Column Browser choices narrow progressively, clear and never leak to devic
   useApp.getState().openArtist("ann", "Ann"); await settle();
   useApp.getState().setSource("device:test");
   assert.equal(useApp.getState().query.artistKey, null); assert.deepEqual(useApp.getState().browsePath, []);
+});
+
+test("Add Videos remains with its iPod and closes when navigation changes devices or leaves the device", async () => {
+  useApp.setState({ videosToDevice: "first" });
+  useApp.getState().setSource("device:first");
+  assert.equal(useApp.getState().videosToDevice, "first");
+  useApp.getState().setSource("device:second");
+  assert.equal(useApp.getState().videosToDevice, null);
+  useApp.setState({ videosToDevice: "second" });
+  useApp.getState().setSource("music"); await settle();
+  assert.equal(useApp.getState().videosToDevice, null);
+});
+
+test("disconnect closes Add Videos and reconnect cannot reopen a stale transfer sheet", async () => {
+  const state = globalThis.__browseTest;
+  state.devices = [{ id: "first" }];
+  useApp.setState({ videosToDevice: "first", devices: state.devices, source: "device:first" });
+  await useApp.getState().refreshDevices();
+  assert.equal(useApp.getState().videosToDevice, "first");
+  state.devices = [];
+  await useApp.getState().refreshDevices(); await settle();
+  assert.equal(useApp.getState().videosToDevice, null);
+  assert.equal(useApp.getState().source, "music");
+  state.devices = [{ id: "first" }];
+  await useApp.getState().refreshDevices();
+  assert.equal(useApp.getState().videosToDevice, null);
 });
 
 test("filtered playlist deletion resolves positions from the complete stored playlist", async () => {

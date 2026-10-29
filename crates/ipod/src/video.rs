@@ -83,7 +83,9 @@ fn extension(path: &Path) -> String {
 
 /// Inspect only MP4 sample-description atoms, never decode or decrypt media. Atom lengths and
 /// depth are bounded, and mdat payloads are skipped rather than loaded into memory.
-fn sample_protection(path: &Path) -> io::Result<(Protection, bool)> {
+/// Inspect MP4 sample descriptions without decoding media. The boolean reports whether an
+/// actual video sample entry was found; callers must reject unknown protection or no video.
+pub fn sample_protection(path: &Path) -> io::Result<(Protection, bool)> {
     fn atoms(
         file: &mut File,
         mut pos: u64,

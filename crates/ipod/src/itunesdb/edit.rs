@@ -103,6 +103,32 @@ fn file_type_marker(extension: &str) -> u32 {
 }
 
 impl RawTrack {
+    /// Mark a newly added video using libgpod's media-type flags, independently of audio tags.
+    pub(crate) fn set_video_kind(&mut self, kind: crate::video::VideoKind) {
+        use crate::video::VideoKind;
+        let flags = match kind {
+            VideoKind::Movie => 0x02,
+            VideoKind::MusicVideo => 0x20,
+            VideoKind::Tv => 0x40,
+            VideoKind::VideoPodcast => 0x06,
+            VideoKind::Other => 0x02,
+        };
+        self.set_u8(at::MOVIE_FLAG, 1);
+        self.set_u32(at::MEDIA_TYPE, flags);
+        // gtkpod's plugins/filetype_mp4/mp4file.c labels videos "MP4 video file";
+        // libgpod's itdb_track_set_defaults gives that MP4 family these two values.
+        // Apply them explicitly, independent of the container extension/audio sample entry.
+        self.set_u8(at::TYPE2, 0);
+        self.set_u16(at::UNKNOWN_126, 0xffff);
+        self.set_u16(at::UNKNOWN_144, 0x0033);
+        self.set_u8(at::SKIP_WHEN_SHUFFLING, 1);
+        self.set_u8(
+            at::REMEMBER_POSITION,
+            u8::from(kind != VideoKind::MusicVideo),
+        );
+        self.set_text(mhod::FILE_TYPE, Some("MP4 video file"));
+    }
+
     /// A new track record with a header of `header_len` bytes. Fields beyond a short header are
     /// left out, as older iTunes versions did not have them. The wall-clock times are written in
     /// `zone`, which a sync takes from the machine and a test pins.
@@ -383,6 +409,33 @@ mod tests {
             media_kind: kind,
             database_tag: 0xdead_beef,
             extension: "mp3".into(),
+        }
+    }
+
+    #[test]
+    fn video_defaults_match_libgpods_mp4_family_independent_of_detected_audio() {
+        for codec in [Codec::Other, Codec::Aac, Codec::Mp3] {
+            for (kind, flags) in [
+                (crate::video::VideoKind::Movie, 2),
+                (crate::video::VideoKind::MusicVideo, 32),
+            ] {
+                let mut track = RawTrack::create(
+                    0x184,
+                    &origin(codec, IpodMediaKind::Video),
+                    &metadata(),
+                    &Utc,
+                );
+                track.set_video_kind(kind);
+                assert_eq!(u16_at(&track.header, at::UNKNOWN_126), Some(0xffff));
+                assert_eq!(u16_at(&track.header, at::UNKNOWN_144), Some(0x33));
+                assert_eq!(u8_at(&track.header, at::TYPE2), Some(0));
+                assert_eq!(u8_at(&track.header, at::MOVIE_FLAG), Some(1));
+                assert_eq!(u32_at(&track.header, at::MEDIA_TYPE), Some(flags));
+                assert_eq!(
+                    track.text(mhod::FILE_TYPE).unwrap().as_deref(),
+                    Some("MP4 video file")
+                );
+            }
         }
     }
 
