@@ -23,6 +23,10 @@ The second review inspected the complete fix, exports, cancellation propagation,
 
 ## Release gates and remaining limits
 
-Publication requires successful candidate CI and signed packaging, followed by manifest, version-bound signature, download-alias and bundled-source checks. The release workflow creates a draft first.
+[Candidate CI 40855778280](https://github.com/halfwoods/Unsub/actions/runs/40855778280) passed on tagged commit `32bcf8b`, including both Mac architectures, Windows, Linux and all six Linux package smoke checks. [PR #15](https://github.com/halfwoods/Unsub/pull/15) merged as `b4d72df`; its tree exactly matches `v0.8.1`.
+
+An earlier prepatch main run failed an existing cloud-details test on Windows. That test and the full Windows suite passed on this exact candidate; the older failure is not reported as a new product defect or as a successful run.
+
+[Signed release workflow 40856102673](https://github.com/halfwoods/Unsub/actions/runs/40856102673) is still running. Independently downloaded Linux signatures and trusted 0.8.1 versions passed; all six signed Linux package smoke checks passed. The Apple Silicon DMG and updater archive passed version, deep strict Apple signature, Gatekeeper, notarization-ticket and deployment-target checks; their executable and bundled libraries match. The read-only test image was detached. Intel Mac/Windows packages and final manifest verification remain pending. The release workflow creates a draft first; publication follows all gates.
 
 No frontend interaction or window/playback implementation changed in this patch. Their 0.8.0 native checks remain documented in [the earlier record](RELEASE_VALIDATION_0.8.0.md). Physical iPod playback/cable failures, Windows/Linux desktop interaction, actual High Sierra and installed Linux desktop updating/PolicyKit remain unverified. Checking an existing large duplicate now reads that matching file over USB; checks can be cancelled.

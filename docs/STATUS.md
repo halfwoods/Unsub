@@ -2,7 +2,7 @@
 
 Updated: 2026-10-29
 
-- 0.8.1 candidate on `mac-mini/review-081` fixes one reproduced iPod Add Videos defect: a same-size modified copy blocked retrying the original. Matching copies are now verified with cancellable hashing. Second review found no further actionable issues; 2,655 Rust and 186 frontend tests, production build, compatibility checks and local Clippy passed. Cross-platform CI and signed release verification are pending; see [0.8.1 validation](RELEASE_VALIDATION_0.8.1.md).
+- 0.8.1 fixes the reproduced same-size damaged-video duplicate bug; second review found no further actionable issues. [PR #15](https://github.com/halfwoods/Unsub/pull/15) merged as `b4d72df`, matching tag `v0.8.1` (`32bcf8b`). All candidate CI passed. Signed Linux and Apple Silicon assets passed independent verification; Intel Mac/Windows and final release checks are pending. See [0.8.1 validation](RELEASE_VALIDATION_0.8.1.md).
 - [Unsub 0.8.0 is published](https://github.com/halfwoods/Unsub/releases/tag/v0.8.0), including the automatic playing-indicator and window-size fixes plus reviewed Add Videos for iPods.
 - [PR #13](https://github.com/halfwoods/Unsub/pull/13) merged as `6e42b83`; feature [PR #12](https://github.com/halfwoods/Unsub/pull/12) is merged. Tag `v0.8.0` points to `fc47fc4` and matches the merged source tree.
 - Integrated verification: 186 frontend tests and 2,653 Rust tests passed; one frontend skip and seven Rust ignores are existing. All cross-platform [candidate CI](https://github.com/halfwoods/Unsub/actions/runs/40845953528) checks passed.
