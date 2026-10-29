@@ -50,7 +50,7 @@ pub use rescue::{
 pub use restore::restore_backup;
 pub use video_add::{
     VideoAddPlan, VideoAddResult, VideoSyncTrack, apply_video_additions, plan_video_additions,
-    video_add_supported,
+    plan_video_additions_with_cancel, video_add_supported,
 };
 
 /// A library track as the sync sees it. Tags describe the track on the iPod; the audio file comes
