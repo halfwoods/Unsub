@@ -1,7 +1,8 @@
 # Status
 
-Updated: 2026-10-29
+Updated: 2026-10-30
 
+- Classic Cover Flow source investigation is complete on `mac-mini/classic-album-art`: existing album artwork metadata is preserved and distinct song pictures are correctly budgeted. A four-case offline probe passed independent byte checks; 2,666 Rust tests passed (8 ignored). Dummy-free independent album artwork remains unverified without a device result or native consumer trace, and is not enabled in the app. Cross-platform CI and review are tracked in this branch’s pull request. See [investigation](CLASSIC_COVER_FLOW_ARTWORK.md).
 - [Unsub 0.8.1 is published](https://github.com/halfwoods/Unsub/releases/tag/v0.8.1). It fixes Add Videos incorrectly skipping a same-size damaged iPod copy. Matching copies are verified by content, with cancellation; existing files stay in place.
 - Follow-up review reproduced the bug before the fix and found no further actionable issues in the final change. [PR #15](https://github.com/halfwoods/Unsub/pull/15) merged as `b4d72df`; its source tree matches tag `v0.8.1` (`32bcf8b`).
 - Verification: 2,655 Rust tests and all doctests, 186 frontend tests, production build, compatibility checks and local Clippy passed. Seven Rust ignores and one frontend skip are existing. All [candidate CI](https://github.com/halfwoods/Unsub/actions/runs/40855778280) and [signed release jobs](https://github.com/halfwoods/Unsub/actions/runs/40856102673) passed.
