@@ -4,7 +4,7 @@
 //! artist ids, the album and artist lists, the master playlist's sort indexes and the checksum are
 //! recomputed because adding or removing a track invalidates them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::mhit::at;
 use super::mhod::{self, u32_from};
@@ -209,6 +209,56 @@ fn write_tracks(out: &mut Out, heads: &Heads, context: &Context) {
 }
 
 fn write_albums(out: &mut Out, heads: &Heads, context: &Context) {
+    let mut members = vec![HashSet::new(); context.ids.albums.len()];
+    for (position, &id) in context.ids.album.iter().enumerate() {
+        if id != 0 {
+            members[id as usize - 1].insert(context.db.tracks[position].dbid());
+        }
+    }
+    let origins: HashMap<_, _> = context
+        .db
+        .albums
+        .iter()
+        .enumerate()
+        .flat_map(|(index, album)| album.members.iter().map(move |&member| (member, index)))
+        .collect();
+    let mut used_records = HashSet::new();
+    let original: Vec<_> = context
+        .ids
+        .albums
+        .iter()
+        .enumerate()
+        .map(|(index, &position)| {
+            let candidates: HashSet<_> = members[index]
+                .iter()
+                .filter_map(|member| origins.get(member).copied())
+                .filter(|&album| context.db.albums[album].matches(&context.views[position]))
+                .collect();
+            if candidates.len() == 1 {
+                let candidate = *candidates.iter().next().unwrap();
+                used_records
+                    .insert(candidate)
+                    .then_some(&context.db.albums[candidate])
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Reserve every retained PID before generating new ones, including when a renamed album
+    // precedes an unchanged one and its derived hash happens to equal the original PID.
+    let mut used_pids: HashSet<_> = original
+        .iter()
+        .flatten()
+        .map(|album| album.persistent_id())
+        .filter(|&pid| pid != 0)
+        .collect();
+    let mut claimed_pids = HashSet::new();
+    let tracks = context
+        .db
+        .tracks
+        .iter()
+        .map(|track| (track.dbid(), track))
+        .collect();
     let section = out.begin(&heads.mhsd);
     let list = out.begin(&heads.list);
     out.set_u32(list + 8, u32_from(context.ids.albums.len()));
@@ -224,7 +274,7 @@ fn write_albums(out: &mut Out, heads: &Heads, context: &Context) {
         } else {
             &view.sort_album_artist
         };
-        let mhods: Vec<Vec<u8>> = [
+        let mut mhods: Vec<Vec<u8>> = [
             (mhod::LIST_ALBUM, &view.album),
             (mhod::LIST_ALBUM_ARTIST, album_artist),
             (mhod::LIST_ALBUM_SORT_ARTIST, sort_artist),
@@ -233,9 +283,45 @@ fn write_albums(out: &mut Out, heads: &Heads, context: &Context) {
         .filter(|(_, text)| !text.is_empty())
         .map(|(kind, text)| mhod::encode_text(kind, text))
         .collect();
-        // Padding words after the ids are zero except one that iTunes sets to 2.
-        let key = [view.album.as_str(), album_artist, view.tv_show.as_str()];
-        write_list_item(out, b"mhia", MHIA_HEADER_LEN, index, &key, &mhods);
+        let mut header = if let Some(album) = original[index] {
+            mhods.extend(
+                album
+                    .mhods
+                    .iter()
+                    .filter(|mhod| {
+                        !matches!(
+                            mhod.kind,
+                            mhod::LIST_ALBUM
+                                | mhod::LIST_ALBUM_ARTIST
+                                | mhod::LIST_ALBUM_SORT_ARTIST
+                        )
+                    })
+                    .map(|mhod| mhod.bytes.clone()),
+            );
+            album.retained_header(&tracks)
+        } else {
+            let mut header = vec![0; MHIA_HEADER_LEN];
+            put(&mut header, 0, b"mhia");
+            put(&mut header, 4, &u32_from(MHIA_HEADER_LEN).to_le_bytes());
+            put(&mut header, 28, &2u32.to_le_bytes());
+            header
+        };
+        let mut pid = original[index].map_or(0, |album| album.persistent_id());
+        if pid == 0 || !claimed_pids.insert(pid) {
+            pid = stable_id(&[view.album.as_str(), album_artist, view.tv_show.as_str()]);
+            while !used_pids.insert(pid) {
+                pid = pid.wrapping_add(2);
+            }
+            claimed_pids.insert(pid);
+        }
+        put(&mut header, 12, &u32_from(mhods.len()).to_le_bytes());
+        put(&mut header, 16, &u32_from(index + 1).to_le_bytes());
+        put(&mut header, 20, &pid.to_le_bytes());
+        let start = out.begin(&header);
+        for mhod in mhods {
+            out.append(&mhod);
+        }
+        out.finish(start);
     }
     out.finish(section);
 }
@@ -549,6 +635,7 @@ mod tests {
                 },
             ],
             tracks: vec![RawTrack::create(0x184, &origin, &metadata, &pinned_zone())],
+            albums: Vec::new(),
             playlists: vec![master],
         }
     }
@@ -591,5 +678,74 @@ mod tests {
         // CommonCrypto) over exactly these bytes. If the layout of `minimal_db` output changes on
         // purpose, recompute it the same way.
         assert_eq!(hash, "ab3103056431196275965a5e33a0bc78be8f8232");
+    }
+
+    #[test]
+    fn a_new_album_pid_cannot_collide_with_a_retained_album_that_follows_it() {
+        let mut db = minimal_db();
+        db.layout.push(Slot::Albums(heads(4, b"mhla")));
+        put(&mut db.header, 20, &3u32.to_le_bytes());
+        let original = emit(&db, None).unwrap();
+        let mut db = RawDb::parse(&original).unwrap();
+        let future_pid = stable_id(&["New album", "Artist", ""]);
+        put(&mut db.albums[0].header, 20, &future_pid.to_le_bytes());
+        let mut new_track = minimal_db().tracks.remove(0);
+        new_track.set_text(mhod::ALBUM, Some("New album"));
+        new_track.set_u32(at::ID, 53);
+        put(
+            &mut new_track.header,
+            at::DBID,
+            &0x1122_3344u64.to_le_bytes(),
+        );
+        db.tracks.insert(0, new_track);
+        db.playlists[0].members.push(53);
+        let output = RawDb::parse(&emit(&db, None).unwrap()).unwrap();
+        assert_eq!(output.albums.len(), 2);
+        assert_ne!(output.albums[0].persistent_id(), future_pid);
+        assert_eq!(output.albums[1].persistent_id(), future_pid);
+        let unchanged = RawDb::parse(&emit(&output, None).unwrap()).unwrap();
+        assert_eq!(
+            unchanged.albums[0].persistent_id(),
+            output.albums[0].persistent_id()
+        );
+        assert_eq!(unchanged.albums[1].persistent_id(), future_pid);
+    }
+
+    #[test]
+    fn an_album_supplier_can_move_but_losing_its_artwork_invalidates_the_selector() {
+        let mut db = minimal_db();
+        db.layout.push(Slot::Albums(heads(4, b"mhla")));
+        put(&mut db.header, 20, &3u32.to_le_bytes());
+        db.tracks[0].link_artwork(100, 99);
+        let supplier = db.tracks[0].dbid();
+        let mut other = minimal_db().tracks.remove(0);
+        other.set_u32(at::ID, 53);
+        put(&mut other.header, at::DBID, &0x1122_3344u64.to_le_bytes());
+        other.link_artwork(101, 99);
+        db.tracks.push(other);
+        db.playlists[0].members.push(53);
+        let mut db = RawDb::parse(&emit(&db, None).unwrap()).unwrap();
+        let album_pid = db.albums[0].persistent_id();
+        put(&mut db.albums[0].header, 30, &[2]);
+        put(&mut db.albums[0].header, 32, &supplier.to_le_bytes());
+        let mut db = RawDb::parse(&emit(&db, None).unwrap()).unwrap();
+        db.tracks[0].set_text(mhod::ALBUM, Some("Another album"));
+        let output = RawDb::parse(&emit(&db, None).unwrap()).unwrap();
+        let album = output
+            .albums
+            .iter()
+            .find(|album| album.persistent_id() == album_pid)
+            .unwrap();
+        assert_eq!(u64_at(&album.header, 32), Some(supplier));
+        assert_eq!(album.header[30], 2);
+        db.tracks[0].set_u32(at::MHII_LINK, 0);
+        let output = RawDb::parse(&emit(&db, None).unwrap()).unwrap();
+        let album = output
+            .albums
+            .iter()
+            .find(|album| album.persistent_id() == album_pid)
+            .unwrap();
+        assert_eq!(u64_at(&album.header, 32), Some(0));
+        assert_eq!(album.header[30], 0);
     }
 }

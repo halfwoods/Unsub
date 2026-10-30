@@ -213,6 +213,8 @@ pub fn sync(
 
 mod add;
 pub mod artwork;
+mod artwork_probe;
+mod artwork_space;
 mod blank;
 mod checkpoints;
 mod faults;
