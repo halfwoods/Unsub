@@ -304,6 +304,40 @@ fn assert_album_metadata(record: &[u8], pid: u64, supplier: u64, marker: u8) {
 }
 
 #[test]
+fn a_non_compilation_member_clears_the_retained_all_compilations_flag() {
+    let mut spec = sample_database();
+    spec.tracks.truncate(1);
+    spec.tracks[0].title = "Foreign 0".into();
+    spec.tracks[0].album = "Shared title".into();
+    spec.tracks[0].album_artist = "Various Artists".into();
+    spec.tracks[0].compilation = true;
+    let fake = classic_7g(&spec);
+    sync(&fake, &[], &[]);
+    decorate_album(&fake, "Foreign 0", 0x1234_5678, 0xffff_eeee_dddd_cccc, 0xa1);
+
+    let mut bytes = db_bytes(&fake);
+    let album_id = u32_at(&album_record(&fake, "Foreign 0"), 16);
+    let at = album_offset(&bytes, album_id);
+    bytes[at + 29] = 1;
+    fake.write_itunesdb(&bytes);
+
+    sync(&fake, &[], &[]);
+    let unchanged = album_record(&fake, "Foreign 0");
+    assert_eq!(unchanged[29], 1, "a group that is still all compilations");
+
+    let library = tempfile::tempdir().unwrap();
+    let mut addition = library_track(library.path(), 7, "New member");
+    addition.album = "Shared title".into();
+    addition.album_artist = "Various Artists".into();
+    addition.compilation = false;
+    sync(&fake, &[addition], &[]);
+
+    let record = album_record(&fake, "Foreign 0");
+    assert_eq!(record[29], 0, "the group now holds a non-compilation track");
+    assert_album_metadata(&record, 0x1234_5678, 0xffff_eeee_dddd_cccc, 0xa1);
+}
+
+#[test]
 fn music_and_video_adds_preserve_independent_album_metadata_for_the_same_title_by_different_artists()
  {
     use sha2::{Digest, Sha256};

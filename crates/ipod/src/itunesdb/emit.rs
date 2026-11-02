@@ -15,6 +15,7 @@ use crate::bytes::put;
 use crate::error::Result;
 
 const MHIA_HEADER_LEN: usize = 88;
+const MHIA_ALL_COMPILATIONS_AT: usize = 29;
 const MHII_HEADER_LEN: usize = 80;
 const MHIP_HEADER_LEN: usize = 76;
 const MHIP_COUNT_AT: usize = 12;
@@ -210,9 +211,12 @@ fn write_tracks(out: &mut Out, heads: &Heads, context: &Context) {
 
 fn write_albums(out: &mut Out, heads: &Heads, context: &Context) {
     let mut members = vec![HashSet::new(); context.ids.albums.len()];
+    let mut all_compilations = vec![true; context.ids.albums.len()];
     for (position, &id) in context.ids.album.iter().enumerate() {
         if id != 0 {
-            members[id as usize - 1].insert(context.db.tracks[position].dbid());
+            let track = &context.db.tracks[position];
+            members[id as usize - 1].insert(track.dbid());
+            all_compilations[id as usize - 1] &= track.is_compilation();
         }
     }
     let origins: HashMap<_, _> = context
@@ -298,7 +302,13 @@ fn write_albums(out: &mut Out, heads: &Heads, context: &Context) {
                     })
                     .map(|mhod| mhod.bytes.clone()),
             );
-            album.retained_header(&tracks)
+            let mut header = album.retained_header(&tracks);
+            // Only clear: a flag this group can no longer claim is wrong, while setting one that
+            // the original writer left unset would change an album no firmware evidence covers.
+            if !all_compilations[index] {
+                put(&mut header, MHIA_ALL_COMPILATIONS_AT, &[0]);
+            }
+            header
         } else {
             let mut header = vec![0; MHIA_HEADER_LEN];
             put(&mut header, 0, b"mhia");

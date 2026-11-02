@@ -71,6 +71,12 @@ impl RawTrack {
         u64_at(&self.header, at::TRACK_DBID).unwrap_or(0)
     }
 
+    pub(super) fn is_compilation(&self) -> bool {
+        self.header
+            .get(super::mhit::at::COMPILATION)
+            .is_some_and(|&flag| flag != 0)
+    }
+
     /// The last mhod of this type wins, as in the reader.
     pub(crate) fn text(&self, kind: u32) -> Result<Option<String>> {
         let Some(mhod) = self.mhods.iter().rev().find(|mhod| mhod.kind == kind) else {
