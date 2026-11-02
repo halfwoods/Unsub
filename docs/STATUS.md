@@ -1,7 +1,8 @@
 # Status
 
-Updated: 2026-10-29
+Updated: 2026-10-30
 
+- Classic Cover Flow follow-up now has actual 2.0.4 ARM evidence: the importer skips the MHIA album dataset, album rows retain the first encountered song’s image, and ordinary playback/Cover Flow share image format 1055. The original independent-owner proposal is rejected on that path. A guarded native research script reproduces selection/dispatch; delayed chapter artwork and other/modified firmware remain unverified. The feature stays disabled. [Draft PR #17](https://github.com/halfwoods/Unsub/pull/17) retains the metadata/space fixes and research; its first CI run passed all iPod tests and all platforms except an unchanged Windows library timing test, whose failed job was rerun; current checks are tracked on the PR. See [investigation](CLASSIC_COVER_FLOW_ARTWORK.md).
 - [Unsub 0.8.1 is published](https://github.com/halfwoods/Unsub/releases/tag/v0.8.1). It fixes Add Videos incorrectly skipping a same-size damaged iPod copy. Matching copies are verified by content, with cancellation; existing files stay in place.
 - Follow-up review reproduced the bug before the fix and found no further actionable issues in the final change. [PR #15](https://github.com/halfwoods/Unsub/pull/15) merged as `b4d72df`; its source tree matches tag `v0.8.1` (`32bcf8b`).
 - Verification: 2,655 Rust tests and all doctests, 186 frontend tests, production build, compatibility checks and local Clippy passed. Seven Rust ignores and one frontend skip are existing. All [candidate CI](https://github.com/halfwoods/Unsub/actions/runs/40855778280) and [signed release jobs](https://github.com/halfwoods/Unsub/actions/runs/40856102673) passed.

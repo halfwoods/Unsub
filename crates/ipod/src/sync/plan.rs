@@ -51,20 +51,23 @@ pub(super) fn freed_bytes(files: impl IntoIterator<Item = PathBuf>) -> u64 {
         .sum()
 }
 
-/// Space the thumbnails of the covers in `tracks` will take, counting each album once: tracks of
-/// an album share one image on the iPods that support that. A track with a cover key is assumed
-/// to have a cover; the estimate errs high.
+/// Space for the thumbnails in `tracks`. Sparse devices can share one image per album and cover
+/// key; other devices need an image per track. A cover key is assumed to have a cover, so the
+/// estimate errs high.
 pub(super) fn artwork_bytes<'a>(
     artwork: Option<&Artwork>,
     tracks: impl IntoIterator<Item = &'a SyncTrack>,
 ) -> u64 {
     let Some(artwork) = artwork else { return 0 };
-    let albums: HashSet<&str> = tracks
+    let covers = tracks
         .into_iter()
-        .filter(|track| track.artwork_key.is_some())
-        .map(|track| track.album.as_str())
-        .collect();
-    albums.len() as u64 * artwork.bytes_per_image()
+        .filter_map(|track| track.artwork_key.map(|key| (track.album.as_str(), key)));
+    let images = if artwork.shares_images() {
+        covers.collect::<HashSet<_>>().len()
+    } else {
+        covers.count()
+    };
+    images as u64 * artwork.bytes_per_image()
 }
 
 /// Works out what a sync would change. Nothing on the iPod is touched.
