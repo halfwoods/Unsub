@@ -7,14 +7,14 @@ use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{Picture, PictureType};
 use lofty::tag::items::Timestamp;
-use lofty::tag::{Accessor, ItemKey, Tag, TagType};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::library::Library;
 use crate::lyrics;
-use crate::model::{MediaKind, Track, TrackOverrides};
+use crate::model::{MediaKind, Track, TrackOverrides, set_or_clear};
 use crate::organize::write_beside;
 use crate::scan::{FileFacts, now_unix, read_track};
 use crate::store::{WriteMode, write_tracks};
@@ -33,6 +33,10 @@ pub struct TrackEdits {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub composer: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    #[serde(deserialize_with = "set_or_clear")]
+    pub bpm: Option<Option<u16>>,
     #[serde(deserialize_with = "set_or_clear")]
     pub year: Option<Option<i32>>,
     #[serde(deserialize_with = "set_or_clear")]
@@ -63,15 +67,6 @@ pub struct TrackEdits {
     /// New cover art (any common image format), or `Some(None)` to remove it.
     #[serde(deserialize_with = "set_or_clear")]
     pub artwork: Option<Option<Vec<u8>>>,
-}
-
-/// Tells an absent field (leave alone) from an explicit `null` (clear it).
-fn set_or_clear<'de, D, T>(deserializer: D) -> std::result::Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -105,6 +100,9 @@ impl TrackEdits {
             || self.album.is_some()
             || self.genre.is_some()
             || self.composer.is_some()
+            || self.grouping.is_some()
+            || self.comment.is_some()
+            || self.bpm.is_some()
             || self.year.is_some()
             || self.track_number.is_some()
             || self.track_count.is_some()
@@ -140,6 +138,11 @@ impl TrackEdits {
             album: text(&self.album),
             genre: text(&self.genre),
             composer: text(&self.composer),
+            grouping: text(&self.grouping),
+            comment: text(&self.comment),
+            bpm: self
+                .bpm
+                .map(|value| value.filter(|bpm| (1..=999).contains(bpm))),
             sort_title: text(&self.sort_title),
             sort_artist: text(&self.sort_artist),
             sort_album: text(&self.sort_album),
@@ -167,6 +170,11 @@ impl TrackEdits {
         text(&mut track.album, &self.album);
         text(&mut track.genre, &self.genre);
         text(&mut track.composer, &self.composer);
+        text(&mut track.grouping, &self.grouping);
+        text(&mut track.comment, &self.comment);
+        if let Some(bpm) = self.bpm {
+            track.bpm = bpm;
+        }
         sort(&mut track.sort_title, &self.sort_title);
         sort(&mut track.sort_artist, &self.sort_artist);
         sort(&mut track.sort_album, &self.sort_album);
@@ -216,6 +224,9 @@ impl TrackEdits {
         );
         field(&mut overrides.genre, self.genre.clone(), in_file);
         field(&mut overrides.composer, self.composer.clone(), in_file);
+        field(&mut overrides.grouping, self.grouping.clone(), in_file);
+        field(&mut overrides.comment, self.comment.clone(), in_file);
+        field(&mut overrides.bpm, self.bpm, in_file);
         field(&mut overrides.compilation, self.compilation, in_file);
         field(&mut overrides.lyrics, self.lyrics.clone(), in_file);
         // A number cleared on a file that cannot take it has nothing to pin.
@@ -457,6 +468,7 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
         (ItemKey::AlbumTitle, &edits.album),
         (ItemKey::Genre, &edits.genre),
         (ItemKey::Composer, &edits.composer),
+        (ItemKey::ContentGroup, &edits.grouping),
         (ItemKey::TrackTitleSortOrder, &edits.sort_title),
         (ItemKey::TrackArtistSortOrder, &edits.sort_artist),
         (ItemKey::AlbumTitleSortOrder, &edits.sort_album),
@@ -465,6 +477,28 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
     for (key, value) in text {
         if let Some(value) = value {
             set(tag, key, Some(value.as_str()).filter(|v| !v.is_empty()));
+        }
+    }
+    if let Some(comment) = &edits.comment {
+        // Lofty keeps described COMM items too; retain iTunNORM/iTunSMPB and other auxiliary data.
+        tag.retain(|item| item.key() != ItemKey::Comment || !item.description().is_empty());
+        if !comment.is_empty() {
+            tag.push(TagItem::new(
+                ItemKey::Comment,
+                ItemValue::Text(comment.clone()),
+            ));
+        }
+    }
+    if let Some(bpm) = edits.bpm {
+        tag.remove_key(ItemKey::Bpm);
+        tag.remove_key(ItemKey::IntegerBpm);
+        let key = if tag.tag_type() == TagType::VorbisComments {
+            ItemKey::Bpm
+        } else {
+            ItemKey::IntegerBpm
+        };
+        if let Some(bpm) = bpm {
+            tag.insert_text(key, bpm.to_string());
         }
     }
     let numbers = [

@@ -19,8 +19,10 @@ use crate::lyrics;
 use crate::model::MediaKind;
 
 /// Bump whenever `read` starts extracting something differently, so a rescan
-/// re-reads files whose size and mtime say they are unchanged.
-pub(crate) const TAG_PARSER_VERSION: u32 = 4;
+/// re-reads files whose size and mtime say they are unchanged. Startup deliberately
+/// does not scan: the next folder scan refreshes old parser versions, leaving
+/// dataless placeholders deferred until their files are local.
+pub(crate) const TAG_PARSER_VERSION: u32 = 5;
 
 /// Everything derived from the file's contents; filesystem facts (size, mtime)
 /// are filled in by the scanner.
@@ -31,6 +33,9 @@ pub(crate) struct TrackMeta {
     pub album: String,
     pub genre: String,
     pub composer: String,
+    pub grouping: String,
+    pub comment: String,
+    pub bpm: Option<u16>,
     pub year: Option<i32>,
     pub track_number: Option<u32>,
     pub track_count: Option<u32>,
@@ -94,6 +99,29 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         album_artist: text(tag, ItemKey::AlbumArtist),
         album: text(tag, ItemKey::AlbumTitle),
         composer: text(tag, ItemKey::Composer),
+        grouping: text(tag, ItemKey::ContentGroup),
+        // Described COMM frames carry iTunes analysis data, not the user's comment.
+        comment: tag
+            .and_then(|tag| {
+                tag.items()
+                    .find(|item| item.key() == ItemKey::Comment && item.description().is_empty())
+            })
+            .and_then(|item| item.value().text())
+            .map(|text| repair_mojibake(text).trim().to_owned())
+            .unwrap_or_default(),
+        bpm: tag.and_then(|tag| {
+            [ItemKey::Bpm, ItemKey::IntegerBpm]
+                .into_iter()
+                .filter_map(|key| tag.get_string(key))
+                .find_map(|text| {
+                    text.trim()
+                        .parse::<f64>()
+                        .ok()
+                        .map(f64::round)
+                        .filter(|value| (1.0..=999.0).contains(value))
+                        .map(|value| value as u16)
+                })
+        }),
         year: tag
             .and_then(|t| t.date())
             .map(|date| i32::from(date.year))
@@ -215,8 +243,7 @@ fn has_synced_lyrics(tag: Option<&Id3v2Tag>) -> bool {
         .is_some_and(|frame| lyrics::timed_frame(frame).is_some())
 }
 
-/// A `COMM` frame described "iTunNORM". The generic tag keeps only comments
-/// with no description, so this reads the ID3 tag itself.
+/// Sound Check lives in a described `COMM` frame, separate from the user comment.
 fn id3_itunnorm(tag: Option<&Id3v2Tag>) -> Option<String> {
     tag?.clone().into_iter().find_map(|frame| match frame {
         Frame::Comment(comment) if comment.description.eq_ignore_ascii_case("iTunNORM") => {

@@ -16,3 +16,6 @@
 
 2026-11-10 · Add Grouping, Comments and BPM end to end (library, tags, Get Info, columns, smart rules, Library XML, iPod mhod 8/13 and mhit BPM) · these are the iTunes 10 Info-tab fields Unsub lacked · rejected: storing them only as library overrides (would not reach files or iPods).
 2026-11-10 · Mini player is the main window shrunk into one bar, toggled by a plain green-button click (Option-click zooms), Window menu and Cmd+Shift+M · matches iTunes 10 and keeps playback state shared · rejected: a second Tauri window (duplicated state and event wiring).
+2026-11-10 · Pin BPM overrides with absent/set/clear states and retain undescribed empty text overrides · failed file writes must not resurrect cleared Get Info fields during rescans or imports · rejected: a single optional BPM (cannot distinguish a clear from no override).
+2026-11-10 · Refresh extended tags on the next folder scan by bumping the existing parser version · startup intentionally avoids media rescans and dataless files must stay deferred · rejected: an automatic startup scan (extra I/O and potential cloud downloads).
+2026-11-10 · [ADR 0001: clearable BPM overrides](adr/0001-clearable-bpm-overrides.md) · preserves the absent/set/clear contract across upgrades · rejected: serializing absent BPM pins as null (would silently clear tags after reopening).

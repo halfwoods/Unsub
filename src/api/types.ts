@@ -9,6 +9,9 @@ export type SortKey =
   | "album"
   | "albumArtist"
   | "composer"
+  | "grouping"
+  | "comment"
+  | "bpm"
   | "genre"
   | "year"
   | "trackNumber"
@@ -52,6 +55,9 @@ export interface Track {
   albumGroup: string;
   genre: string;
   composer: string;
+  grouping: string;
+  comment: string;
+  bpm: number | null;
   year: number | null;
   trackNumber: number | null;
   trackCount: number | null;
@@ -96,6 +102,9 @@ export interface TrackEdits {
   album?: string;
   genre?: string;
   composer?: string;
+  grouping?: string;
+  comment?: string;
+  bpm?: number | null;
   year?: number | null;
   trackNumber?: number | null;
   trackCount?: number | null;
@@ -657,7 +666,7 @@ export interface ArtistSummary {
 export type PlaylistKind = "regular" | "smart" | "folder";
 
 export type SmartField =
-  | "name" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "kind"
+  | "name" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "grouping" | "comment" | "bpm" | "kind"
   | "year" | "rating" | "plays" | "skips" | "lastPlayed" | "lastSkipped" | "dateAdded"
   | "time" | "bitRate" | "sampleRate" | "size" | "checked" | "trackNumber" | "discNumber"
   | "compilation" | "playlist";

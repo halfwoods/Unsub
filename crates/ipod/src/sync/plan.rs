@@ -180,6 +180,9 @@ fn differs(track: &SyncTrack, on_ipod: &IpodTrack) -> bool {
         || track.album != on_ipod.album
         || track.genre != on_ipod.genre
         || track.composer != on_ipod.composer
+        || track.grouping != on_ipod.grouping
+        || track.comment != on_ipod.comment
+        || track.bpm.filter(|bpm| (1..=999).contains(bpm)) != on_ipod.bpm
         || track.year != on_ipod.year
         || track.track_number != on_ipod.track_number
         || track.track_count != on_ipod.track_count

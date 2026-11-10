@@ -949,3 +949,54 @@ fn rules_that_would_refer_back_to_themselves_are_rejected() {
         "{through_folder:?}"
     );
 }
+
+#[test]
+fn extended_smart_fields_support_text_and_numeric_rules() {
+    let mut library = library_of(&[
+        Track {
+            grouping: "Evening".into(),
+            comment: "Éarly recording".into(),
+            bpm: Some(90),
+            ..track(1, "One", "Artist", "Album", 1)
+        },
+        Track {
+            grouping: "Morning".into(),
+            comment: "Live".into(),
+            bpm: Some(120),
+            ..track(2, "Two", "Artist", "Album", 1)
+        },
+        track(3, "Three", "Artist", "Album", 1),
+    ]);
+    let playlist = smart_playlist(&mut library);
+    for (field, op, value, expected) in [
+        (
+            SmartField::Grouping,
+            SmartOp::Is,
+            text("evening"),
+            vec!["One"],
+        ),
+        (
+            SmartField::Comment,
+            SmartOp::Contains,
+            text("early"),
+            vec!["One"],
+        ),
+        (
+            SmartField::Bpm,
+            SmartOp::GreaterThan,
+            SmartValue::Number(100),
+            vec!["Two"],
+        ),
+        (
+            SmartField::Bpm,
+            SmartOp::InRange,
+            range(80, 130),
+            vec!["One", "Two"],
+        ),
+    ] {
+        assert_eq!(
+            evaluate(&mut library, playlist, &all(vec![cond(field, op, value)])),
+            expected
+        );
+    }
+}
