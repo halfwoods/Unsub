@@ -16,7 +16,7 @@ function* cssFiles(directory) {
 }
 // These use real CSS Grid gap, which Safari 13.1 supports. The device options
 // selector inherits flex from device-box-content and must still be audited.
-const gridGap = new Set([".device-facts", ".capacity", ".capacity-legend-item", ".cleanup-list li", ".info-grid", ".info-facts", ".prefs-grid"]);
+const gridGap = new Set([".device-facts", ".capacity", ".capacity-legend-item", ".cleanup-list li", ".info-grid", ".info-metadata", ".info-row", ".info-facts", ".prefs-grid"]);
 
 test("every flex-gap surface has an explicit legacy fallback, including responsive rules", () => {
   const uncovered = [];

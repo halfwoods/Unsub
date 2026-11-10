@@ -9,11 +9,11 @@ import "./GetInfo.css";
 
 type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics";
 
-type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "sortTitle" | "sortArtist" | "sortAlbum" | "sortAlbumArtist";
-type NumberField = "year" | "trackNumber" | "trackCount" | "discNumber" | "discCount";
+type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "grouping" | "comment" | "sortTitle" | "sortArtist" | "sortAlbum" | "sortAlbumArtist";
+type NumberField = "bpm" | "year" | "trackNumber" | "trackCount" | "discNumber" | "discCount";
 type Field = TextField | NumberField | "compilation" | "kind" | "rating" | "rememberPosition";
 
-const NUMBER_FIELDS: readonly NumberField[] = ["year", "trackNumber", "trackCount", "discNumber", "discCount"];
+const NUMBER_FIELDS: readonly NumberField[] = ["bpm", "year", "trackNumber", "trackCount", "discNumber", "discCount"];
 
 /** What a field shows: the song's own value, or for several songs the value they share. */
 function displayed(tracks: Track[], field: Field): string {
@@ -100,7 +100,7 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
   const openLibrarySheet = useApp((s) => s.openLibrarySheet);
   const [tab, setTab] = useState<Tab>(single ? "summary" : "info");
   const initial = useMemo(() => {
-    const fields: Field[] = ["title", "artist", "albumArtist", "album", "genre", "composer", "sortTitle", "sortArtist", "sortAlbum", "sortAlbumArtist", ...NUMBER_FIELDS, "compilation", "kind", "rating", "rememberPosition"];
+    const fields: Field[] = ["title", "artist", "albumArtist", "album", "genre", "composer", "grouping", "comment", "sortTitle", "sortArtist", "sortAlbum", "sortAlbumArtist", ...NUMBER_FIELDS, "compilation", "kind", "rating", "rememberPosition"];
     return Object.fromEntries(fields.map((f) => [f, displayed(tracks, f)])) as Record<Field, string>;
   }, [tracks]);
   const [values, setValues] = useState(initial);
@@ -172,14 +172,21 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
             onChange={(e) => toggleApplied(name, e.target.checked)}
           />
         )}
-        <input
+        {name === "comment" ? <textarea
+          id={`info-${name}`}
+          className="smart-input info-comments"
+          rows={3}
+          value={values[name]}
+          placeholder={!single && displayed(tracks, name) === "" ? "Mixed" : undefined}
+          onChange={(e) => set(name, e.target.value)}
+        /> : <input
           id={`info-${name}`}
           className="smart-input"
           inputMode={(NUMBER_FIELDS as readonly string[]).includes(name) ? "numeric" : undefined}
           value={values[name]}
           placeholder={!single && displayed(tracks, name) === "" ? "Mixed" : undefined}
           onChange={(e) => set(name, (NUMBER_FIELDS as readonly string[]).includes(name) ? e.target.value.replace(/\D/g, "") : e.target.value)}
-        />
+        />}
       </span>
     </>
   );
@@ -244,28 +251,28 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
         <div className="info-body">
           {tab === "summary" && single && <Summary track={single} />}
           {tab === "info" && (
-            <div className="info-grid">
-              {field("title", "Name")}
-              {field("artist", "Artist")}
-              {field("albumArtist", "Album Artist")}
-              {field("album", "Album")}
-              {field("composer", "Composer")}
-              {field("genre", "Genre")}
-              {field("year", "Year", false)}
-              {numberPair("trackNumber", "trackCount", "Track Number")}
-              {numberPair("discNumber", "discCount", "Disc Number")}
-              <span />
-              <label className="prefs-check info-check">
-                <input
-                  type="checkbox"
-                  checked={values.compilation === "true"}
-                  ref={(el) => {
-                    if (el) el.indeterminate = !single && values.compilation === "" && !applied.has("compilation");
-                  }}
-                  onChange={(e) => set("compilation", String(e.target.checked))}
-                />
-                Part of a compilation
-              </label>
+            <div className="info-metadata">
+              <div className="info-row info-row--wide">{field("title", "Name")}</div>
+              <div className="info-row">{field("artist", "Artist")}{field("year", "Year")}</div>
+              <div className="info-row">{field("albumArtist", "Album Artist")}{numberPair("trackNumber", "trackCount", "Track #")}</div>
+              <div className="info-row">{field("album", "Album")}{numberPair("discNumber", "discCount", "Disc #")}</div>
+              <div className="info-row">{field("grouping", "Grouping")}{field("bpm", "BPM")}</div>
+              <div className="info-row info-row--wide">{field("composer", "Composer")}</div>
+              <div className="info-row info-row--wide">{field("comment", "Comments")}</div>
+              <div className="info-row info-row--genre">
+                {field("genre", "Genre")}
+                <label className="prefs-check info-check">
+                  <input
+                    type="checkbox"
+                    checked={values.compilation === "true"}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !single && values.compilation === "" && !applied.has("compilation");
+                    }}
+                    onChange={(e) => set("compilation", String(e.target.checked))}
+                  />
+                  Part of a compilation
+                </label>
+              </div>
             </div>
           )}
           {tab === "sorting" && (
