@@ -67,6 +67,14 @@ struct Track {
     album: String,
     #[serde(rename = "Genre")]
     genre: String,
+    #[serde(rename = "Composer")]
+    composer: String,
+    #[serde(rename = "Grouping")]
+    grouping: String,
+    #[serde(rename = "Comments")]
+    comment: String,
+    #[serde(rename = "BPM")]
+    bpm: Option<u16>,
     #[serde(rename = "Total Time")]
     total_time: Option<u64>,
     #[serde(rename = "Track Number")]
@@ -150,6 +158,10 @@ impl Track {
             album_artist: self.album_artist,
             album: self.album,
             genre: self.genre,
+            composer: self.composer,
+            grouping: self.grouping,
+            comment: self.comment,
+            bpm: self.bpm.filter(|bpm| (1..=999).contains(bpm)),
             duration_ms: self.total_time,
             track_number: self.track_number,
             disc_number: self.disc_number,

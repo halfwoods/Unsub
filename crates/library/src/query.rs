@@ -18,7 +18,7 @@ pub(crate) const TRACK_COLUMNS: &str =
     bit_depth, channels, codec, file_size, date_added, date_modified, play_count, last_played,
     skip_count, rating, kind, compilation, sort_title, sort_artist, sort_album, sort_album_artist,
     enabled, in_cloud, missing, loudness_lufs, true_peak_dbtp, loudness_source,
-    album_loudness_lufs, album_true_peak_dbtp, COALESCE(remember_position, kind IN (1, 2)), has_lyrics, album_group";
+    album_loudness_lufs, album_true_peak_dbtp, COALESCE(remember_position, kind IN (1, 2)), has_lyrics, album_group, grouping, comment, bpm";
 
 impl Library {
     pub fn tracks(&self, query: &TrackQuery) -> Result<Vec<Track>> {
@@ -99,6 +99,9 @@ pub(crate) fn track_from_row(row: &Row<'_>) -> rusqlite::Result<Track> {
         album: row.get(5)?,
         genre: row.get(6)?,
         composer: row.get(7)?,
+        grouping: row.get(43)?,
+        comment: row.get(44)?,
+        bpm: row.get(45)?,
         year: row.get(8)?,
         track_number: row.get(9)?,
         track_count: row.get(10)?,
@@ -265,6 +268,9 @@ fn order_by(sort: SortKey, descending: bool, lists_items: bool) -> String {
         ),
         SortKey::Genre => ("key_genre", BY_ARTIST),
         SortKey::Composer => ("NULLIF(fold(composer), '')", BY_ARTIST),
+        SortKey::Grouping => ("NULLIF(fold(grouping), '')", BY_ARTIST),
+        SortKey::Comment => ("NULLIF(fold(comment), '')", BY_ARTIST),
+        SortKey::Bpm => ("bpm", BY_ARTIST),
         SortKey::Name => ("key_title", BY_ARTIST),
         SortKey::Time => ("duration_ms", BY_ARTIST),
         SortKey::Year => ("year", BY_ARTIST),
