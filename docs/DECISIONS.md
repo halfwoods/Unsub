@@ -17,3 +17,5 @@
 2026-11-10 · Pin BPM overrides with absent/set/clear states and retain undescribed empty text overrides · failed file writes must not resurrect cleared Get Info fields during rescans or imports · rejected: a single optional BPM (cannot distinguish a clear from no override).
 2026-11-10 · Refresh extended tags on the next folder scan by bumping the existing parser version · startup intentionally avoids media rescans and dataless files must stay deferred · rejected: an automatic startup scan (extra I/O and potential cloud downloads).
 2026-11-10 · [ADR 0001: clearable BPM overrides](adr/0001-clearable-bpm-overrides.md) · preserves the absent/set/clear contract across upgrades · rejected: serializing absent BPM pins as null (would silently clear tags after reopening).
+
+2026-11-10 · Fail an atomic tag write when an edited field has no mapping, retaining the existing database-only pins · prevents successful reports from releasing values the file never stored · rejected: silently skipping unsupported fields (loses edits on reread).

@@ -29,7 +29,11 @@ function editsFrom(values: Record<Field, string>, applied: ReadonlySet<Field>): 
     else if (field === "rememberPosition") edits.rememberPosition = value === "true";
     else if (field === "kind") edits.kind = value as MediaKind;
     else if (field === "rating") edits.rating = Number(value);
-    else if ((NUMBER_FIELDS as readonly string[]).includes(field)) edits[field as NumberField] = value === "" ? null : Number(value);
+    else if (field === "bpm") {
+      const bpm = value === "" ? null : Math.round(Number(value));
+      if (bpm !== null && (!Number.isFinite(bpm) || bpm < 1 || bpm > 999)) throw new Error("BPM must be between 1 and 999.");
+      edits.bpm = bpm;
+    } else if ((NUMBER_FIELDS as readonly string[]).includes(field)) edits[field as NumberField] = value === "" ? null : Number(value);
     else edits[field as TextField] = value;
   }
   return edits;
@@ -182,10 +186,15 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
         /> : <input
           id={`info-${name}`}
           className="smart-input"
-          inputMode={(NUMBER_FIELDS as readonly string[]).includes(name) ? "numeric" : undefined}
+          inputMode={name === "bpm" ? "decimal" : (NUMBER_FIELDS as readonly string[]).includes(name) ? "numeric" : undefined}
           value={values[name]}
           placeholder={!single && displayed(tracks, name) === "" ? "Mixed" : undefined}
-          onChange={(e) => set(name, (NUMBER_FIELDS as readonly string[]).includes(name) ? e.target.value.replace(/\D/g, "") : e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (name === "bpm") {
+              if (/^\d*\.?\d*$/.test(value)) set(name, value);
+            } else set(name, (NUMBER_FIELDS as readonly string[]).includes(name) ? value.replace(/\D/g, "") : value);
+          }}
         />}
       </span>
     </>

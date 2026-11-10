@@ -35,8 +35,9 @@ pub struct TrackEdits {
     pub composer: Option<String>,
     pub grouping: Option<String>,
     pub comment: Option<String>,
+    /// Wider than stored BPM so bridge inputs reach the library's range validation.
     #[serde(deserialize_with = "set_or_clear")]
-    pub bpm: Option<Option<u16>>,
+    pub bpm: Option<Option<i64>>,
     #[serde(deserialize_with = "set_or_clear")]
     pub year: Option<Option<i32>>,
     #[serde(deserialize_with = "set_or_clear")]
@@ -140,9 +141,6 @@ impl TrackEdits {
             composer: text(&self.composer),
             grouping: text(&self.grouping),
             comment: text(&self.comment),
-            bpm: self
-                .bpm
-                .map(|value| value.filter(|bpm| (1..=999).contains(bpm))),
             sort_title: text(&self.sort_title),
             sort_artist: text(&self.sort_artist),
             sort_album: text(&self.sort_album),
@@ -173,7 +171,7 @@ impl TrackEdits {
         text(&mut track.grouping, &self.grouping);
         text(&mut track.comment, &self.comment);
         if let Some(bpm) = self.bpm {
-            track.bpm = bpm;
+            track.bpm = bpm.map(|bpm| bpm as u16);
         }
         sort(&mut track.sort_title, &self.sort_title);
         sort(&mut track.sort_artist, &self.sort_artist);
@@ -226,7 +224,11 @@ impl TrackEdits {
         field(&mut overrides.composer, self.composer.clone(), in_file);
         field(&mut overrides.grouping, self.grouping.clone(), in_file);
         field(&mut overrides.comment, self.comment.clone(), in_file);
-        field(&mut overrides.bpm, self.bpm, in_file);
+        field(
+            &mut overrides.bpm,
+            self.bpm.map(|value| value.map(|bpm| bpm as u16)),
+            in_file,
+        );
         field(&mut overrides.compilation, self.compilation, in_file);
         field(&mut overrides.lyrics, self.lyrics.clone(), in_file);
         // A number cleared on a file that cannot take it has nothing to pin.
@@ -266,6 +268,11 @@ impl Library {
     /// (`year`, track and disc numbers) cleared on a file that cannot be
     /// written may come back when the file is next re-read.
     pub fn edit_tracks(&mut self, ids: &[i64], edits: &TrackEdits) -> Result<EditReport> {
+        if let Some(Some(bpm)) = edits.bpm
+            && !(1..=999).contains(&bpm)
+        {
+            return Err(Error::InvalidBpm(bpm));
+        }
         let edits = edits.trimmed();
         if let Some(rating) = edits.rating
             && (rating > 100 || !rating.is_multiple_of(20))
@@ -451,7 +458,7 @@ fn write_tags(path: &Path, edits: &TrackEdits, picture: Option<&Option<Picture>>
         let Some(tag) = tagged.primary_tag_mut() else {
             return Err(Error::UnsupportedFormat);
         };
-        apply_text(tag, edits);
+        apply_text(tag, edits)?;
         if let Some(picture) = picture {
             replace_pictures(&mut tagged, picture.as_ref());
         }
@@ -460,7 +467,7 @@ fn write_tags(path: &Path, edits: &TrackEdits, picture: Option<&Option<Picture>>
     })
 }
 
-fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
+fn apply_text(tag: &mut Tag, edits: &TrackEdits) -> Result<()> {
     let text = [
         (ItemKey::TrackTitle, &edits.title),
         (ItemKey::TrackArtist, &edits.artist),
@@ -476,17 +483,23 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
     ];
     for (key, value) in text {
         if let Some(value) = value {
-            set(tag, key, Some(value.as_str()).filter(|v| !v.is_empty()));
+            set(tag, key, Some(value.as_str()).filter(|v| !v.is_empty()))?;
         }
+    }
+    if edits.grouping.is_some() {
+        // GRP1 takes precedence when reading; TIT1 now carries the edited value.
+        tag.remove_key(ItemKey::AppleId3v2ContentGroup);
     }
     if let Some(comment) = &edits.comment {
         // Lofty keeps described COMM items too; retain iTunNORM/iTunSMPB and other auxiliary data.
         tag.retain(|item| item.key() != ItemKey::Comment || !item.description().is_empty());
-        if !comment.is_empty() {
-            tag.push(TagItem::new(
+        if !comment.is_empty()
+            && !tag.push(TagItem::new(
                 ItemKey::Comment,
                 ItemValue::Text(comment.clone()),
-            ));
+            ))
+        {
+            return Err(Error::UnsupportedTagField(ItemKey::Comment));
         }
     }
     if let Some(bpm) = edits.bpm {
@@ -497,9 +510,7 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
         } else {
             ItemKey::IntegerBpm
         };
-        if let Some(bpm) = bpm {
-            tag.insert_text(key, bpm.to_string());
-        }
+        set(tag, key, bpm.map(|bpm| bpm.to_string()).as_deref())?;
     }
     let numbers = [
         (ItemKey::TrackNumber, edits.track_number),
@@ -509,7 +520,7 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
     ];
     for (key, value) in numbers {
         if let Some(value) = value {
-            set(tag, key, value.map(|n| n.to_string()).as_deref());
+            set(tag, key, value.map(|n| n.to_string()).as_deref())?;
         }
     }
     if let Some(year) = edits.year {
@@ -522,7 +533,7 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
         }
     }
     if let Some(compilation) = edits.compilation {
-        set(tag, ItemKey::FlagCompilation, compilation.then_some("1"));
+        set(tag, ItemKey::FlagCompilation, compilation.then_some("1"))?;
     }
     if let Some(lyrics) = &edits.lyrics {
         // Vorbis has two fields for plain lyrics and MP4 reads both keys from
@@ -535,15 +546,19 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) {
             TagType::Id3v2 | TagType::Mp4Ilst => ItemKey::UnsyncLyrics,
             _ => ItemKey::Lyrics,
         };
-        set(tag, key, Some(lyrics.as_str()).filter(|v| !v.is_empty()));
+        set(tag, key, Some(lyrics.as_str()).filter(|v| !v.is_empty()))?;
     }
+    Ok(())
 }
 
-fn set(tag: &mut Tag, key: ItemKey, value: Option<&str>) {
+fn set(tag: &mut Tag, key: ItemKey, value: Option<&str>) -> Result<()> {
     tag.remove_key(key);
-    if let Some(value) = value {
-        tag.insert_text(key, value.to_owned());
+    if let Some(value) = value
+        && !tag.insert_text(key, value.to_owned())
+    {
+        return Err(Error::UnsupportedTagField(key));
     }
+    Ok(())
 }
 
 /// Art can sit in more than one of a file's tags, and readers take the first
@@ -680,5 +695,48 @@ mod tests {
             serde_json::from_str::<TrackEdits>("{}").unwrap(),
             TrackEdits::default()
         );
+    }
+
+    #[test]
+    fn unmapped_fields_fail_instead_of_releasing_their_pins() {
+        let bpm = TrackEdits {
+            bpm: Some(Some(120)),
+            ..TrackEdits::default()
+        };
+        let grouping = TrackEdits {
+            grouping: Some("Evening".into()),
+            ..TrackEdits::default()
+        };
+        for (tag_type, edits, key) in [
+            (TagType::Ape, &bpm, ItemKey::IntegerBpm),
+            (TagType::RiffInfo, &bpm, ItemKey::IntegerBpm),
+            (TagType::AiffText, &bpm, ItemKey::IntegerBpm),
+            (TagType::RiffInfo, &grouping, ItemKey::ContentGroup),
+            (TagType::AiffText, &grouping, ItemKey::ContentGroup),
+        ] {
+            let mut tag = Tag::new(tag_type);
+            let result = apply_text(&mut tag, edits);
+            assert!(
+                matches!(result, Err(Error::UnsupportedTagField(found)) if found == key),
+                "{tag_type:?}: {result:?}"
+            );
+            let mut overrides = TrackOverrides::default();
+            edits.update_overrides(&mut overrides, result.is_ok());
+            assert_eq!(
+                overrides.bpm,
+                edits.bpm.map(|value| value.map(|bpm| bpm as u16))
+            );
+            assert_eq!(overrides.grouping, edits.grouping);
+            // Removing a field that the tag cannot hold still succeeds.
+            apply_text(
+                &mut tag,
+                &TrackEdits {
+                    bpm: Some(None),
+                    grouping: Some(String::new()),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        }
     }
 }
