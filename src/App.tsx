@@ -38,6 +38,9 @@ import { ViewOptions } from "./browser/ViewOptions";
 import { useLibraryViews } from "./preferences/libraryViewStore";
 import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
+import { MiniPlayer } from "./chrome/MiniPlayer";
+import { useTitleBar } from "./chrome/titleBar";
+import { useMiniPlayer, useMiniPlayerSync } from "./chrome/miniMode";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
 import { CopyVideos } from "./devices/CopyVideos";
@@ -315,13 +318,17 @@ export default function App() {
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
+  const mini = useMiniPlayer((s) => s.mini);
   const fileDragging = useFileDrop();
   useBackendEvents();
+  useMiniPlayerSync();
+  useTitleBar();
   useGlobalKeys();
   useNoDefaultContextMenu();
 
   return (
-    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen}>
+    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen} data-mini={mini}>
+      {/* Kept mounted in the mini player, hidden by its CSS, so sheets and what is typed into them are never lost to a switch. */}
       <Toolbar />
       <div className="window-body">
         <Sidebar />
@@ -348,7 +355,6 @@ export default function App() {
       {importSheet && <ImportSheet preview={importSheet} />}
       {importingElsewhere && <ImportElsewhere />}
       {welcoming && <Welcome />}
-      <UpdateSheet />
       {equalizerOpen && <EqualizerPanel />}
       {fileDragging && (
         <div className="file-drop-target" role="status">
@@ -358,6 +364,9 @@ export default function App() {
           </div>
         </div>
       )}
+      {mini && <MiniPlayer />}
+      {/* One place in both modes, so an update offer survives the switch; it brings the full window back itself. */}
+      <UpdateSheet />
     </div>
   );
 }

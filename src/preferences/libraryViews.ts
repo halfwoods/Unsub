@@ -3,7 +3,7 @@ import type { SortKey } from "../api/types";
 export const LIBRARY_VIEWS_KEY = "unsub.libraryViews";
 export const COLUMN_DEFAULTS = [
   ["enabled", 22], ["name", 240], ["time", 52], ["artist", 170], ["album", 170], ["genre", 100], ["rating", 74], ["plays", 52],
-  ["year", 62], ["albumArtist", 170], ["composer", 160], ["trackNumber", 90], ["discNumber", 90], ["dateAdded", 148],
+  ["year", 62], ["albumArtist", 170], ["composer", 160], ["grouping", 160], ["comment", 220], ["bpm", 62], ["trackNumber", 90], ["discNumber", 90], ["dateAdded", 148],
   ["lastPlayed", 148], ["skipCount", 78], ["kind", 100], ["bitrate", 85], ["sampleRate", 100], ["size", 90],
 ] as const;
 export type ColumnId = typeof COLUMN_DEFAULTS[number][0];
@@ -30,7 +30,7 @@ export const DEFAULT_LAYOUT: ColumnLayout = {
   order: COLUMN_DEFAULTS.map(([id]) => id), visible: COLUMN_DEFAULTS.slice(0, 8).map(([id]) => id),
   widths: {}, sort: "artist", descending: false,
 };
-const SORTS: readonly string[] = ["name", "time", "artist", "album", "albumArtist", "genre", "year", "rating", "plays", "lastPlayed", "dateAdded", "kind", "bitrate", "sampleRate", "size", "playlistOrder", "composer", "trackNumber", "discNumber", "skipCount"];
+const SORTS: readonly string[] = ["name", "time", "artist", "album", "albumArtist", "genre", "year", "rating", "plays", "lastPlayed", "dateAdded", "kind", "bitrate", "sampleRate", "size", "playlistOrder", "composer", "grouping", "comment", "bpm", "trackNumber", "discNumber", "skipCount"];
 const IDS = new Set<string>(COLUMN_DEFAULTS.map(([id]) => id));
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export const columnWidth = (id: ColumnId, value?: number) => Math.min(800, Math.max(id === "enabled" ? 22 : 40, Number.isFinite(value) ? Math.round(value!) : COLUMN_DEFAULTS.find(([key]) => key === id)![1]));

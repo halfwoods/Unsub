@@ -187,3 +187,39 @@
   font-size: var(--font-size-small);
   color: #555555;
 }
+
+.info-metadata {
+  display: grid;
+  gap: 7px;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 48px 112px;
+  align-items: center;
+  gap: 10px;
+}
+
+.info-row--wide {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
+.info-row--genre {
+  grid-template-columns: 74px minmax(0, 1fr) max-content;
+}
+
+.info-row .info-field .smart-input {
+  flex: 1;
+  width: 0;
+}
+
+.info-comments {
+  height: auto;
+  min-height: 54px;
+  padding: 3px 4px;
+  line-height: 1.35;
+  resize: none;
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}

@@ -13,6 +13,7 @@ import {
   visualizerMicDevices,
 } from "../api/commands";
 import type { MediaSettings, MicDevice, SharingSettings, SharingStatus } from "../api/types";
+import { setMiniPlayerOnTop, useMiniPlayer } from "../chrome/miniMode";
 import { useApp } from "../state/store";
 import { AutoUpdateSetting } from "../updates/UpdateSheet";
 import { DEFAULT_GASLIGHT, GASLIGHT_PALETTES, type GaslightPalette } from "../visualizer/gaslightSettings";
@@ -47,6 +48,16 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
     ),
   },
 ];
+
+function MiniPlayerSetting() {
+  const onTop = useMiniPlayer((s) => s.onTop);
+  return (
+    <label className="prefs-check">
+      <input type="checkbox" checked={onTop} onChange={(e) => setMiniPlayerOnTop(e.target.checked)} />
+      Keep Mini Player on top of all other windows
+    </label>
+  );
+}
 
 /** iTunes' Advanced pane: where the library keeps its files, and how it treats them. */
 function AdvancedTab() {
@@ -94,6 +105,7 @@ function AdvancedTab() {
         Copy files to media folder when adding to library
       </label>
       <p className="prefs-note">Your originals stay where they are; the library uses the copies.</p>
+      <MiniPlayerSetting />
     </div>
   );
 }

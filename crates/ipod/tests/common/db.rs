@@ -141,6 +141,9 @@ pub struct Track {
     pub album_artist: String,
     pub genre: String,
     pub composer: String,
+    pub grouping: String,
+    pub comment: String,
+    pub bpm: Option<u16>,
     pub file_type: Option<String>,
     pub file_type_marker: u32,
     pub sort_title: Option<String>,
@@ -183,6 +186,9 @@ impl Track {
             album_artist: String::new(),
             genre: String::new(),
             composer: String::new(),
+            grouping: String::new(),
+            comment: String::new(),
+            bpm: None,
             file_type: Some("MPEG audio file".to_owned()),
             file_type_marker: 0,
             sort_title: None,
@@ -246,6 +252,8 @@ impl Track {
             MHOD_SORT_ALBUM_ARTIST,
             self.sort_album_artist.as_deref().unwrap_or_default(),
         );
+        text(8, &self.comment);
+        text(13, &self.grouping);
         mhods.extend(self.extra_mhods.iter().cloned());
 
         let mut mhit = Record::new(b"mhit", header_len);
@@ -270,6 +278,7 @@ impl Track {
             .u32(156, self.skip_count)
             .u8(177, u8::from(self.movie_flag))
             .u32(208, self.media_type);
+        mhit.put(122, &self.bpm.unwrap_or(0).to_le_bytes());
         for (at, bytes) in &self.header_patches {
             mhit.put(*at, bytes);
         }

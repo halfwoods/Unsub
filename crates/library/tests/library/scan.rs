@@ -469,3 +469,39 @@ fn large_scans_commit_in_batches_and_report_progress() {
     assert_eq!(reports.last().unwrap().added, 1_100);
     assert!(reports[0].current_path.ends_with(".mp3"));
 }
+
+#[test]
+fn bpm_reads_both_lofty_keys_rounds_and_ignores_invalid_values() {
+    let dir = copy_fixtures();
+    for (filename, key) in [
+        ("halo.mp3", ItemKey::IntegerBpm),
+        ("something.m4a", ItemKey::Bpm),
+        ("come_together.flac", ItemKey::Bpm),
+    ] {
+        let path = dir.path().join(filename);
+        for (value, expected) in [
+            ("119.6", Some(120)),
+            ("1", Some(1)),
+            ("999", Some(999)),
+            ("0", None),
+            ("-1", None),
+            ("1000", None),
+            ("NaN", None),
+            ("inf", None),
+            ("bad", None),
+        ] {
+            let mut tagged = lofty::read_from_path(&path).unwrap();
+            let tag = tagged.primary_tag_mut().unwrap();
+            tag.remove_key(ItemKey::Bpm);
+            tag.remove_key(ItemKey::IntegerBpm);
+            tag.insert_text(key, value.into());
+            tagged.save_to_path(&path, WriteOptions::default()).unwrap();
+            let mut library = Library::open_in_memory().unwrap();
+            library
+                .add_paths(std::slice::from_ref(&path), |_| {})
+                .unwrap();
+            let row = library.tracks(&all_kinds()).unwrap().pop().unwrap();
+            assert_eq!(row.bpm, expected, "{filename}: {value}");
+        }
+    }
+}

@@ -15,6 +15,9 @@ export function formatColumnText(id: string, t: Track): string {
     case "album": return t.album;
     case "albumArtist": return t.albumArtist;
     case "composer": return t.composer;
+    case "grouping": return t.grouping;
+    case "comment": return t.comment;
+    case "bpm": return positive(t.bpm);
     case "genre": return t.genre;
     case "year": return t.year && t.year > 0 ? String(t.year) : "";
     case "trackNumber": return positive(t.trackNumber);

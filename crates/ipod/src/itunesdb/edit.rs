@@ -18,6 +18,9 @@ pub(crate) struct Metadata {
     pub(crate) album: String,
     pub(crate) genre: String,
     pub(crate) composer: String,
+    pub(crate) grouping: String,
+    pub(crate) comment: String,
+    pub(crate) bpm: Option<u16>,
     pub(crate) sort_title: Option<String>,
     pub(crate) sort_artist: Option<String>,
     pub(crate) sort_album: Option<String>,
@@ -250,6 +253,15 @@ impl RawTrack {
         self.set_text(mhod::ALBUM, Some(&metadata.album));
         self.set_text(mhod::GENRE, Some(&metadata.genre));
         self.set_text(mhod::COMPOSER, Some(&metadata.composer));
+        self.set_text(mhod::GROUPING, Some(&metadata.grouping));
+        self.set_text(mhod::COMMENT, Some(&metadata.comment));
+        self.set_u16(
+            at::BPM,
+            metadata
+                .bpm
+                .filter(|bpm| (1..=999).contains(bpm))
+                .unwrap_or(0),
+        );
         self.set_text(mhod::ALBUM_ARTIST, Some(&metadata.album_artist));
         self.set_text(mhod::SORT_ARTIST, metadata.sort_artist.as_deref());
         self.set_text(mhod::SORT_TITLE, metadata.sort_title.as_deref());
@@ -378,6 +390,9 @@ mod tests {
             album: "Album".into(),
             genre: "Genre".into(),
             composer: String::new(),
+            grouping: String::new(),
+            comment: String::new(),
+            bpm: None,
             sort_title: None,
             sort_artist: Some("Sort Artist".into()),
             sort_album: None,
