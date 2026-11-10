@@ -1,6 +1,8 @@
 //! The main window beyond what a frameless Tauri window gives: what closing it means, getting it back,
 //! full screen, the mini player, and what the system wants a double-click on its top edge to do.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -14,6 +16,10 @@ const MAIN: &str = "main";
 pub const MINI_PLAYER_EVENT: &str = "window://mini-player";
 /// Leaving full screen animates, and a size set during it is lost.
 const FULL_SCREEN_EXIT_WAIT: Duration = Duration::from_secs(3);
+const FULL_SCREEN_SETTLED: Duration = Duration::from_millis(300);
+/// Held for a whole switch. Only threads off the main one take it, since a switch asks the main thread for answers.
+static SWITCHING: Mutex<()> = Mutex::new(());
+static MINI_ALLOWED: AtomicBool = AtomicBool::new(true);
 
 /// What a double-click on the toolbar does, as set for title bars in the system settings.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -72,6 +78,18 @@ pub async fn set_mini_player(app: AppHandle, enabled: bool) {
     let _ = tauri::async_runtime::spawn_blocking(move || set_mini(&app, enabled)).await;
 }
 
+/// The UI knows what is open (sheets keep their drafts in their own state), and the player can't be entered over any of it.
+#[tauri::command]
+pub fn set_mini_player_allowed(app: AppHandle, allowed: bool) {
+    MINI_ALLOWED.store(allowed, Ordering::SeqCst);
+    sync_menu(&app);
+}
+
+/// The Window menu item follows the mode and whether it can be entered; leaving is always possible.
+pub fn sync_menu(app: &AppHandle) {
+    menu::sync_mini_player_item(app, window_state::is_mini(app), MINI_ALLOWED.load(Ordering::SeqCst));
+}
+
 pub fn toggle_mini_player(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -81,21 +99,45 @@ pub fn toggle_mini_player(app: &AppHandle) {
     });
 }
 
-/// Turns the main window into the mini player, or back. Entering takes the window out of full screen first.
+/// Turns the main window into the mini player, or back, one switch at a time: the saved mode, the frame, the menu
+/// and the event all describe the same switch. Entering takes the window out of full screen first.
 fn set_mini(app: &AppHandle, enabled: bool) {
+    let _switching = SWITCHING.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(window) = app.get_webview_window(MAIN) else { return };
     let window = window.as_ref().window();
-    if enabled && window.is_fullscreen().unwrap_or(false) {
-        let _ = window.set_fullscreen(false);
-        let deadline = Instant::now() + FULL_SCREEN_EXIT_WAIT;
-        while window.is_fullscreen().unwrap_or(false) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(30));
+    if enabled {
+        if !MINI_ALLOWED.load(Ordering::SeqCst) {
+            return;
         }
+        leave_full_screen(&window);
     }
     if let Some((layout, minimum)) = window_state::switch_mini(app, enabled) {
         apply_layout(&window, layout, minimum);
-        menu::sync_mini_player_label(app, enabled);
-        let _ = app.emit(MINI_PLAYER_EVENT, enabled);
+    }
+    sync_menu(app);
+    let _ = app.emit(MINI_PLAYER_EVENT, window_state::is_mini(app));
+}
+
+/// Waits out the system's animation. The window reports it is no longer full screen as the animation starts,
+/// and a size set meanwhile is overwritten when it ends, so the frame has to stop changing as well.
+fn leave_full_screen(window: &Window) {
+    if !window.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let _ = window.set_fullscreen(false);
+    let deadline = Instant::now() + FULL_SCREEN_EXIT_WAIT;
+    let mut frame = None;
+    let mut still_since = Instant::now();
+    while Instant::now() < deadline {
+        let now = (window.outer_position().ok(), window.outer_size().ok());
+        if now != frame {
+            frame = now;
+            still_since = Instant::now();
+        }
+        if !window.is_fullscreen().unwrap_or(false) && still_since.elapsed() >= FULL_SCREEN_SETTLED {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(30));
     }
 }
 
@@ -179,8 +221,11 @@ pub fn zoom(app: &AppHandle) {
 
 /// Brings the window back as the full one: what asks for it (the Dock icon, a menu item with a sheet to show) has no place in the mini player.
 pub fn show(app: &AppHandle) {
-    set_mini(app, false);
-    reveal(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        set_mini(&app, false);
+        reveal(&app);
+    });
 }
 
 fn reveal(app: &AppHandle) {
@@ -193,9 +238,15 @@ fn reveal(app: &AppHandle) {
 }
 
 pub fn toggle_full_screen(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN) {
-        let _ = window.set_fullscreen(!window.is_fullscreen().unwrap_or(false));
-    }
+    let app = app.clone();
+    // After the switch back from the mini player, which has no full screen to go to.
+    tauri::async_runtime::spawn_blocking(move || {
+        set_mini(&app, false);
+        reveal(&app);
+        if let Some(window) = app.get_webview_window(MAIN) {
+            let _ = window.set_fullscreen(!window.is_fullscreen().unwrap_or(false));
+        }
+    });
 }
 
 #[cfg(test)]

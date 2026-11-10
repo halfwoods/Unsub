@@ -228,10 +228,11 @@ pub fn sync_full_screen_label(window: &Window) {
     }
 }
 
-/// The Window menu's item says what it would do, which depends on which the window is now.
-pub fn sync_mini_player_label(app: &AppHandle, mini: bool) {
+/// The Window menu's item says what it would do, and is off where it can't be done: over a sheet, which the player has no room for.
+pub fn sync_mini_player_item(app: &AppHandle, mini: bool, allowed: bool) {
     if let Some(item) = app.try_state::<MiniPlayerItem<Wry>>() {
         let _ = item.0.set_text(if mini { EXIT_MINI_PLAYER } else { MINI_PLAYER.1 });
+        let _ = item.0.set_enabled(mini || allowed);
     }
 }
 
@@ -285,7 +286,6 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
     } else if id == MINI_PLAYER.0 {
         window::toggle_mini_player(app);
     } else if id == FULL_SCREEN.0 {
-        window::show(app);
         window::toggle_full_screen(app);
     } else if id == PREFERENCES.0
         || id == EQUALIZER.0

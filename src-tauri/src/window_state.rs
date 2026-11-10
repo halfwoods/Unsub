@@ -12,7 +12,7 @@ const MAIN: &str = "main";
 pub const MINI_HEIGHT: f64 = 50.0;
 pub const MINI_MIN_WIDTH: f64 = 200.0;
 pub const MINI_MAX_WIDTH: f64 = 700.0;
-const MINI_DEFAULT_WIDTH: f64 = 420.0;
+const MINI_DEFAULT_WIDTH: f64 = 520.0;
 
 fn mini_default_width() -> f64 {
     MINI_DEFAULT_WIDTH
@@ -122,7 +122,7 @@ pub fn restore(app: &AppHandle, path: PathBuf) {
     app.manage(WindowState { path, minimum, saved: Mutex::new(saved) });
     if saved.mini {
         crate::window::apply_layout(&window, Layout::Mini { width: saved.mini_width() }, minimum);
-        crate::menu::sync_mini_player_label(app, true);
+        crate::window::sync_menu(app);
     } else if stored.is_some() {
         let _ = window.set_size(LogicalSize::new(saved.width, saved.height));
         if saved.maximized {
@@ -300,5 +300,11 @@ mod tests {
         assert_eq!(SavedWindow::load(&path), Some(SavedWindow { maximized: true, ..normal() }));
         std::fs::write(&path, r#"{"width":950,"height":600,"mini_width":-1e999}"#).unwrap();
         assert_eq!(SavedWindow::load(&path), None);
+    }
+
+    #[test]
+    fn the_mini_player_is_drawn_to_the_height_the_window_is_held_to() {
+        let css = include_str!("../../src/chrome/MiniPlayer.css");
+        assert!(css.contains(&format!("--mini-height: {MINI_HEIGHT}px;")));
     }
 }

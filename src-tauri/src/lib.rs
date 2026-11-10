@@ -299,6 +299,7 @@ pub fn run() {
             window::window_double_click_action,
             window::window_mini_player,
             window::set_mini_player,
+            window::set_mini_player_allowed,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Unsub")
