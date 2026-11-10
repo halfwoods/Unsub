@@ -41,7 +41,8 @@ function mount(t, tracks) {
   let current, cursor;
   const h = {
     edits: [],
-    app: { tracks, openLibrarySheet() {}, showNotice(message) { throw Error(message); } },
+    notices: [],
+    app: { tracks, openLibrarySheet() {}, showNotice(message) { h.notices.push(message); } },
     useState(initial) {
       const values = hooks.get(current), index = cursor++;
       if (!(index in values)) values[index] = typeof initial === "function" ? initial() : initial;
@@ -85,7 +86,7 @@ test("Info pairs metadata with its numbers and uses a three-row Comments control
   assert.equal(h.field("comment").type, "textarea");
   assert.equal(h.field("comment").props.rows, 3);
   assert.equal(h.field("comment").props.value, "First\nSecond");
-  assert.equal(h.field("bpm").props.inputMode, "numeric");
+  assert.equal(h.field("bpm").props.inputMode, "decimal");
 });
 
 test("mixed extended fields stay untouched until selected and explicit blanks clear all songs", async t => {
@@ -111,4 +112,30 @@ test("shared values can be applied or deselected and comments retain line breaks
   h.change("comment", "New first\nNew second\nNew third");
   await h.save();
   assert.deepEqual(h.edits[0][1], { bpm: 120, comment: "New first\nNew second\nNew third" });
+});
+
+test("BPM accepts one decimal point and rounds instead of joining digits", async t => {
+  const h = mount(t, [song(1)]);
+  for (const [input, expected] of [["120.5", 121], ["120.4", 120], [".5", 1], ["998.9", 999], ["", null]]) {
+    h.change("bpm", input);
+    assert.equal(h.field("bpm").props.value, input);
+    await h.save();
+    assert.deepEqual(h.edits.at(-1)[1], { bpm: expected });
+  }
+  assert.deepEqual(h.notices, []);
+  h.change("bpm", "120.5");
+  for (const input of ["120.5.6", "120bpm", "-120", "1e2"]) {
+    h.change("bpm", input);
+    assert.equal(h.field("bpm").props.value, "120.5");
+  }
+});
+
+test("invalid BPM values show an error and never become clears", async t => {
+  const h = mount(t, [song(1)]);
+  for (const input of [".", "0", "999.5", "65536", "9".repeat(310)]) {
+    h.change("bpm", input);
+    await h.save();
+    assert.equal(h.edits.length, 0);
+    assert.match(h.notices.at(-1), /BPM must be between 1 and 999/);
+  }
 });

@@ -12,10 +12,14 @@ pub enum Error {
     TagWrite(#[from] lofty::error::FileEncodingError),
     #[error("unsupported audio format")]
     UnsupportedFormat,
+    #[error("the file's tag cannot hold {0:?}")]
+    UnsupportedTagField(lofty::tag::ItemKey),
     #[error("path is not valid UTF-8: {}", .0.display())]
     NonUtf8Path(PathBuf),
     #[error("rating must be 0..=100 in steps of 20, got {0}")]
     InvalidRating(u8),
+    #[error("BPM must be 1..=999, got {0}")]
+    InvalidBpm(i64),
     #[error("no track with id {0}")]
     TrackNotFound(i64),
     #[error("no playlist with id {0}")]

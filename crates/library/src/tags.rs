@@ -22,7 +22,7 @@ use crate::model::MediaKind;
 /// re-reads files whose size and mtime say they are unchanged. Startup deliberately
 /// does not scan: the next folder scan refreshes old parser versions, leaving
 /// dataless placeholders deferred until their files are local.
-pub(crate) const TAG_PARSER_VERSION: u32 = 5;
+pub(crate) const TAG_PARSER_VERSION: u32 = 6;
 
 /// Everything derived from the file's contents; filesystem facts (size, mtime)
 /// are filled in by the scanner.
@@ -99,7 +99,14 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         album_artist: text(tag, ItemKey::AlbumArtist),
         album: text(tag, ItemKey::AlbumTitle),
         composer: text(tag, ItemKey::Composer),
-        grouping: text(tag, ItemKey::ContentGroup),
+        grouping: {
+            let grouping = text(tag, ItemKey::AppleId3v2ContentGroup);
+            if grouping.is_empty() {
+                text(tag, ItemKey::ContentGroup)
+            } else {
+                grouping
+            }
+        },
         // Described COMM frames carry iTunes analysis data, not the user's comment.
         comment: tag
             .and_then(|tag| {
