@@ -2,7 +2,7 @@ import { useRef, type PointerEvent, type WheelEvent } from "react";
 import { useApp } from "../state/store";
 import "./Volume.css";
 
-const TRACK_WIDTH = 100;
+const DEFAULT_TRACK_WIDTH = 100;
 const KNOB = 19;
 
 function Speaker({ waves }: { waves: number }) {
@@ -16,7 +16,7 @@ function Speaker({ waves }: { waves: number }) {
   );
 }
 
-export function Volume() {
+export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: number }) {
   const volume = useApp((s) => s.playback.volume);
   const setVolume = useApp((s) => s.setVolume);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -42,7 +42,7 @@ export function Volume() {
     setVolume(Math.min(1, Math.max(0, volume - e.deltaY / 500)));
   };
 
-  const knobLeft = volume * (TRACK_WIDTH - KNOB);
+  const knobLeft = volume * (trackWidth - KNOB);
 
   return (
     <div className="volume">
@@ -52,6 +52,7 @@ export function Volume() {
       <div
         ref={trackRef}
         className="volume-track"
+        style={{ width: trackWidth }}
         role="slider"
         aria-label="Volume"
         aria-valuemin={0}

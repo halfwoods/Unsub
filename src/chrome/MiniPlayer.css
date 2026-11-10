@@ -1,0 +1,56 @@
+/* The height is the window's too: src-tauri/src/window_state.rs holds it fixed, so only the width changes. */
+.mini-player {
+  --mini-height: 50px;
+  position: relative;
+  flex: none;
+  height: var(--mini-height);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Room for the stacked traffic lights, which sit at the left edge. */
+  padding: 0 10px 0 36px;
+}
+
+/* Three lights and their gaps must fit the bar, which the toolbar's 4px gaps would not. */
+.mini-player .traffic-lights {
+  top: 3px;
+  gap: 1px;
+}
+
+/* The toolbar places these by coordinates; here they take their turn in the row. */
+.mini-player .transport,
+.mini-player .volume {
+  position: static;
+  transform: none;
+  flex: none;
+}
+
+.mini-player-lcd {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The player has no room for the song's own buttons, so the title and artist take their space. */
+.mini-player .lcd-title,
+.mini-player .lcd-subtitle {
+  left: 10px;
+  right: 10px;
+}
+
+.mini-player .lcd-mix,
+.mini-player .lcd-chapters-button {
+  display: none;
+}
+
+/* Narrowing drops the LCD first, then the volume, as iTunes 10's mini player does. */
+@media (max-width: 459px) {
+  .mini-player-lcd {
+    display: none;
+  }
+}
+
+@media (max-width: 289px) {
+  .mini-player .volume {
+    display: none;
+  }
+}

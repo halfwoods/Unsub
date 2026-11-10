@@ -31,6 +31,7 @@ import {
   playerSetCrossfade,
   playerSetSoundCheck,
   playerStatus,
+  setMiniPlayer,
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
@@ -38,6 +39,8 @@ import { ViewOptions } from "./browser/ViewOptions";
 import { useLibraryViews } from "./preferences/libraryViewStore";
 import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
+import { MiniPlayer } from "./chrome/MiniPlayer";
+import { useMiniPlayer, useMiniPlayerSync } from "./chrome/miniMode";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
 import { CopyVideos } from "./devices/CopyVideos";
@@ -315,10 +318,28 @@ export default function App() {
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
+  const librarySheet = useApp((s) => s.librarySheet);
+  const viewOptionsOpen = useLibraryViews((s) => s.optionsOpen);
+  const mini = useMiniPlayer((s) => s.mini);
   const fileDragging = useFileDrop();
   useBackendEvents();
+  useMiniPlayerSync();
   useGlobalKeys();
   useNoDefaultContextMenu();
+
+  const sheetOpen = [smartEditor, preferencesOpen, settingUpPlayer, connectingToServer, openingStream, importSheet, importingElsewhere, copyFromDevice, videosFromDevice, videosToDevice, welcoming, equalizerOpen, librarySheet, viewOptionsOpen].some(Boolean);
+  // A sheet has no room in the mini player, and closing it there would throw away what is typed into it.
+  useEffect(() => {
+    if (mini && sheetOpen) void setMiniPlayer(false);
+  }, [mini, sheetOpen]);
+
+  if (mini) {
+    return (
+      <div className="window" data-active={windowActive}>
+        <MiniPlayer />
+      </div>
+    );
+  }
 
   return (
     <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen}>
