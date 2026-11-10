@@ -126,7 +126,7 @@ fn leave_full_screen(window: &Window) {
     }
     let _ = window.set_fullscreen(false);
     let deadline = Instant::now() + FULL_SCREEN_EXIT_WAIT;
-    let mut frame = None;
+    let mut frame = (None, None);
     let mut still_since = Instant::now();
     while Instant::now() < deadline {
         let now = (window.outer_position().ok(), window.outer_size().ok());
