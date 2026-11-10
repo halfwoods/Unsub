@@ -34,6 +34,8 @@ const FULL_SCREEN_KEYS: &str = "Ctrl+Cmd+F";
 const FULL_SCREEN_KEYS: &str = "F11";
 const FULL_SCREEN: (&str, &str, Option<&str>) = ("toggle-full-screen", "Enter Full Screen", Some(FULL_SCREEN_KEYS));
 const EXIT_FULL_SCREEN: &str = "Exit Full Screen";
+const MINI_PLAYER: (&str, &str, Option<&str>) = ("toggle-mini-player", "Switch to Mini Player", Some("Shift+CmdOrCtrl+M"));
+const EXIT_MINI_PLAYER: &str = "Switch from Mini Player";
 /// The system's Minimize and Zoom press the window's own buttons too, so they are ours on macOS.
 #[cfg(target_os = "macos")]
 const MINIMIZE_WINDOW: (&str, &str, Option<&str>) = ("minimize-window", "Minimize", Some("CmdOrCtrl+M"));
@@ -92,6 +94,9 @@ const CONTROL_ACTIONS: [(&str, &str, Option<&str>); 7] = [
 
 /// Kept so the label can follow the window in and out of full screen, however it got there.
 struct FullScreenItem<R: Runtime>(MenuItem<R>);
+
+/// Kept so the label can follow the window in and out of the mini player, however it got there.
+struct MiniPlayerItem<R: Runtime>(MenuItem<R>);
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let info = app.package_info();
@@ -204,10 +209,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         window.append(&PredefinedMenuItem::minimize(app, None)?)?;
         window.append(&PredefinedMenuItem::maximize(app, None)?)?;
     }
+    let mini_player = MenuItem::with_id(app, MINI_PLAYER.0, MINI_PLAYER.1, true, MINI_PLAYER.2)?;
+    app.manage(MiniPlayerItem(mini_player.clone()));
+    window.append(&mini_player)?;
     window.append(&PredefinedMenuItem::separator(app)?)?;
     window.append(&MenuItem::with_id(app, EQUALIZER.0, EQUALIZER.1, true, EQUALIZER.2)?)?;
     #[cfg(target_os = "macos")]
-    window.insert(&MenuItem::with_id(app, SHOW_WINDOW.0, SHOW_WINDOW.1, true, SHOW_WINDOW.2)?, 3)?;
+    window.insert(&MenuItem::with_id(app, SHOW_WINDOW.0, SHOW_WINDOW.1, true, SHOW_WINDOW.2)?, 4)?;
     let help = Submenu::with_items(app, "Help", true, &[&MenuItem::with_id(app, WELCOME.0, WELCOME.1, true, WELCOME.2)?])?;
     Menu::with_items(app, &[&app_menu, &file, &edit, &view, &controls, &advanced, &window, &help])
 }
@@ -217,6 +225,13 @@ pub fn sync_full_screen_label(window: &Window) {
     if let Some(item) = window.try_state::<FullScreenItem<Wry>>() {
         let label = if window.is_fullscreen().unwrap_or(false) { EXIT_FULL_SCREEN } else { FULL_SCREEN.1 };
         let _ = item.0.set_text(label);
+    }
+}
+
+/// The Window menu's item says what it would do, which depends on which the window is now.
+pub fn sync_mini_player_label(app: &AppHandle, mini: bool) {
+    if let Some(item) = app.try_state::<MiniPlayerItem<Wry>>() {
+        let _ = item.0.set_text(if mini { EXIT_MINI_PLAYER } else { MINI_PLAYER.1 });
     }
 }
 
@@ -267,6 +282,8 @@ pub fn on_event(app: &AppHandle, event: MenuEvent) {
     } else if id == CHECK_FOR_UPDATES {
         window::show(app);
         updates::run_check(app, true);
+    } else if id == MINI_PLAYER.0 {
+        window::toggle_mini_player(app);
     } else if id == FULL_SCREEN.0 {
         window::show(app);
         window::toggle_full_screen(app);

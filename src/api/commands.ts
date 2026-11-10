@@ -346,6 +346,10 @@ export const welcomeDone = () => invoke<void>("welcome_done");
 /** The music folders worth offering as a click. Music is checked for holding something; iCloud Drive's only for existing, since looking inside it can raise a macOS privacy prompt. */
 export const welcomeFolders = () => invoke<WelcomeFolder[]>("welcome_folders");
 export const windowDoubleClickAction = () => invoke<DoubleClickAction>("window_double_click_action");
+export const windowMiniPlayer = () => invoke<boolean>("window_mini_player");
+export const setMiniPlayer = (enabled: boolean) => invoke<void>("set_mini_player", { enabled });
+export const onMiniPlayer = (handler: (mini: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>("window://mini-player", (e) => handler(e.payload));
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");
 export const sharingUpdate = (settings: SharingSettings) => invoke<SharingStatus>("sharing_update", { settings });
 export const sharingGeneratePassword = () => invoke<string>("sharing_generate_password");

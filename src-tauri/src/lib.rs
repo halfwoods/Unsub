@@ -297,6 +297,8 @@ pub fn run() {
             welcome::welcome_done,
             welcome::welcome_folders,
             window::window_double_click_action,
+            window::window_mini_player,
+            window::set_mini_player,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Unsub")
