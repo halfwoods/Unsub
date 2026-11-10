@@ -327,58 +327,57 @@ export default function App() {
   useGlobalKeys();
   useNoDefaultContextMenu();
 
-  const sheetOpen = [smartEditor, preferencesOpen, settingUpPlayer, connectingToServer, openingStream, importSheet, importingElsewhere, copyFromDevice, videosFromDevice, videosToDevice, welcoming, equalizerOpen, librarySheet, viewOptionsOpen].some(Boolean);
+  const sheetOpen = [smartEditor, preferencesOpen, settingUpPlayer, connectingToServer, openingStream, importSheet, importingElsewhere, copyFromDevice, videosFromDevice, videosToDevice, welcoming, equalizerOpen, librarySheet, viewOptionsOpen, visualizerOpen].some(Boolean);
   // A sheet has no room in the mini player, and closing it there would throw away what is typed into it.
   useEffect(() => {
     if (mini && sheetOpen) void setMiniPlayer(false);
   }, [mini, sheetOpen]);
 
-  if (mini) {
-    return (
-      <div className="window" data-active={windowActive}>
-        <MiniPlayer />
-      </div>
-    );
-  }
-
   return (
-    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen}>
-      <Toolbar />
-      <div className="window-body">
-        <Sidebar />
-        <Content />
-        {visualizerOpen && (
-          // The pane's own black, so the window doesn't flash its lists while the code arrives.
-          <Suspense fallback={<div className="visualizer-pane" />}>
-            <VisualizerPane />
-          </Suspense>
-        )}
-      </div>
-      <BottomBar />
-      {/* Keyed so each opening starts from that playlist's saved rules. */}
-      {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
-      {preferencesOpen && <Preferences />}
-      <ViewOptions />
-      <LibrarySheets />
-      {settingUpPlayer && <SetUpPlayer />}
-      {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
-      {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
-      {videosToDevice && <AddVideos key={videosToDevice.id} device={videosToDevice} onClose={() => useApp.setState({ videosToDevice: null })} />}
-      {connectingToServer && <ConnectToServer />}
-      {openingStream && <OpenStream />}
-      {importSheet && <ImportSheet preview={importSheet} />}
-      {importingElsewhere && <ImportElsewhere />}
-      {welcoming && <Welcome />}
-      <UpdateSheet />
-      {equalizerOpen && <EqualizerPanel />}
-      {fileDragging && (
-        <div className="file-drop-target" role="status">
-          <div className="file-drop-message">
-            <strong>Drop music files or folders to add them</strong>
-            <span>Folders are scanned for music files.</span>
+    <div className="window" data-active={windowActive} data-fullscreen={mini ? undefined : windowFullscreen}>
+      {mini ? (
+        <MiniPlayer />
+      ) : (
+        <>
+          <Toolbar />
+          <div className="window-body">
+            <Sidebar />
+            <Content />
+            {visualizerOpen && (
+              // The pane's own black, so the window doesn't flash its lists while the code arrives.
+              <Suspense fallback={<div className="visualizer-pane" />}>
+                <VisualizerPane />
+              </Suspense>
+            )}
           </div>
-        </div>
+          <BottomBar />
+          {/* Keyed so each opening starts from that playlist's saved rules. */}
+          {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
+          {preferencesOpen && <Preferences />}
+          <ViewOptions />
+          <LibrarySheets />
+          {settingUpPlayer && <SetUpPlayer />}
+          {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
+          {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
+          {videosToDevice && <AddVideos key={videosToDevice.id} device={videosToDevice} onClose={() => useApp.setState({ videosToDevice: null })} />}
+          {connectingToServer && <ConnectToServer />}
+          {openingStream && <OpenStream />}
+          {importSheet && <ImportSheet preview={importSheet} />}
+          {importingElsewhere && <ImportElsewhere />}
+          {welcoming && <Welcome />}
+          {equalizerOpen && <EqualizerPanel />}
+          {fileDragging && (
+            <div className="file-drop-target" role="status">
+              <div className="file-drop-message">
+                <strong>Drop music files or folders to add them</strong>
+                <span>Folders are scanned for music files.</span>
+              </div>
+            </div>
+          )}
+        </>
       )}
+      {/* One place in both modes, so an update offer survives the switch; it brings the full window back itself. */}
+      <UpdateSheet />
     </div>
   );
 }
