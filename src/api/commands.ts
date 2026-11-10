@@ -348,6 +348,7 @@ export const welcomeFolders = () => invoke<WelcomeFolder[]>("welcome_folders");
 export const windowDoubleClickAction = () => invoke<DoubleClickAction>("window_double_click_action");
 export const windowMiniPlayer = () => invoke<boolean>("window_mini_player");
 export const setMiniPlayer = (enabled: boolean) => invoke<void>("set_mini_player", { enabled });
+export const setMiniPlayerAllowed = (allowed: boolean) => invoke<void>("set_mini_player_allowed", { allowed });
 export const onMiniPlayer = (handler: (mini: boolean) => void): Promise<UnlistenFn> =>
   listen<boolean>("window://mini-player", (e) => handler(e.payload));
 export const sharingStatus = () => invoke<SharingStatus>("sharing_status");

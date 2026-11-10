@@ -31,7 +31,6 @@ import {
   playerSetCrossfade,
   playerSetSoundCheck,
   playerStatus,
-  setMiniPlayer,
   type MenuAction,
 } from "./api/commands";
 import { Content } from "./browser/Content";
@@ -40,6 +39,7 @@ import { useLibraryViews } from "./preferences/libraryViewStore";
 import { revealTrack } from "./browser/songMenu";
 import { BottomBar } from "./chrome/BottomBar";
 import { MiniPlayer } from "./chrome/MiniPlayer";
+import { useTitleBar } from "./chrome/titleBar";
 import { useMiniPlayer, useMiniPlayerSync } from "./chrome/miniMode";
 import { Toolbar } from "./chrome/Toolbar";
 import { CopyToLibrary } from "./devices/CopyToLibrary";
@@ -318,64 +318,53 @@ export default function App() {
   const welcoming = useApp((s) => s.welcoming);
   const equalizerOpen = useApp((s) => s.equalizerOpen);
   const visualizerOpen = useApp((s) => s.visualizer.open);
-  const librarySheet = useApp((s) => s.librarySheet);
-  const viewOptionsOpen = useLibraryViews((s) => s.optionsOpen);
   const mini = useMiniPlayer((s) => s.mini);
   const fileDragging = useFileDrop();
   useBackendEvents();
   useMiniPlayerSync();
+  useTitleBar();
   useGlobalKeys();
   useNoDefaultContextMenu();
 
-  const sheetOpen = [smartEditor, preferencesOpen, settingUpPlayer, connectingToServer, openingStream, importSheet, importingElsewhere, copyFromDevice, videosFromDevice, videosToDevice, welcoming, equalizerOpen, librarySheet, viewOptionsOpen, visualizerOpen].some(Boolean);
-  // A sheet has no room in the mini player, and closing it there would throw away what is typed into it.
-  useEffect(() => {
-    if (mini && sheetOpen) void setMiniPlayer(false);
-  }, [mini, sheetOpen]);
-
   return (
-    <div className="window" data-active={windowActive} data-fullscreen={mini ? undefined : windowFullscreen}>
-      {mini ? (
-        <MiniPlayer />
-      ) : (
-        <>
-          <Toolbar />
-          <div className="window-body">
-            <Sidebar />
-            <Content />
-            {visualizerOpen && (
-              // The pane's own black, so the window doesn't flash its lists while the code arrives.
-              <Suspense fallback={<div className="visualizer-pane" />}>
-                <VisualizerPane />
-              </Suspense>
-            )}
+    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen} data-mini={mini}>
+      {/* Kept mounted in the mini player, hidden by its CSS, so sheets and what is typed into them are never lost to a switch. */}
+      <Toolbar />
+      <div className="window-body">
+        <Sidebar />
+        <Content />
+        {visualizerOpen && (
+          // The pane's own black, so the window doesn't flash its lists while the code arrives.
+          <Suspense fallback={<div className="visualizer-pane" />}>
+            <VisualizerPane />
+          </Suspense>
+        )}
+      </div>
+      <BottomBar />
+      {/* Keyed so each opening starts from that playlist's saved rules. */}
+      {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
+      {preferencesOpen && <Preferences />}
+      <ViewOptions />
+      <LibrarySheets />
+      {settingUpPlayer && <SetUpPlayer />}
+      {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
+      {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
+      {videosToDevice && <AddVideos key={videosToDevice.id} device={videosToDevice} onClose={() => useApp.setState({ videosToDevice: null })} />}
+      {connectingToServer && <ConnectToServer />}
+      {openingStream && <OpenStream />}
+      {importSheet && <ImportSheet preview={importSheet} />}
+      {importingElsewhere && <ImportElsewhere />}
+      {welcoming && <Welcome />}
+      {equalizerOpen && <EqualizerPanel />}
+      {fileDragging && (
+        <div className="file-drop-target" role="status">
+          <div className="file-drop-message">
+            <strong>Drop music files or folders to add them</strong>
+            <span>Folders are scanned for music files.</span>
           </div>
-          <BottomBar />
-          {/* Keyed so each opening starts from that playlist's saved rules. */}
-          {smartEditor && <SmartPlaylistEditor key={smartEditor.id ?? "new"} />}
-          {preferencesOpen && <Preferences />}
-          <ViewOptions />
-          <LibrarySheets />
-          {settingUpPlayer && <SetUpPlayer />}
-          {copyFromDevice && <CopyToLibrary device={copyFromDevice} onClose={() => useApp.setState({ copyFromDevice: null })} />}
-          {videosFromDevice && <CopyVideos key={videosFromDevice.id} device={videosFromDevice} onClose={() => useApp.setState({ videosFromDevice: null })} />}
-          {videosToDevice && <AddVideos key={videosToDevice.id} device={videosToDevice} onClose={() => useApp.setState({ videosToDevice: null })} />}
-          {connectingToServer && <ConnectToServer />}
-          {openingStream && <OpenStream />}
-          {importSheet && <ImportSheet preview={importSheet} />}
-          {importingElsewhere && <ImportElsewhere />}
-          {welcoming && <Welcome />}
-          {equalizerOpen && <EqualizerPanel />}
-          {fileDragging && (
-            <div className="file-drop-target" role="status">
-              <div className="file-drop-message">
-                <strong>Drop music files or folders to add them</strong>
-                <span>Folders are scanned for music files.</span>
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       )}
+      {mini && <MiniPlayer />}
       {/* One place in both modes, so an update offer survives the switch; it brings the full window back itself. */}
       <UpdateSheet />
     </div>

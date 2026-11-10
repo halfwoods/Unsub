@@ -1,4 +1,4 @@
-/* The height is the window's too: src-tauri/src/window_state.rs holds it fixed, so only the width changes. */
+/* The height is the window's too: src-tauri/src/window_state.rs holds it fixed (a test there checks they agree), so only the width changes. */
 .mini-player {
   --mini-height: 50px;
   position: relative;
@@ -9,6 +9,27 @@
   gap: 10px;
   /* Room for the stacked traffic lights, which sit at the left edge. */
   padding: 0 10px 0 36px;
+}
+
+/*
+ * The full window stays mounted beneath the bar, so a switch can never unmount a sheet and lose what is typed into it.
+ * It keeps the smallest size it can have, so the lists don't re-lay themselves out at the bar's size, and
+ * visibility (not display) keeps the shared SVG gradients it defines usable by the bar's own buttons.
+ */
+.window[data-mini="true"] > .toolbar,
+.window[data-mini="true"] > .window-body,
+.window[data-mini="true"] > .bottom-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 820px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.window[data-mini="true"] > .window-body {
+  top: var(--toolbar-height);
+  height: 332px;
 }
 
 /* Three lights and their gaps must fit the bar, which the toolbar's 4px gaps would not. */
@@ -42,14 +63,19 @@
   display: none;
 }
 
-/* Narrowing drops the LCD first, then the volume, as iTunes 10's mini player does. */
-@media (max-width: 459px) {
+/*
+ * Narrowing drops the LCD first, then the volume, as iTunes 10's mini player does. The widths are the row's own:
+ * 36 (lights) + 103 (transport) + 10 (gap) is 149; the volume adds 104 (a 64 track between two 16 icons and their gaps)
+ * and a gap, so it needs 263 with the right edge's 10. The LCD needs about 150 more, with its own gap, so it stays down to 423.
+ * The default width (520, in window_state.rs) leaves it about 250.
+ */
+@media (max-width: 422px) {
   .mini-player-lcd {
     display: none;
   }
 }
 
-@media (max-width: 289px) {
+@media (max-width: 262px) {
   .mini-player .volume {
     display: none;
   }

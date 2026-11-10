@@ -16,7 +16,7 @@ export function TrafficLights() {
     if (fullscreen) void appWindow.setFullscreen(false);
     else if (mini) void setMiniPlayer(false);
     else if (e.altKey) void appWindow.toggleMaximize();
-    else void setMiniPlayer(true);
+    else if (!useMiniPlayer.getState().sheetOpen) void setMiniPlayer(true);
   };
   return (
     <div className="traffic-lights">
