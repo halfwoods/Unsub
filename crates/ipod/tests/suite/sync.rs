@@ -115,6 +115,9 @@ pub fn library_track(library: &Path, library_id: i64, title: &str) -> SyncTrack 
         album: "Homogenic".to_owned(),
         genre: "Electronic".to_owned(),
         composer: "Guðmundur".to_owned(),
+        grouping: String::new(),
+        comment: String::new(),
+        bpm: None,
         year: Some(1997),
         track_number: Some(library_id as u32),
         track_count: Some(10),
@@ -227,3 +230,52 @@ mod shuffle;
 mod structure;
 mod swap;
 mod video_add;
+
+#[test]
+fn extended_metadata_add_update_noop_and_clear_round_trip() {
+    let fake = fake_classic();
+    let library = tempfile::tempdir().unwrap();
+    let mut track = library_track(library.path(), 1, "Extended");
+    track.grouping = "Evening".into();
+    track.comment = "First line\nSecond line".into();
+    track.bpm = Some(121);
+    let (added, database) = sync(&fake, &[track.clone()], &[]);
+    assert_eq!(added.add, [1]);
+    let row = database
+        .tracks
+        .iter()
+        .find(|row| row.title == "Extended")
+        .unwrap();
+    assert_eq!(
+        (&row.grouping, &row.comment, row.bpm),
+        (&track.grouping, &track.comment, Some(121))
+    );
+    assert!(plan(&fake, &[track.clone()], &[]).update.is_empty());
+    for field in ["grouping", "comment", "bpm"] {
+        match field {
+            "grouping" => track.grouping = "Morning".into(),
+            "comment" => track.comment = "New note".into(),
+            _ => track.bpm = Some(999),
+        }
+        let (changed, _) = sync(&fake, &[track.clone()], &[]);
+        assert_eq!(changed.update, [1], "{field}");
+        assert!(plan(&fake, &[track.clone()], &[]).update.is_empty());
+    }
+    track.grouping.clear();
+    track.comment.clear();
+    track.bpm = None;
+    let (changed, database) = sync(&fake, &[track.clone()], &[]);
+    assert_eq!(changed.update, [1]);
+    let row = database
+        .tracks
+        .iter()
+        .find(|row| row.title == "Extended")
+        .unwrap();
+    assert_eq!(
+        (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+        ("", "", None)
+    );
+    assert!(plan(&fake, &[track.clone()], &[]).update.is_empty());
+    track.bpm = Some(1000);
+    assert!(plan(&fake, &[track], &[]).update.is_empty());
+}
