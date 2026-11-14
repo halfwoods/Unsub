@@ -43,7 +43,7 @@ jobs:
       matrix:
         include:
           - name: macOS (arm64)
-            os: macos-14
+            os: macos-15
             minimum_os: "11.0"
           - name: macOS (Intel, High Sierra target)
             os: macos-15-intel
