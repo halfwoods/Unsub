@@ -1309,6 +1309,18 @@ fn mp4_bpm_is_the_integer_tempo_atom_itunes_writes() {
     scan(&mut library, dir.path());
     let id = track_titled(&library, "Something").id;
     assert_eq!(library.track(id).unwrap().unwrap().bpm, Some(120));
+    // An edit that leaves BPM alone keeps the integer atom, which the generic tag can't see.
+    let report = library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                comment: Some("Kept".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(report.written, [id]);
+    assert_eq!(mp4_tempo(&path), vec![AtomData::SignedInteger(120)]);
     for bpm in [Some(130), None] {
         let report = library
             .edit_tracks(

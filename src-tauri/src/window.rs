@@ -157,8 +157,9 @@ pub fn apply_layout(window: &Window, layout: Layout, normal_minimum: LogicalSize
             #[cfg(target_os = "linux")]
             let _ = window.show_menu();
             let _ = window.set_max_size(None::<LogicalSize<f64>>);
-            let _ = window.set_min_size(Some(normal_minimum));
+            // The saved size goes first: raising the minimum first would grow the bar to it, a frame that would be remembered as the normal size.
             let _ = window.set_size(size);
+            let _ = window.set_min_size(Some(normal_minimum));
             if maximized {
                 let _ = window.maximize();
             }
