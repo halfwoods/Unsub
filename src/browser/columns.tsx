@@ -35,11 +35,11 @@ export const COLUMNS: Column[] = [
 ];
 
 export const EXTRA_COLUMNS: Column[] = [
-  ["year", "Year", 62], ["albumArtist", "Album Artist", 170], ["composer", "Composer", 160], ["trackNumber", "Track Number", 90],
+  ["year", "Year", 62], ["albumArtist", "Album Artist", 170], ["composer", "Composer", 160], ["grouping", "Grouping", 160], ["comment", "Comments", 220], ["bpm", "BPM", 62], ["trackNumber", "Track Number", 90],
   ["discNumber", "Disc Number", 90], ["dateAdded", "Date Added", 148], ["lastPlayed", "Last Played", 148], ["skipCount", "Skip Count", 78],
   ["kind", "Kind", 100], ["bitrate", "Bit Rate", 85], ["sampleRate", "Sample Rate", 100], ["size", "Size", 90],
 ].map(([id, title, width]) => ({ id: String(id), title: String(title), width: Number(width), sort: id as SortKey,
-  align: ["year", "trackNumber", "discNumber", "skipCount", "bitrate", "sampleRate", "size"].includes(String(id)) ? "right" as const : "left" as const,
+  align: ["year", "bpm", "trackNumber", "discNumber", "skipCount", "bitrate", "sampleRate", "size"].includes(String(id)) ? "right" as const : "left" as const,
   render: (track: Track) => formatColumnText(String(id), track) }));
 export const ALL_COLUMNS: Column[] = [...COLUMNS, ...EXTRA_COLUMNS];
 export function layoutColumns(layout: ColumnLayout): Column[] {

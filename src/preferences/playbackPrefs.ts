@@ -30,6 +30,8 @@ function loadJson<T>(key: string, fallback: T): T {
 
 export const loadBitPerfect = () => load("unsub.bitPerfect");
 export const saveBitPerfect = (enabled: boolean) => save("unsub.bitPerfect", enabled);
+export const loadMiniPlayerOnTop = () => load("unsub.miniPlayerOnTop");
+export const saveMiniPlayerOnTop = (enabled: boolean) => save("unsub.miniPlayerOnTop", enabled);
 export const loadSoundCheck = () => load("unsub.soundCheck");
 export const saveSoundCheck = (enabled: boolean) => save("unsub.soundCheck", enabled);
 

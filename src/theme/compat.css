@@ -82,6 +82,8 @@
 .no-flex-gap .info-heading > :not(:last-child) { margin-bottom: 1px; }
 .no-flex-gap .find-text > :not(:last-child) { margin-bottom: 2px; }
 .no-flex-gap .traffic-lights > :not(:last-child) { margin-bottom: 4px; }
+.no-flex-gap .mini-player .traffic-lights > :not(:last-child) { margin-bottom: 1px; }
+.no-flex-gap .mini-player > :not(:last-child) { margin-right: 10px; }
 .no-flex-gap .device-choices > :not(:last-child),
 .no-flex-gap .copy-to-library-options > :not(:last-child),
 .no-flex-gap .info-lyrics > :not(:last-child) { margin-bottom: 6px; }

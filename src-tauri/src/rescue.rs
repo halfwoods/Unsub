@@ -345,6 +345,9 @@ fn overrides(track: &IpodTrack) -> TrackOverrides {
         album_artist: text(&track.album_artist),
         genre: text(&track.genre),
         composer: text(&track.composer),
+        grouping: text(&track.grouping),
+        comment: text(&track.comment),
+        bpm: track.bpm.map(Some),
         date_added: track.date_added,
         year: track.year,
         track_number: track.track_number,
@@ -976,6 +979,9 @@ mod tests {
         let w = world();
         let details = IpodTrack {
             genre: "Pop".into(),
+            grouping: "Evening".into(),
+            comment: "Rescued note".into(),
+            bpm: Some(123),
             album: "Single".into(),
             year: Some(2008),
             track_number: Some(1),
@@ -1000,6 +1006,7 @@ mod tests {
         let copied = &tracks[0];
         assert_eq!((copied.title.as_str(), copied.album.as_str(), copied.genre.as_str()), ("Halo (iTunes Edit)", "Single", "Pop"));
         assert_eq!((copied.year, copied.track_number, copied.track_count, copied.disc_number), (Some(2008), Some(1), Some(2), Some(1)));
+        assert_eq!((copied.grouping.as_str(), copied.comment.as_str(), copied.bpm), ("Evening", "Rescued note", Some(123)));
         // The file says it is from a compilation; the iPod, which users edited in iTunes, says it is not.
         assert!(!copied.compilation);
         assert_eq!((copied.play_count, copied.skip_count, copied.rating), (12, 2, 80));
@@ -1334,6 +1341,9 @@ mod tests {
             album: "I Am".into(),
             genre: String::new(),
             composer: String::new(),
+            grouping: String::new(),
+            comment: String::new(),
+            bpm: None,
             year: None,
             track_number: Some(1),
             track_count: None,

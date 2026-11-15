@@ -503,6 +503,11 @@ fn apply_overrides(track: &mut Track, overrides: &TrackOverrides) {
     text(&mut track.album_artist, &overrides.album_artist);
     text(&mut track.genre, &overrides.genre);
     text(&mut track.composer, &overrides.composer);
+    text(&mut track.grouping, &overrides.grouping);
+    text(&mut track.comment, &overrides.comment);
+    if let Some(bpm) = overrides.bpm {
+        track.bpm = bpm.filter(|bpm| (1..=999).contains(bpm));
+    }
     // Radio is a kind of row, not of file: nothing read from a file can be one.
     if let Some(kind) = overrides.kind.filter(|kind| *kind != MediaKind::Radio) {
         track.kind = kind;
@@ -553,6 +558,9 @@ fn new_track(
         album: meta.album,
         genre: meta.genre,
         composer: meta.composer,
+        grouping: meta.grouping,
+        comment: meta.comment,
+        bpm: meta.bpm,
         year: meta.year,
         track_number: meta.track_number,
         track_count: meta.track_count,

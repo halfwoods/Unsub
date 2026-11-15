@@ -117,6 +117,18 @@ impl ITLibMediaItem {
         #[unsafe(method(genre))]
         fn genre(&self) -> Retained<NSString>;
 
+        #[unsafe(method(composer))]
+        fn composer(&self) -> Retained<NSString>;
+
+        #[unsafe(method(grouping))]
+        fn grouping(&self) -> Option<Retained<NSString>>;
+
+        #[unsafe(method(comments))]
+        fn comments(&self) -> Option<Retained<NSString>>;
+
+        #[unsafe(method(beatsPerMinute))]
+        fn beats_per_minute(&self) -> usize;
+
         #[unsafe(method(kind))]
         fn kind(&self) -> Option<Retained<NSString>>;
 
@@ -274,6 +286,10 @@ fn to_item(item: &ITLibMediaItem) -> MusicLibraryItem {
         album_artist: text(album.album_artist()),
         album: text(album.title()),
         genre: item.genre().to_string(),
+        composer: item.composer().to_string(),
+        grouping: text(item.grouping()),
+        comment: text(item.comments()),
+        bpm: present(item.beats_per_minute()).filter(|bpm| (1..=999).contains(bpm)),
         duration_ms: present(item.total_time()),
         track_number: present(item.track_number()),
         disc_number: present(album.disc_number()),

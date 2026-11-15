@@ -417,3 +417,59 @@ fn large_catalogue_facets_keep_artwork_bounded_and_exact_scope_consistent() {
         4
     );
 }
+
+#[test]
+fn extended_metadata_search_and_sorts_fold_text_and_sort_bpm_numerically() {
+    let library = library_of(&[
+        Track {
+            grouping: "Zulu".into(),
+            comment: "Later".into(),
+            bpm: Some(120),
+            ..track(1, "One", "Artist", "Album", 1)
+        },
+        Track {
+            grouping: "Ábel".into(),
+            comment: "Éarly".into(),
+            bpm: Some(90),
+            ..track(2, "Two", "Artist", "Album", 1)
+        },
+        Track {
+            bpm: Some(1000),
+            ..track(3, "Three", "Artist", "Album", 1)
+        },
+    ]);
+    assert_eq!(library.track(3).unwrap().unwrap().bpm, None);
+    for search in ["abel", "early"] {
+        let query = TrackQuery {
+            search: Some(search.into()),
+            ..TrackQuery::default()
+        };
+        assert_eq!(
+            library
+                .tracks(&query)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>(),
+            [2]
+        );
+    }
+    for sort in [SortKey::Grouping, SortKey::Comment, SortKey::Bpm] {
+        for (descending, expected) in [(false, [2, 1, 3]), (true, [1, 2, 3])] {
+            let query = TrackQuery {
+                sort,
+                descending,
+                ..TrackQuery::default()
+            };
+            assert_eq!(
+                library
+                    .tracks(&query)
+                    .unwrap()
+                    .iter()
+                    .map(|t| t.id)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+}

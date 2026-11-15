@@ -40,6 +40,7 @@ pub(super) mod at {
     pub(in crate::itunesdb) const BOOKMARK_TIME: usize = 108;
     pub(in crate::itunesdb) const DBID: usize = 112;
     pub(in crate::itunesdb) const APP_RATING: usize = 121;
+    pub(in crate::itunesdb) const BPM: usize = 122;
     pub(in crate::itunesdb) const UNKNOWN_126: usize = 126;
     pub(in crate::itunesdb) const SAMPLE_RATE_FLOAT: usize = 136;
     pub(in crate::itunesdb) const UNKNOWN_144: usize = 144;
@@ -132,6 +133,7 @@ fn parse_track(data: &[u8], chunk: &Chunk, mount: &Path) -> Result<IpodTrack> {
     let mut track = IpodTrack {
         id: chunk.u32(at::ID).unwrap_or(0),
         dbid: chunk.u64(at::DBID).unwrap_or(0),
+        bpm: chunk.u16(at::BPM).filter(|bpm| (1..=999).contains(bpm)),
         year: nonzero(at::YEAR).and_then(|year| i32::try_from(year).ok()),
         track_number: nonzero(at::TRACK_NUMBER),
         track_count: nonzero(at::TRACK_COUNT),
@@ -177,6 +179,8 @@ fn parse_track(data: &[u8], chunk: &Chunk, mount: &Path) -> Result<IpodTrack> {
             mhod::GENRE => track.genre = mhod.text()?,
             mhod::FILE_TYPE => track.file_type = mhod.text()?,
             mhod::COMPOSER => track.composer = mhod.text()?,
+            mhod::GROUPING => track.grouping = mhod.text()?,
+            mhod::COMMENT => track.comment = mhod.text()?,
             mhod::ALBUM_ARTIST => track.album_artist = mhod.text()?,
             mhod::SORT_TITLE => track.sort_title = sort_key(&mhod)?,
             mhod::SORT_ARTIST => track.sort_artist = sort_key(&mhod)?,

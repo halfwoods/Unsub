@@ -12,6 +12,7 @@ const tracks: Track[] = Array.from({ length: 12000 }, (_, index) => {
   return { id: index + 1, path: `/fixture/${index}.flac`, title: index === 0 ? "A very long song title to check column clipping and autosizing" : `Song ${String(index + 1).padStart(5, "0")}`,
     artist, albumArtist: index % 3 === 0 ? "" : artist, album, albumGroup: `${compilation ? "compilations" : fold(artist)}\u001f${fold(album)}`,
     genre: index < 48 ? "Jazz" : index % 2 === 0 ? "Rock" : "Pop", composer: index % 3 === 0 ? "Ada" : "",
+    grouping: index % 2 === 0 ? "Evening" : "", comment: index === 0 ? "A comment\nwith multiple lines" : "", bpm: index % 3 === 0 ? 120 : null,
     year: index % 13 === 0 ? null : 1970 + Math.floor(index / 12) % 50, trackNumber: index % 12 + 1, trackCount: 12, discNumber: 1, discCount: 1,
     durationMs: 180000, bitrateKbps: index % 5 === 0 ? null : 900, sampleRate: 44100, bitDepth: 16, channels: 2, codec: "FLAC", fileSize: 22000000,
     dateAdded: 1700000000 + index * 60, dateModified: 1700000000, playCount: index % 10, lastPlayed: index % 3 === 0 ? null : 1701000000,
@@ -25,7 +26,7 @@ function selected(query: TrackQuery): Track[] {
   rows = rows.filter((t) => (!query.kind || t.kind === query.kind) && (!query.ids || query.ids.includes(t.id))
     && (query.artistKey == null || artistKey(t) === query.artistKey) && (query.albumKey == null || t.albumGroup === query.albumKey)
     && (query.genre == null || fold(t.genre) === fold(query.genre)) && (query.composer == null || fold(t.composer) === fold(query.composer))
-    && (!query.search || fold(query.search).split(/\s+/).every((word) => fold(`${t.title} ${t.artist} ${t.albumArtist} ${t.album} ${t.genre} ${t.composer}`).includes(word))));
+    && (!query.search || fold(query.search).split(/\s+/).every((word) => fold(`${t.title} ${t.artist} ${t.albumArtist} ${t.album} ${t.genre} ${t.composer} ${t.grouping} ${t.comment}`).includes(word))));
   if (query.sort === "playlistOrder") return query.descending ? rows.reverse() : rows;
   const property: Partial<Record<TrackQuery["sort"], keyof Track>> = { name: "title", time: "durationMs", plays: "playCount", bitrate: "bitrateKbps", size: "fileSize", kind: "codec" };
   const key = property[query.sort] ?? query.sort as keyof Track;

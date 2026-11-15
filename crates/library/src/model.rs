@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::loudness::TrackLoudness;
 use crate::smart::SmartRules;
@@ -65,6 +65,9 @@ pub enum SortKey {
     Album,
     AlbumArtist,
     Composer,
+    Grouping,
+    Comment,
+    Bpm,
     Genre,
     Year,
     TrackNumber,
@@ -135,6 +138,9 @@ pub struct Track {
     pub album_group: String,
     pub genre: String,
     pub composer: String,
+    pub grouping: String,
+    pub comment: String,
+    pub bpm: Option<u16>,
     pub year: Option<i32>,
     pub track_number: Option<u32>,
     pub track_count: Option<u32>,
@@ -382,6 +388,14 @@ pub struct TrackOverrides {
     pub date_added: Option<i64>,
     pub year: Option<i32>,
     pub composer: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    /// Absent leaves tags authoritative; null pins an explicit clear after a failed write.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "set_or_clear"
+    )]
+    pub bpm: Option<Option<u16>>,
     pub track_number: Option<u32>,
     pub track_count: Option<u32>,
     pub disc_number: Option<u32>,
@@ -411,6 +425,11 @@ impl TrackOverrides {
         });
         text(&mut self.genre, &theirs.genre, |t| &t.genre);
         text(&mut self.composer, &theirs.composer, |t| &t.composer);
+        text(&mut self.grouping, &theirs.grouping, |t| &t.grouping);
+        text(&mut self.comment, &theirs.comment, |t| &t.comment);
+        if self.bpm.is_none() && track.is_none_or(|track| track.bpm.is_none()) {
+            self.bpm = theirs.bpm;
+        }
         let number = |own: &mut Option<u32>, new: Option<u32>, held: fn(&Track) -> Option<u32>| {
             if own.is_none() && track.is_none_or(|track| held(track).is_none()) {
                 *own = new;
@@ -467,4 +486,15 @@ pub struct Mix {
     pub track_ids: Vec<i64>,
     /// Up to four tracks from distinct albums, for a collage.
     pub artwork_track_ids: Vec<i64>,
+}
+
+/// Tells an absent field (leave alone) from an explicit `null` (clear it).
+pub(crate) fn set_or_clear<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }

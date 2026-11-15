@@ -156,6 +156,9 @@ const MIGRATIONS: &[&str] = &[
         file_size INTEGER NOT NULL,
         date_modified INTEGER NOT NULL
     ) WITHOUT ROWID;",
+    "ALTER TABLE tracks ADD COLUMN grouping TEXT NOT NULL DEFAULT '';
+    ALTER TABLE tracks ADD COLUMN comment TEXT NOT NULL DEFAULT '';
+    ALTER TABLE tracks ADD COLUMN bpm INTEGER;",
 ];
 
 pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {

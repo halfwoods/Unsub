@@ -14,6 +14,9 @@ const COLUMNS: &[&str] = &[
     "album",
     "genre",
     "composer",
+    "grouping",
+    "comment",
+    "bpm",
     "year",
     "track_number",
     "track_count",
@@ -155,6 +158,8 @@ pub(crate) fn write_tracks<'a>(
                     &track.album_artist,
                     &track.album,
                     &track.composer,
+                    &track.grouping,
+                    &track.comment,
                     &track.genre,
                 ]
                 .map(String::as_str)
@@ -180,6 +185,9 @@ pub(crate) fn write_tracks<'a>(
                 ":album": track.album,
                 ":genre": track.genre,
                 ":composer": track.composer,
+                ":grouping": track.grouping,
+                ":comment": track.comment,
+                ":bpm": track.bpm.filter(|bpm| (1..=999).contains(bpm)),
                 ":year": track.year,
                 ":track_number": track.track_number,
                 ":track_count": track.track_count,

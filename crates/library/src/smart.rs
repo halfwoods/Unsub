@@ -55,6 +55,9 @@ pub enum SmartField {
     Album,
     Genre,
     Composer,
+    Grouping,
+    Comment,
+    Bpm,
     /// The codec, e.g. "ALAC".
     Kind,
     /// Music, podcast, audiobook or radio. Stations only take part in a smart
@@ -184,6 +187,9 @@ impl SmartField {
             Self::Album => FieldKind::Text("album"),
             Self::Genre => FieldKind::Text("genre"),
             Self::Composer => FieldKind::Text("composer"),
+            Self::Grouping => FieldKind::Text("grouping"),
+            Self::Comment => FieldKind::Text("comment"),
+            Self::Bpm => FieldKind::Number("bpm"),
             Self::Kind => FieldKind::Text("codec"),
             Self::MediaKind => FieldKind::MediaKind,
             Self::Year => FieldKind::Number("year"),

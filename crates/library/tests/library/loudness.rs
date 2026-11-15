@@ -994,3 +994,57 @@ fn loudness_json_and_the_ipod_value_follow_their_contracts() {
     // The 4 dB boost a -20 LUFS track needs for -16 LUFS, as the iPod stores it.
     assert_eq!(itunes_soundcheck(gain.db), 398);
 }
+
+#[test]
+fn extended_edits_keep_auxiliary_mp4_and_vorbis_tags() {
+    let dir = copy_fixtures();
+    let mp4 = dir.path().join("something.m4a");
+    add_itunnorm_to_mp4(&mp4, ITUNNORM_SAMPLE);
+    let flac = dir.path().join("come_together.flac");
+    retag(&flac, |tag| {
+        tag.insert_text(ItemKey::ReplayGainTrackGain, "-4.2 dB".into());
+    });
+    let mut library = Library::open_in_memory().unwrap();
+    scan(&mut library, dir.path());
+    for title in ["Something", "Come Together"] {
+        let id = track_titled(&library, title).id;
+        let before = library.track(id).unwrap().unwrap().loudness;
+        for comment in ["User comment\nSecond line", ""] {
+            let report = library
+                .edit_tracks(
+                    &[id],
+                    &TrackEdits {
+                        grouping: Some("Set".into()),
+                        comment: Some(comment.into()),
+                        bpm: Some(Some(123)),
+                        ..TrackEdits::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(report.written, [id]);
+            let row = library.track(id).unwrap().unwrap();
+            assert_eq!(row.loudness, before, "{title}");
+            assert_eq!(row.comment, comment);
+        }
+    }
+    let mp4 = Mp4File::read_from(&mut fs::File::open(&mp4).unwrap(), ParseOptions::new()).unwrap();
+    let atom = mp4
+        .ilst()
+        .unwrap()
+        .get(&AtomIdent::Freeform {
+            mean: "com.apple.iTunes".into(),
+            name: "iTunNORM".into(),
+        })
+        .unwrap();
+    assert!(
+        atom.data()
+            .any(|data| matches!(data, AtomData::UTF8(text) if text == ITUNNORM_SAMPLE))
+    );
+    let file = lofty::read_from_path(&flac).unwrap();
+    assert_eq!(
+        file.primary_tag()
+            .unwrap()
+            .get_string(ItemKey::ReplayGainTrackGain),
+        Some("-4.2 dB")
+    );
+}

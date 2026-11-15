@@ -87,6 +87,9 @@ pub fn track(id: i64, title: &str, artist: &str, album: &str, duration_ms: u64) 
         album: album.into(),
         genre: String::new(),
         composer: String::new(),
+        grouping: String::new(),
+        comment: String::new(),
+        bpm: None,
         year: None,
         track_number: None,
         track_count: None,
@@ -131,6 +134,14 @@ pub fn library_of(tracks: &[Track]) -> Library {
 /// been created by an older build, so migrations can be run on real data.
 pub fn rewind_schema(db_path: &Path, version: u32) {
     let conn = Connection::open(db_path).unwrap();
+    if version < 14 {
+        conn.execute_batch(
+            "ALTER TABLE tracks DROP COLUMN grouping;
+            ALTER TABLE tracks DROP COLUMN comment;
+            ALTER TABLE tracks DROP COLUMN bpm;",
+        )
+        .unwrap();
+    }
     if version < 13 {
         conn.execute_batch("DROP TABLE unreadable_songs;").unwrap();
     }

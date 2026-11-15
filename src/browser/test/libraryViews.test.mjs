@@ -63,3 +63,27 @@ test("metadata formats seconds, audio units, ratings and missing values consiste
   assert.equal(formatColumnText("plays", track), new Intl.NumberFormat().format(1234)); assert.equal(formatMetadataDate(0), ""); assert.equal(formatMetadataDate(NaN), "");
   assert.equal(formatColumnText("rating", track), "★"); assert.equal(formatColumnText("rating", { ...track, rating: 80 }), "★★★★");
 });
+
+test("extended columns remain hidden on old layouts and retain visibility and sorts when saved", () => {
+  const old = { version: 1, libraryDefault: { order: ["name", "composer"], visible: ["name"], widths: { composer: 190 }, sort: "composer" }, playlists: { 1: { visible: ["name", "artist"] } } };
+  let prefs = normalizeLibraryViews(old);
+  for (const id of ["grouping", "comment", "bpm"]) {
+    assert.ok(prefs.libraryDefault.order.includes(id));
+    assert.ok(!prefs.libraryDefault.visible.includes(id));
+    assert.ok(!prefs.playlists[1].visible.includes(id));
+    prefs = changeLayout(prefs, "music", { visible: ["name", id], sort: id, descending: true });
+    saveLibraryViews(prefs);
+    assert.deepEqual(loadLibraryViews(), prefs);
+    assert.equal(loadLibraryViews().libraryDefault.sort, id);
+  }
+  assert.equal(prefs.libraryDefault.widths.composer, 190);
+  assert.ok(!prefs.libraryDefault.visible.includes("composer"));
+});
+
+test("Grouping, Comments and BPM render blanks and values", () => {
+  const track = { grouping: "Evening", comment: "First\nSecond", bpm: 123 };
+  assert.equal(formatColumnText("grouping", track), "Evening");
+  assert.equal(formatColumnText("comment", track), "First\nSecond");
+  assert.equal(formatColumnText("bpm", track), "123");
+  assert.equal(formatColumnText("bpm", { bpm: null }), "");
+});

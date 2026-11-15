@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { onUpdateResult, updatesDismiss, updatesInstall, updatesSetAutoCheck, updatesStatus } from "../api/commands";
+import { onUpdateResult, setMiniPlayer, updatesDismiss, updatesInstall, updatesSetAutoCheck, updatesStatus } from "../api/commands";
 import type { UpdateInfo, UpdatesStatus } from "../api/types";
+import { useMiniPlayer } from "../chrome/miniMode";
 import { useApp } from "../state/store";
 import "./UpdateSheet.css";
 
@@ -22,6 +23,11 @@ export function UpdateSheet() {
   const [error, setError] = useState<string | null>(null);
   // A ref because the listener below outlives every render; `progress` would be stale inside it.
   const downloading = useRef(false);
+  const mini = useMiniPlayer((s) => s.mini);
+  // The offer is a sheet, which the mini player has no room for.
+  useEffect(() => {
+    if (update && mini) void setMiniPlayer(false);
+  }, [update, mini]);
 
   useEffect(() => {
     const offer = (found: UpdateInfo) => {

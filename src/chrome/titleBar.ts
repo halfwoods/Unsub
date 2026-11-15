@@ -2,10 +2,11 @@ import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { windowDoubleClickAction } from "../api/commands";
 import { useApp } from "../state/store";
+import { useMiniPlayer } from "./miniMode";
 
 const appWindow = getCurrentWindow();
 
-const BARS = ".toolbar, .bottom-bar";
+const BARS = ".toolbar, .bottom-bar, .mini-player";
 // What reacts to clicks itself. The LCD scrubs and opens menus, and the CD import sheet is drawn inside the bottom bar.
 const OWN_CLICKS =
   'button, input, select, textarea, a, label, [role="slider"], [role="radiogroup"], [contenteditable], [tabindex], .lcd, .sheet-backdrop';
@@ -18,6 +19,8 @@ const onTitleBar = (target: EventTarget | null) => {
 };
 
 async function doubleClick() {
+  // The mini player has a fixed height, so zooming it would only stretch the bar across the screen.
+  if (useMiniPlayer.getState().mini) return;
   const action = await windowDoubleClickAction();
   if (action === "zoom") await appWindow.toggleMaximize();
   else if (action === "minimize") await appWindow.minimize();

@@ -139,6 +139,10 @@ fn reads_every_field_of_a_full_entry() {
             album_artist: "Radiohead".into(),
             album: "OK Computer".into(),
             genre: "Alternative".into(),
+            composer: String::new(),
+            grouping: String::new(),
+            comment: String::new(),
+            bpm: None,
             duration_ms: Some(287_000),
             track_number: Some(1),
             disc_number: Some(1),
@@ -171,6 +175,10 @@ fn fills_defaults_for_missing_optional_keys() {
             album_artist: String::new(),
             album: String::new(),
             genre: String::new(),
+            composer: String::new(),
+            grouping: String::new(),
+            comment: String::new(),
+            bpm: None,
             duration_ms: None,
             track_number: None,
             disc_number: None,
@@ -459,4 +467,37 @@ fn missing_export_is_an_io_error() {
         read_xml(&fixture("does-not-exist.xml")),
         Err(Error::Io(_))
     ));
+}
+
+#[test]
+fn xml_extended_fields_and_old_snapshot_defaults() {
+    let dir = TempDir::new().unwrap();
+    let export = dir.path().join("extended.xml");
+    let template = fs::read_to_string(fixture("library.xml")).unwrap();
+    let template = template.replacen("<key>Name</key>", "<key>Grouping</key><string>Evening</string><key>Comments</key><string>First line\nSecond line</string><key>BPM</key><integer>123</integer><key>Composer</key><string>Composer Name</string><key>Name</key>", 1);
+    fs::write(&export, template).unwrap();
+    let library = read_xml_library(&export).unwrap();
+    let row = library
+        .items
+        .iter()
+        .find(|item| item.grouping == "Evening")
+        .unwrap();
+    assert_eq!(
+        (row.comment.as_str(), row.bpm, row.composer.as_str()),
+        ("First line\nSecond line", Some(123), "Composer Name")
+    );
+    let mut json = serde_json::to_value(row).unwrap();
+    for key in ["grouping", "comment", "bpm", "composer"] {
+        json.as_object_mut().unwrap().remove(key);
+    }
+    let old: MusicLibraryItem = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        (
+            old.grouping.as_str(),
+            old.comment.as_str(),
+            old.bpm,
+            old.composer.as_str()
+        ),
+        ("", "", None, "")
+    );
 }

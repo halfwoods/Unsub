@@ -107,6 +107,9 @@ fn full_edit() -> TrackEdits {
         album: Some("New Album".into()),
         genre: Some("New Genre".into()),
         composer: Some("New Composer".into()),
+        grouping: Some("Evening set".into()),
+        comment: Some("First line\nSecond line\nThird line".into()),
+        bpm: Some(Some(123)),
         year: Some(Some(2001)),
         track_number: Some(Some(7)),
         track_count: Some(Some(12)),
@@ -216,6 +219,24 @@ fn a_full_edit_reaches_the_file_and_the_library_for_every_rich_format() {
         assert_eq!(
             (row.disc_number, row.disc_count, row.compilation),
             (Some(2), Some(3), true)
+        );
+        assert_eq!(
+            (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+            (
+                "Evening set",
+                "First line\nSecond line\nThird line",
+                Some(123)
+            )
+        );
+        assert_eq!(tag.get_string(ItemKey::ContentGroup), Some("Evening set"));
+        assert_eq!(
+            tag.get_string(ItemKey::Comment),
+            Some("First line\nSecond line\nThird line")
+        );
+        assert_eq!(
+            tag.get_string(ItemKey::Bpm)
+                .or_else(|| tag.get_string(ItemKey::IntegerBpm)),
+            Some("123")
         );
         assert_eq!(row.sort_title.as_deref(), Some("Sort Title"));
         assert_eq!(row.sort_album_artist.as_deref(), Some("Sort Album Artist"));
@@ -345,6 +366,9 @@ fn fields_can_be_cleared() {
             &TrackEdits {
                 genre: Some(String::new()),
                 composer: Some(String::new()),
+                grouping: Some(String::new()),
+                comment: Some(String::new()),
+                bpm: Some(None),
                 year: Some(None),
                 track_number: Some(None),
                 track_count: Some(None),
@@ -377,6 +401,18 @@ fn fields_can_be_cleared() {
         (row.track_number, row.track_count, row.disc_count),
         (None, None, None)
     );
+    assert_eq!(
+        (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+        ("", "", None)
+    );
+    for key in [
+        ItemKey::ContentGroup,
+        ItemKey::Comment,
+        ItemKey::Bpm,
+        ItemKey::IntegerBpm,
+    ] {
+        assert_eq!(tag.get_string(key), None);
+    }
     assert!(!row.compilation && row.sort_artist.is_none());
     assert_eq!(row.sort_title.as_deref(), Some("Sort Title"));
 }
@@ -854,4 +890,427 @@ fn edits_flow_into_search_grouping_and_sorting() {
     );
     assert!(albums.iter().all(|a| a.album != "Abbey Road"));
     let _ = library_of;
+}
+
+#[test]
+fn extended_fields_keep_mixed_values_until_edited_and_clear_together() {
+    let (mut library, _dir) = scanned_library();
+    let a = track_titled(&library, "Halo").id;
+    let b = track_titled(&library, "Something").id;
+    for (id, bpm) in [(a, 90), (b, 140)] {
+        library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    grouping: Some(format!("Set {bpm}")),
+                    comment: Some(format!("Note {bpm}")),
+                    bpm: Some(Some(bpm)),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+    }
+    library
+        .edit_tracks(
+            &[a, b],
+            &TrackEdits {
+                composer: Some("Shared".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(library.track(a).unwrap().unwrap().bpm, Some(90));
+    assert_eq!(library.track(b).unwrap().unwrap().bpm, Some(140));
+    library
+        .edit_tracks(
+            &[a, b],
+            &serde_json::from_str::<TrackEdits>(r#"{"grouping":"","comment":"","bpm":null}"#)
+                .unwrap(),
+        )
+        .unwrap();
+    for id in [a, b] {
+        let row = library.track(id).unwrap().unwrap();
+        assert_eq!(
+            (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+            ("", "", None)
+        );
+        assert_eq!(row.composer, "Shared");
+    }
+}
+
+#[test]
+fn failed_writes_pin_extended_values_and_explicit_clears_across_reopens_and_imports() {
+    let dir = copy_fixtures();
+    let db = TempDir::new().unwrap();
+    let db_path = db.path().join("library.db");
+    let path = dir.path().join("halo.mp3");
+    let mut library = Library::open(&db_path).unwrap();
+    scan(&mut library, dir.path());
+    let id = track_titled(&library, "Halo").id;
+    library.edit_tracks(&[id], &full_edit()).unwrap();
+    // The missing file still carries the previous tags when it is restored.
+    let saved = fs::read(&path).unwrap();
+    fs::remove_file(&path).unwrap();
+    let edits = TrackEdits {
+        grouping: Some("Pinned".into()),
+        comment: Some("Pinned note".into()),
+        bpm: Some(Some(99)),
+        ..TrackEdits::default()
+    };
+    let report = library.edit_tracks(&[id], &edits).unwrap();
+    assert_eq!(report.db_only.len(), 1);
+    fs::write(&path, &saved).unwrap();
+    drop(library);
+    let mut library = Library::open(&db_path).unwrap();
+    scan(&mut library, dir.path());
+    let row = library.track(id).unwrap().unwrap();
+    assert_eq!(
+        (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+        ("Pinned", "Pinned note", Some(99))
+    );
+    fs::remove_file(&path).unwrap();
+    library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                grouping: Some(String::new()),
+                comment: Some(String::new()),
+                bpm: Some(None),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    fs::write(&path, &saved).unwrap();
+    drop(library);
+    let mut library = Library::open(&db_path).unwrap();
+    // Re-import must not fill explicitly cleared fields with another source's values.
+    let added = library
+        .add_files_in_place(&[(
+            path,
+            TrackOverrides {
+                grouping: Some("Incoming".into()),
+                comment: Some("Incoming".into()),
+                bpm: Some(Some(150)),
+                ..TrackOverrides::default()
+            },
+        )])
+        .unwrap();
+    assert!(added.failed.is_empty());
+    assert_eq!(added.ids, [Some(id)]);
+    scan(&mut library, dir.path());
+    let row = library.track(id).unwrap().unwrap();
+    assert_eq!(
+        (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+        ("", "", None)
+    );
+    // An unrelated successful write must leave the pinned clears in force.
+    library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                artist: Some("Changed".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(library.track(id).unwrap().unwrap().bpm, None);
+}
+
+#[test]
+fn bpm_clear_removes_both_keys() {
+    let (mut library, dir) = scanned_library();
+    let id = track_titled(&library, "Something").id;
+    let path = dir.path().join("something.m4a");
+    for key in [ItemKey::Bpm, ItemKey::IntegerBpm] {
+        let mut file = lofty::read_from_path(&path).unwrap();
+        let tag = file.primary_tag_mut().unwrap();
+        assert!(tag.insert_text(key, "124".into()));
+        file.save_to_path(&path, WriteOptions::default()).unwrap();
+        library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    bpm: Some(None),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        let tag = file_tag(&path);
+        assert_eq!(tag.get_string(ItemKey::Bpm), None);
+        assert_eq!(tag.get_string(ItemKey::IntegerBpm), None);
+        assert_eq!(library.track(id).unwrap().unwrap().bpm, None);
+    }
+}
+
+#[test]
+fn invalid_bpm_edits_deserialize_but_leave_files_and_rows_untouched() {
+    let (mut library, dir) = scanned_library();
+    let ids = [
+        track_titled(&library, "Halo").id,
+        track_titled(&library, "Something").id,
+    ];
+    library
+        .edit_tracks(
+            &ids,
+            &TrackEdits {
+                bpm: Some(Some(120)),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    let before: Vec<_> = ids
+        .iter()
+        .map(|id| library.track(*id).unwrap().unwrap())
+        .collect();
+    let bytes: Vec<_> = before
+        .iter()
+        .map(|row| fs::read(&row.path).unwrap())
+        .collect();
+    for bpm in [-1, 0, 1000, 65_536, 4_294_967_296, i64::MAX] {
+        let edits: TrackEdits =
+            serde_json::from_value(serde_json::json!({"title": "Changed", "bpm": bpm})).unwrap();
+        assert!(matches!(
+            library.edit_tracks(&ids, &edits),
+            Err(Error::InvalidBpm(value)) if value == bpm
+        ));
+        for (row, bytes) in before.iter().zip(&bytes) {
+            assert_eq!(library.track(row.id).unwrap().unwrap(), *row);
+            assert_eq!(fs::read(&row.path).unwrap(), *bytes);
+        }
+    }
+    for bpm in [1, 999] {
+        let report = library
+            .edit_tracks(
+                &ids,
+                &TrackEdits {
+                    bpm: Some(Some(bpm)),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(report.written, ids);
+        for id in ids {
+            assert_eq!(library.track(id).unwrap().unwrap().bpm, Some(bpm as u16));
+        }
+    }
+    drop(dir);
+}
+
+#[test]
+fn wav_and_aiff_extended_edits_survive_file_reads_and_rescans() {
+    for filename in ["untagged.wav", "lyrics/tone.aiff"] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(Path::new(filename).file_name().unwrap());
+        fs::copy(fixtures_dir().join(filename), &path).unwrap();
+        let db = TempDir::new().unwrap();
+        let db_path = db.path().join("library.db");
+        let mut library = Library::open(&db_path).unwrap();
+        scan(&mut library, dir.path());
+        let id = library.tracks(&all_kinds()).unwrap()[0].id;
+        for (grouping, bpm) in [("Evening", Some(120)), ("", None)] {
+            let report = library
+                .edit_tracks(
+                    &[id],
+                    &TrackEdits {
+                        grouping: Some(grouping.into()),
+                        bpm: Some(bpm),
+                        ..TrackEdits::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(report.written, [id], "{filename}: {report:?}");
+            assert!(report.db_only.is_empty());
+            let file = lofty::read_from_path(&path).unwrap();
+            let tag = file.primary_tag();
+            assert_eq!(
+                tag.and_then(|tag| tag.get_string(ItemKey::ContentGroup))
+                    .unwrap_or(""),
+                grouping
+            );
+            assert_eq!(
+                tag.and_then(|tag| tag.get_string(ItemKey::IntegerBpm)),
+                bpm.map(|_| "120")
+            );
+            // A fresh library reads only the file, without any stored pins.
+            let mut fresh = Library::open_in_memory().unwrap();
+            scan(&mut fresh, dir.path());
+            let row = fresh.tracks(&all_kinds()).unwrap().remove(0);
+            assert_eq!(
+                (row.grouping.as_str(), row.bpm),
+                (grouping, bpm.map(|bpm| bpm as u16))
+            );
+            drop(library);
+            library = Library::open(&db_path).unwrap();
+            scan(&mut library, dir.path());
+            let row = library.track(id).unwrap().unwrap();
+            assert_eq!(
+                (row.grouping.as_str(), row.bpm),
+                (grouping, bpm.map(|bpm| bpm as u16))
+            );
+        }
+    }
+}
+
+#[test]
+fn unsupported_bpm_writes_pin_edits_across_reopens_and_rescans() {
+    for filename in ["sine.ape", "sine.wv"] {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(filename);
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../playback/tests/fixtures")
+            .join(filename);
+        fs::copy(source, &path).unwrap();
+        let db = TempDir::new().unwrap();
+        let db_path = db.path().join("library.db");
+        let mut library = Library::open(&db_path).unwrap();
+        scan(&mut library, dir.path());
+        let id = library.tracks(&all_kinds()).unwrap()[0].id;
+        let bytes = fs::read(&path).unwrap();
+        let report = library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    grouping: Some("Pinned".into()),
+                    bpm: Some(Some(120)),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        assert!(report.written.is_empty());
+        assert_eq!(report.db_only.len(), 1);
+        assert_eq!(report.db_only[0].0, id);
+        assert!(report.db_only[0].1.contains("IntegerBpm"));
+        assert_eq!(fs::read(&path).unwrap(), bytes, "failed writes are atomic");
+        drop(library);
+        let mut library = Library::open(&db_path).unwrap();
+        let mut file = lofty::read_from_path(&path).unwrap();
+        let tag_type = file.primary_tag_type();
+        if file.primary_tag().is_none() {
+            file.insert_tag(Tag::new(tag_type));
+        }
+        let tag = file.primary_tag_mut().unwrap();
+        tag.set_title("External title".into());
+        assert!(tag.insert_text(ItemKey::ContentGroup, "External grouping".into()));
+        file.save_to_path(&path, WriteOptions::default()).unwrap();
+        scan(&mut library, dir.path());
+        let row = library.track(id).unwrap().unwrap();
+        assert_eq!(row.title, "External title");
+        assert_eq!((row.grouping.as_str(), row.bpm), ("Pinned", Some(120)));
+        let report = library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    grouping: Some(String::new()),
+                    bpm: Some(None),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(report.written, [id]);
+        let row = library.track(id).unwrap().unwrap();
+        assert_eq!((row.grouping.as_str(), row.bpm), ("", None));
+    }
+}
+
+#[test]
+fn grouping_prefers_grp1_and_edits_remove_stale_values() {
+    let dir = copy_fixtures();
+    let path = dir.path().join("halo.mp3");
+    for apple_grouping in [Some("Apple grouping"), Some("  "), None] {
+        let mut file = lofty::read_from_path(&path).unwrap();
+        let tag = file.primary_tag_mut().unwrap();
+        assert!(tag.insert_text(ItemKey::ContentGroup, "Legacy grouping".into()));
+        tag.remove_key(ItemKey::AppleId3v2ContentGroup);
+        if let Some(value) = apple_grouping {
+            assert!(tag.insert_text(ItemKey::AppleId3v2ContentGroup, value.into()));
+        }
+        file.save_to_path(&path, WriteOptions::default()).unwrap();
+        let mut library = Library::open_in_memory().unwrap();
+        scan(&mut library, dir.path());
+        let row = track_titled(&library, "Halo");
+        assert_eq!(
+            row.grouping,
+            if apple_grouping == Some("Apple grouping") {
+                "Apple grouping"
+            } else {
+                "Legacy grouping"
+            }
+        );
+        for grouping in ["Changed", ""] {
+            // Clearing must also remove GRP1 when another writer has restored it.
+            let mut file = lofty::read_from_path(&path).unwrap();
+            assert!(
+                file.primary_tag_mut()
+                    .unwrap()
+                    .insert_text(ItemKey::AppleId3v2ContentGroup, "Stale grouping".into(),)
+            );
+            file.save_to_path(&path, WriteOptions::default()).unwrap();
+            let report = library
+                .edit_tracks(
+                    &[row.id],
+                    &TrackEdits {
+                        grouping: Some(grouping.into()),
+                        ..TrackEdits::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(report.written, [row.id]);
+            let tag = file_tag(&path);
+            assert_eq!(tag.get_string(ItemKey::AppleId3v2ContentGroup), None);
+            assert_eq!(
+                tag.get_string(ItemKey::ContentGroup).unwrap_or(""),
+                grouping
+            );
+            let mut fresh = Library::open_in_memory().unwrap();
+            scan(&mut fresh, dir.path());
+            assert_eq!(track_titled(&fresh, "Halo").grouping, grouping);
+        }
+    }
+}
+
+#[test]
+fn comment_edits_preserve_described_id3_frames_and_unrelated_tags() {
+    use lofty::TextEncoding;
+    use lofty::config::ParseOptions;
+    use lofty::id3::v2::CommentFrame;
+    let dir = copy_fixtures();
+    let path = dir.path().join("halo.mp3");
+    let mut mp3 =
+        MpegFile::read_from(&mut fs::File::open(&path).unwrap(), ParseOptions::new()).unwrap();
+    let tag = mp3.id3v2_mut().unwrap();
+    tag.remove_comment();
+    for description in ["iTunNORM", "iTunSMPB", "Other analysis"] {
+        tag.insert(Frame::Comment(CommentFrame::new(
+            TextEncoding::UTF8,
+            *b"eng",
+            description,
+            format!("data for {description}"),
+        )));
+    }
+    mp3.save_to_path(&path, WriteOptions::default()).unwrap();
+    let mut library = Library::open_in_memory().unwrap();
+    scan(&mut library, dir.path());
+    let id = track_titled(&library, "Halo").id;
+    assert_eq!(library.track(id).unwrap().unwrap().comment, "");
+    for comment in ["First\nSecond", "Replacement", ""] {
+        library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    comment: Some(comment.into()),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(library.track(id).unwrap().unwrap().comment, comment);
+        let mp3 =
+            MpegFile::read_from(&mut fs::File::open(&path).unwrap(), ParseOptions::new()).unwrap();
+        for description in ["iTunNORM", "iTunSMPB", "Other analysis"] {
+            assert!(mp3.id3v2().unwrap().clone().into_iter().any(|frame| matches!(frame, Frame::Comment(c) if c.description == description && c.content == format!("data for {description}"))));
+        }
+        assert_eq!(
+            file_tag(&path).get_string(ItemKey::AlbumTitle),
+            Some("I Am... Sasha Fierce")
+        );
+    }
 }
