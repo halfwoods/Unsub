@@ -145,12 +145,17 @@ fn leave_full_screen(window: &Window) {
 pub fn apply_layout(window: &Window, layout: Layout, normal_minimum: LogicalSize<f64>) {
     match layout {
         Layout::Mini { width } => {
+            // GTK packs the menu bar into the window above the page, where it would take half of the bar's height.
+            #[cfg(target_os = "linux")]
+            let _ = window.hide_menu();
             let _ = window.unmaximize();
             let _ = window.set_min_size(Some(LogicalSize::new(MINI_MIN_WIDTH, MINI_HEIGHT)));
             let _ = window.set_max_size(Some(LogicalSize::new(MINI_MAX_WIDTH, MINI_HEIGHT)));
             let _ = window.set_size(LogicalSize::new(width, MINI_HEIGHT));
         }
         Layout::Normal { size, maximized } => {
+            #[cfg(target_os = "linux")]
+            let _ = window.show_menu();
             let _ = window.set_max_size(None::<LogicalSize<f64>>);
             let _ = window.set_min_size(Some(normal_minimum));
             let _ = window.set_size(size);

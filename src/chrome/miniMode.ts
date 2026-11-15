@@ -43,6 +43,10 @@ export function useMiniPlayerSync() {
     return () => observer.disconnect();
   }, [visualizerOpen]);
   const mini = useMiniPlayer((s) => s.mini);
+  // A field left focused in the hidden window would take the keys meant for the player, Space included.
+  useEffect(() => {
+    if (mini && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [mini]);
   const sheetOpen = useMiniPlayer((s) => s.sheetOpen);
   useEffect(() => {
     void setMiniPlayerAllowed(!sheetOpen);
