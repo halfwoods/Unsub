@@ -4,7 +4,8 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use lofty::config::{ParseOptions, WriteOptions};
-use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::file::{AudioFile, FileType, TaggedFileExt};
+use lofty::mp4::{Atom, AtomData, DataType, Mp4File};
 use lofty::picture::{Picture, PictureType};
 use lofty::tag::items::Timestamp;
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
@@ -383,7 +384,24 @@ impl Library {
                 )?;
             }
             if edits.touches_tags() || edits.kind.is_some() {
+                // Only the library changed, so the file has not been read since: the row keeps its
+                // parser version, and the next scan still reads what newer parsers extract.
+                let read_with: Option<u32> = (!rewritten)
+                    .then(|| {
+                        tx.query_row(
+                            "SELECT parser_version FROM tracks WHERE id = ?1",
+                            [track.id],
+                            |row| row.get(0),
+                        )
+                    })
+                    .transpose()?;
                 write_tracks(&tx, WriteMode::RefreshTags, [&track])?;
+                if let Some(version) = read_with {
+                    tx.execute(
+                        "UPDATE tracks SET parser_version = ?2 WHERE id = ?1",
+                        params![track.id, version],
+                    )?;
+                }
             }
             let json = (overrides != TrackOverrides::default())
                 .then(|| serde_json::to_string(&overrides))
@@ -451,7 +469,15 @@ fn write_tags(path: &Path, edits: &TrackEdits, picture: Option<&Option<Picture>>
     replace_atomically(path, |temp| {
         // Cover art is read too (the default), or saving would drop what is there.
         // The copy has a made-up extension, so the format is sniffed from content.
-        let mut tagged = tags::probe(temp, ParseOptions::new())?.read()?;
+        let probe = tags::probe(temp, ParseOptions::new())?;
+        let mut tagged = match (probe.file_type(), edits.bpm) {
+            (Some(FileType::Mp4), Some(bpm)) => {
+                let mut mp4 = Mp4File::read_from(&mut probe.into_inner(), ParseOptions::new())?;
+                set_mp4_tempo(&mut mp4, bpm);
+                mp4.into()
+            }
+            _ => probe.read()?,
+        };
         if tagged.primary_tag().is_none() {
             tagged.insert_tag(Tag::new(tagged.primary_tag_type()));
         }
@@ -475,7 +501,6 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) -> Result<()> {
         (ItemKey::AlbumTitle, &edits.album),
         (ItemKey::Genre, &edits.genre),
         (ItemKey::Composer, &edits.composer),
-        (ItemKey::ContentGroup, &edits.grouping),
         (ItemKey::TrackTitleSortOrder, &edits.sort_title),
         (ItemKey::TrackArtistSortOrder, &edits.sort_artist),
         (ItemKey::AlbumTitleSortOrder, &edits.sort_album),
@@ -486,9 +511,18 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) -> Result<()> {
             set(tag, key, Some(value.as_str()).filter(|v| !v.is_empty()))?;
         }
     }
-    if edits.grouping.is_some() {
-        // GRP1 takes precedence when reading; TIT1 now carries the edited value.
-        tag.remove_key(ItemKey::AppleId3v2ContentGroup);
+    if let Some(grouping) = &edits.grouping {
+        // A file with GRP1 keeps its Work in TIT1 (iTunes 12.5.4 and later). A cleared GRP1 stays
+        // as an empty frame, or the Work would be read back as the grouping.
+        if tag.get(ItemKey::AppleId3v2ContentGroup).is_some() {
+            tag.insert_text(ItemKey::AppleId3v2ContentGroup, grouping.clone());
+        } else {
+            set(
+                tag,
+                ItemKey::ContentGroup,
+                Some(grouping.as_str()).filter(|v| !v.is_empty()),
+            )?;
+        }
     }
     if let Some(comment) = &edits.comment {
         // Lofty keeps described COMM items too; retain iTunNORM/iTunSMPB and other auxiliary data.
@@ -505,12 +539,15 @@ fn apply_text(tag: &mut Tag, edits: &TrackEdits) -> Result<()> {
     if let Some(bpm) = edits.bpm {
         tag.remove_key(ItemKey::Bpm);
         tag.remove_key(ItemKey::IntegerBpm);
-        let key = if tag.tag_type() == TagType::VorbisComments {
-            ItemKey::Bpm
-        } else {
-            ItemKey::IntegerBpm
+        let key = match tag.tag_type() {
+            TagType::VorbisComments => Some(ItemKey::Bpm),
+            // `set_mp4_tempo` has already written it.
+            TagType::Mp4Ilst => None,
+            _ => Some(ItemKey::IntegerBpm),
         };
-        set(tag, key, bpm.map(|bpm| bpm.to_string()).as_deref())?;
+        if let Some(key) = key {
+            set(tag, key, bpm.map(|bpm| bpm.to_string()).as_deref())?;
+        }
     }
     let numbers = [
         (ItemKey::TrackNumber, edits.track_number),
@@ -559,6 +596,23 @@ fn set(tag: &mut Tag, key: ItemKey, value: Option<&str>) -> Result<()> {
         return Err(Error::UnsupportedTagField(key));
     }
     Ok(())
+}
+
+/// iTunes reads an MP4's BPM only from a 16-bit integer `tmpo`, which the generic `Tag` can
+/// neither write nor remove, so it is set here and any other `tmpo` goes.
+fn set_mp4_tempo(mp4: &mut Mp4File, bpm: Option<i64>) {
+    let mut ilst = mp4.remove_ilst().unwrap_or_default();
+    let _ = ilst.remove(&tags::MP4_TEMPO);
+    if let Some(bpm) = bpm {
+        ilst.insert(Atom::new(
+            tags::MP4_TEMPO,
+            AtomData::Unknown {
+                code: DataType::BeSignedInteger,
+                data: (bpm as u16).to_be_bytes().to_vec(),
+            },
+        ));
+    }
+    mp4.set_ilst(ilst);
 }
 
 /// Art can sit in more than one of a file's tags, and readers take the first
