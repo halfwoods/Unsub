@@ -5,7 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,6 +13,46 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{CommandError, CommandResult};
 use crate::library::LibraryState;
+
+const BACKUP_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const BACKUP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Remove permanent trim backups after their 30-day recovery window.
+pub fn start_backup_cleanup(path: PathBuf) {
+    let result = std::thread::Builder::new().name("trim-backup-cleanup".to_owned()).spawn(move || loop {
+        if let Err(e) = cleanup_expired_backups(&path, SystemTime::now()) {
+            eprintln!("Could not clean expired trim backups: {e}");
+        }
+        std::thread::sleep(BACKUP_CLEANUP_INTERVAL);
+    });
+    if let Err(e) = result {
+        eprintln!("Could not start trim backup cleanup: {e}");
+    }
+}
+
+fn cleanup_expired_backups(path: &Path, now: SystemTime) -> std::io::Result<usize> {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let cutoff = now.checked_sub(BACKUP_RETENTION).unwrap_or(SystemTime::UNIX_EPOCH);
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() || !entry.file_name().to_string_lossy().starts_with("track-") {
+            continue;
+        }
+        if entry.metadata()?.modified().is_ok_and(|modified| modified <= cutoff) {
+            fs::remove_file(entry.path())?;
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        eprintln!("Removed {removed} trim backup(s) older than 30 days.");
+    }
+    Ok(removed)
+}
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -88,6 +88,7 @@ pub fn run() {
             }
             if !smoke {
                 migrate_data_dir(&data_dir.with_file_name(OLD_IDENTIFIER), &data_dir);
+                trim::start_backup_cleanup(data_dir.join("Trim Backups"));
             }
             let artwork_cache = app.path().app_cache_dir()?.join("Artwork");
             app.manage(LibraryState::open(data_dir.join("Library.sqlite"), artwork_cache.clone())?);

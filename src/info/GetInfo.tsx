@@ -102,8 +102,8 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
   const single = tracks.length === 1 ? tracks[0] : null;
   const isMp3 = single?.codec.toLowerCase() === "mp3" && single.path.toLowerCase().endsWith(".mp3");
   const trimPermanentNote = isMp3
-    ? "MP3 audio is copied without re-encoding, preserving its encoded quality. Cut points align to MP3 frames (about 26 ms at 44.1 kHz). A backup is kept."
-    : "Lossy formats such as AAC, Vorbis, and Opus are re-encoded, which can reduce quality. A backup is kept.";
+    ? "MP3 audio is copied without re-encoding, preserving its encoded quality. Cut points align to MP3 frames (about 26 ms at 44.1 kHz). A backup is kept for 30 days."
+    : "Lossy formats such as AAC, Vorbis, and Opus are re-encoded, which can reduce quality. A backup is kept for 30 days.";
   const listTracks = useApp((s) => s.tracks);
   const showNotice = useApp((s) => s.showNotice);
   const openLibrarySheet = useApp((s) => s.openLibrarySheet);
@@ -185,7 +185,7 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
       }
       const result = await trimApply(single.id, trim);
       await useApp.getState().refresh();
-      await message(`The song was trimmed. The original backup is at:\n${result.backupPath}${result.warning ? `\n\n${result.warning}` : ""}`, { title: "Trim Complete", kind: result.warning ? "warning" : "info" });
+      await message(`The song was trimmed. The original backup is at:\n${result.backupPath}\n\nBackups are automatically deleted after 30 days.${result.warning ? `\n\n${result.warning}` : ""}`, { title: "Trim Complete", kind: result.warning ? "warning" : "info" });
       onClose();
     } catch (e) { setTrimError(String(e)); }
     finally { setTrimBusy(false); }
