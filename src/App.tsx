@@ -30,6 +30,7 @@ import {
   playerPrevious,
   playerSetBitPerfect,
   playerSetCrossfade,
+  playerSetShuffle,
   playerSetSoundCheck,
   playerStatus,
   type MenuAction,
@@ -63,7 +64,7 @@ import { UpdateSheet } from "./updates/UpdateSheet";
 import { Welcome, showWelcomeTips } from "./welcome/Welcome";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
-import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
+import { loadBitPerfect, loadCrossfade, loadEqualizer, loadShuffle, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
 import { useAppearance } from "./preferences/appearance";
 import { chapterSeekTarget, isLibrarySource, isPlaylistSource, playlistIdOf, useApp } from "./state/store";
@@ -263,6 +264,7 @@ function useBackendEvents() {
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     const stopWelcome = watchWelcomeDue();
+    if (loadShuffle()) void playerSetShuffle(true);
     if (loadBitPerfect()) void playerSetBitPerfect(true);
     if (loadSoundCheck()) void playerSetSoundCheck(true);
     applyEqualizer(loadEqualizer());
