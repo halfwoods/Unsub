@@ -121,8 +121,10 @@ mod tests {
     fn volume_clamps_and_rejects_nan() {
         let volume = Volume::new(0.4);
         assert_eq!(volume.get(), 0.4);
+        volume.set(1.2);
+        assert_eq!(volume.get(), 1.2);
         volume.set(3.0);
-        assert_eq!(volume.get(), 1.0);
+        assert_eq!(volume.get(), 1.3);
         volume.set(-1.0);
         assert_eq!(volume.get(), 0.0);
         volume.set(f32::NAN);

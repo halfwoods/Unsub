@@ -84,7 +84,7 @@ function mount(t, tracks) {
   return h;
 }
 const song = (id, fields = {}) => ({ id, title: `Song ${id}`, artist: "Artist", albumArtist: "", album: "Album", genre: "Jazz", composer: "Composer",
-  grouping: "Evening", comment: "First\nSecond", bpm: 120, year: 1999, durationMs: 1000, fileSize: 1000, dateModified: 1, dateAdded: 1, ...fields });
+  grouping: "Evening", comment: "First\nSecond", codec: "mp3", path: `/music/song-${id}.mp3`, bpm: 120, year: 1999, durationMs: 1000, fileSize: 1000, dateModified: 1, dateAdded: 1, ...fields });
 
 test("Info pairs metadata with its numbers and uses a three-row Comments control", t => {
   const h = mount(t, [song(1)]);

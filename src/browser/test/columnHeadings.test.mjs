@@ -14,7 +14,7 @@ const mocks = {
   "./columns": `export const ALL_COLUMNS = ["name", "time", "artist"].map(id => ({id})); export const columnLabel = id => id;`,
   "./columnFormat": `export const formatColumnText = () => "";`,
   "../state/store": `export const useApp = { getState: () => ({showNotice: message => { throw Error(message); }}) };`,
-  "./songMenu": `export const SEPARATOR = {item:"Separator"}; export const showMenu = async (items, at) => globalThis.__headings.menus.push({items, at});`,
+  "./songMenu": `export const menuPosition = () => ({x:0,y:0}); export const SEPARATOR = {item:"Separator"}; export const showMenu = async (items, at) => globalThis.__headings.menus.push({items, at});`,
 };
 registerHooks({
   resolve(specifier, context, next) {

@@ -744,7 +744,7 @@ pub fn player_next(
     let position_ms = playback.status().position_ms;
     let mut slot = playback.playing();
     let Some(playing) = slot.as_mut() else { return Ok(()) };
-    if playing.source == PlaySource::Library && SKIP_WINDOW_MS.contains(&position_ms) {
+    if playing.source == PlaySource::Library && !playing.preview && SKIP_WINDOW_MS.contains(&position_ms) {
         library.queries().record_skip(playing.queue.current(), now_unix())?;
     }
     if playing.queue.skip_next().is_some() {
@@ -764,7 +764,13 @@ pub fn player_previous(
 ) -> CommandResult<()> {
     let mut slot = playback.playing();
     let Some(playing) = slot.as_mut() else { return Ok(()) };
-    if playback.status().position_ms > PREVIOUS_RESTARTS_AFTER_MS || playing.queue.skip_previous().is_none() {
+    let range_start_ms = playback.options(
+        &Tracks { library: &library, devices: &devices },
+        &playing.source,
+        playing.queue.current(),
+    ).range_ms.map_or(0, |(start, _)| start);
+    let elapsed_ms = playback.status().position_ms.saturating_sub(range_start_ms);
+    if elapsed_ms > PREVIOUS_RESTARTS_AFTER_MS || playing.queue.skip_previous().is_none() {
         playback.seek(0);
         return Ok(());
     }

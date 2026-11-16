@@ -216,7 +216,10 @@ impl Feed {
         }
         // A track gives at most half its length to each fade, so its fade in and its fade out
         // never meet. A length that is not known is taken to be long enough.
-        let next_frames = match next.duration_ms {
+        let next_duration_ms = next.options.range_ms
+            .map(|(start, end)| end.saturating_sub(start))
+            .unwrap_or(next.duration_ms);
+        let next_frames = match next_duration_ms {
             0 => u64::MAX,
             ms => ms * u64::from(self.out_rate) / 1000,
         };
