@@ -10,12 +10,17 @@ const mocks = {
   react: `export const useState = initial => globalThis.__info.useState(initial);
     export const useEffect = effect => effect(); export const useMemo = compute => compute();`,
   "react/jsx-runtime": `export const jsx = (type, props) => ({type, props}); export const jsxs = jsx; export const Fragment = "fragment";`,
-  "@tauri-apps/plugin-dialog": `export const open = async () => null;`,
+  "@tauri-apps/plugin-dialog": `export const open = async () => null; export const ask = async () => globalThis.__info.confirm; export const message = async text => globalThis.__info.messages.push(text);`,
   "../api/commands": `export const libraryEditTracks = async (...args) => { globalThis.__info.edits.push(args); return {}; };
-    export const libraryLyrics = async () => null; export const libraryTrack = async () => null;`,
+    export const libraryLyrics = async () => null; export const libraryTrack = async () => null;
+    export const trimGet = async () => ({startMs: 0, endMs: 1000, enabled: false});
+    export const trimSet = async (...args) => { globalThis.__info.trims.push(args); };
+    export const trimPreview = async (...args) => { globalThis.__info.previews.push(args); };
+    export const trimApply = async (...args) => { globalThis.__info.appliedTrims.push(args); return {backupPath: '/backup', warning: null}; };`,
   "../browser/Artwork": `export const Artwork = () => null;`,
-  "../state/store": `export const useApp = selector => selector(globalThis.__info.app);`,
+  "../state/store": `export const useApp = selector => selector(globalThis.__info.app); useApp.getState = () => globalThis.__info.app; useApp.setState = value => Object.assign(globalThis.__info.app, value);`,
   "../util/format": `export const dbOnlyNotice = () => null; export const formatBytes = String; export const formatClock = String;`,
+  "./trimTime": `export { parseTrimTime, trimTime } from ${JSON.stringify(new URL("../../info/trimTime.ts", import.meta.url).href)};`,
   "./GetInfo.css": "",
 };
 registerHooks({
@@ -41,8 +46,13 @@ function mount(t, tracks) {
   let current, cursor;
   const h = {
     edits: [],
+    trims: [],
+    previews: [],
+    appliedTrims: [],
+    messages: [],
+    confirm: false,
     notices: [],
-    app: { tracks, openLibrarySheet() {}, showNotice(message) { h.notices.push(message); } },
+    app: { tracks, openLibrarySheet() {}, refresh: async () => {}, showNotice(message) { h.notices.push(message); } },
     useState(initial) {
       const values = hooks.get(current), index = cursor++;
       if (!(index in values)) values[index] = typeof initial === "function" ? initial() : initial;
@@ -138,4 +148,52 @@ test("invalid BPM values show an error and never become clears", async t => {
     assert.equal(h.edits.length, 0);
     assert.match(h.notices.at(-1), /BPM must be between 1 and 999/);
   }
+});
+
+test("trim preview uses unsaved times without enabling or saving them", async t => {
+  const h = mount(t, [song(1, { kind: "music" })]);
+  h.find(node => node.props.role === "tab" && node.props.children === "Trim").props.onClick();
+  h.render();
+  await new Promise(setImmediate);
+  h.find(node => node.props.id === "trim-start").props.onChange({ target: { value: "0.2" } });
+  h.find(node => node.props.id === "trim-end").props.onChange({ target: { value: "0.7" } });
+  h.find(node => node.type === "button" && node.props.children === "Preview End").props.onClick();
+  await new Promise(setImmediate);
+  assert.deepEqual(h.previews, [[1, { startMs: 200, endMs: 700, enabled: false }, true]]);
+  assert.deepEqual(h.trims, []);
+  const toggle = h.find(node => node.type === "input" && node.props.type === "checkbox" && typeof node.props.checked === "boolean");
+  assert.equal(toggle.props.checked, false);
+  await h.save();
+  assert.deepEqual(h.trims, [[1, { startMs: 200, endMs: 700, enabled: false }]]);
+});
+
+test("permanent trim requires confirmation and reports the backup", async t => {
+  const h = mount(t, [song(1, { kind: "music" })]);
+  h.find(node => node.props.role === "tab" && node.props.children === "Trim").props.onClick();
+  h.render();
+  await new Promise(setImmediate);
+  h.find(node => node.props.id === "trim-start").props.onChange({ target: { value: "0.2" } });
+  h.find(node => node.props.id === "trim-end").props.onChange({ target: { value: "0.7" } });
+  const apply = () => h.find(node => node.type === "button" && node.props.children === "Make Permanent…").props.onClick();
+  apply();
+  await new Promise(setImmediate);
+  assert.deepEqual(h.appliedTrims, []);
+  h.confirm = true;
+  apply();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  assert.deepEqual(h.appliedTrims, [[1, { startMs: 200, endMs: 700, enabled: false }]]);
+  assert.match(h.messages[0], /\/backup/);
+});
+
+test("enabled playback limits are saved with the chosen times", async t => {
+  const h = mount(t, [song(1, { kind: "music" })]);
+  h.find(node => node.props.role === "tab" && node.props.children === "Trim").props.onClick();
+  h.render();
+  await new Promise(setImmediate);
+  h.find(node => node.props.id === "trim-start").props.onChange({ target: { value: "0.1" } });
+  h.find(node => node.props.id === "trim-end").props.onChange({ target: { value: "0.9" } });
+  h.find(node => node.type === "input" && node.props.type === "checkbox").props.onChange({ target: { checked: true } });
+  await h.save();
+  assert.deepEqual(h.trims, [[1, { startMs: 100, endMs: 900, enabled: true }]]);
 });

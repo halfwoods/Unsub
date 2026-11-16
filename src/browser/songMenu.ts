@@ -1,4 +1,5 @@
 import { Menu, type MenuOptions } from "@tauri-apps/api/menu";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { cdStopImport, libraryAddToPlaylist, libraryEditTracks, librarySetEnabled, partyAdd, type MenuAction } from "../api/commands";
 import type { Playlist, Track } from "../api/types";
@@ -7,10 +8,16 @@ import { copySongsToLibrary } from "../devices/CopyToLibrary";
 import { startMixFrom } from "../mixes/startMix";
 import { playlistsByParent } from "../sidebar/PlaylistRows";
 import { useApp } from "../state/store";
-import { IS_MAC, IS_WINDOWS } from "../util/platform";
+import { IS_LINUX, IS_MAC, IS_WINDOWS } from "../util/platform";
 
 export type MenuItems = NonNullable<MenuOptions["items"]>;
-type MenuPosition = Parameters<Menu["popup"]>[0];
+export type MenuPosition = Parameters<Menu["popup"]>[0];
+
+/** A native menu takes logical window coordinates, matching the webview's client coordinates. */
+export function menuPosition(event: { clientX: number; clientY: number }): LogicalPosition {
+  // KDE aligns the first menu row close to the pointer. Start the menu box at the click instead.
+  return new LogicalPosition(event.clientX, event.clientY + (IS_LINUX ? 28 : 0));
+}
 
 export const SEPARATOR = { item: "Separator" } as const;
 /** menu.rs words the bar's item the same way for each platform. */
@@ -19,6 +26,8 @@ const RATING_LABELS = ["None", "★", "★★", "★★★", "★★★★", "�
 
 /** Kept until the next right-click: closing a menu as it is dismissed could drop the event of the item just chosen. */
 let lastMenu: Menu | null = null;
+/** GTK runs a nested popup loop; serialize native menus and wait for resource disposal between them. */
+let popupQueue: Promise<void> = Promise.resolve();
 
 /** An item with a menu bar action's id, which menu.rs forwards to the same handler as the bar's own item. */
 const barItem = (id: MenuAction, text: string) => ({ id, text });
@@ -32,15 +41,27 @@ function playlistItems(byParent: Map<number | null, Playlist[]>, parent: number 
   });
 }
 
-export async function popUp(menu: Menu, at?: MenuPosition) {
-  void lastMenu?.close();
-  lastMenu = menu;
-  await menu.popup(at);
+export function popUp(menu: Menu, at?: MenuPosition): Promise<void> {
+  const pending = popupQueue.then(async () => {
+    const previous = lastMenu;
+    lastMenu = null;
+    if (previous) await previous.close();
+    lastMenu = menu;
+    await menu.popup(at);
+  });
+  popupQueue = pending.catch((error: unknown) => {
+    useApp.getState().showNotice(`Couldn't open menu: ${String(error)}`);
+  });
+  return popupQueue;
 }
 
 /** Pops up a menu of `items` at a window position, or at the cursor if omitted. */
 export async function showMenu(items: MenuItems, at?: MenuPosition) {
-  await popUp(await Menu.new({ items }), at);
+  try {
+    await popUp(await Menu.new({ items }), at);
+  } catch (error) {
+    useApp.getState().showNotice(`Couldn't open menu: ${String(error)}`);
+  }
 }
 
 /** Shows a song's file in the system's file manager, or says why it can't. */
@@ -69,24 +90,24 @@ const partyItems = (ids: number[]): MenuItems => {
 };
 
 /** The right-click menu for a station of the Radio view; `keep` adds it to My Stations or removes it. */
-export async function showStationMenu(play: () => void, keep: { label: string; run: () => void }) {
-  await popUp(await Menu.new({ items: [{ text: "Play", action: play }, SEPARATOR, { text: keep.label, action: keep.run }] }));
+export async function showStationMenu(play: () => void, keep: { label: string; run: () => void }, at?: MenuPosition) {
+  await showMenu([{ text: "Play", action: play }, SEPARATOR, { text: keep.label, action: keep.run }], at);
 }
 
 /** The right-click menu for songs on an iPod, which can't be edited but can be copied into the library. */
-export async function showDeviceSongMenu(deviceId: string) {
+export async function showDeviceSongMenu(deviceId: string, at?: MenuPosition) {
   const ids = [...useApp.getState().selection];
-  await popUp(await Menu.new({ items: [{ text: "Copy to Library", action: () => copySongsToLibrary(deviceId, ids) }] }));
+  await showMenu([{ text: "Copy to Library", action: () => copySongsToLibrary(deviceId, ids) }], at);
 }
 
 /** The right-click menu for the selected songs of the library list; `clicked` is the row under the cursor. */
-export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean) {
+export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean, at?: MenuPosition) {
   const { tracks, selection, refresh, deleteSelection } = useApp.getState();
   const ids = [...selection];
   const selected = tracks.filter((t) => selection.has(t.id));
 
-  const menu = await Menu.new({
-    items: [
+  await showMenu(
+    [
       barItem("get-info", "Get Info"),
       barItem("clean-up", "Clean Up Song Info…"),
       {
@@ -113,12 +134,12 @@ export async function showSongMenu(clicked: Track, inRegularPlaylist: boolean) {
       ...(inRegularPlaylist ? [{ text: "Remove from Playlist", action: () => void deleteSelection() }] : []),
       { text: "Delete from Library…", action: () => void deleteSelection(true) },
     ],
-  });
-  await popUp(menu);
+    at,
+  );
 }
 
 /** The right-click menu for albums, given their songs: one album's in the grid and Cover Flow, or every selected album's in the Album List. */
-export async function showAlbumMenu(tracks: Track[]) {
+export async function showAlbumMenu(tracks: Track[], at?: MenuPosition) {
   if (tracks.length === 0) return;
   const { playTrackIds, openLibrarySheet, showNotice } = useApp.getState();
   // A playlist can hold a song twice; the album's songs are each counted, queued and deleted once.
@@ -134,16 +155,16 @@ export async function showAlbumMenu(tracks: Track[]) {
     { text: REVEAL_LABEL, action: () => revealTrack(tracks[0]) },
     SEPARATOR,
     { text: "Delete from Library…", action: () => openLibrarySheet({ type: "delete", trackIds: ids }) },
-  ]);
+  ], at);
 }
 
 /** The right-click menu for the songs of a CD, which can be played and imported but not edited. */
-export async function showCdSongMenu(discId: string, play: () => void) {
+export async function showCdSongMenu(discId: string, play: () => void, at?: MenuPosition) {
   const { cds, cdRip } = useApp.getState();
   const importing = cds.find((c) => c.id === discId)?.importing ?? false;
   // Only one CD imports at a time, so Import CD waits for another's import to end.
   const importItem = importing
     ? { text: "Stop Importing", action: () => void cdStopImport() }
     : { text: "Import CD", enabled: cdRip === null, action: () => importCd(discId) };
-  await showMenu([{ text: "Play", action: play }, SEPARATOR, importItem]);
+  await showMenu([{ text: "Play", action: play }, SEPARATOR, importItem], at);
 }

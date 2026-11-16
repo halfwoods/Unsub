@@ -11,6 +11,10 @@
   padding: 0 10px 0 36px;
 }
 
+.window[data-native-titlebar="true"] .mini-player {
+  padding-left: 10px;
+}
+
 /*
  * The full window stays mounted beneath the bar, so a switch can never unmount a sheet and lose what is typed into it.
  * It keeps the smallest size it can have, so the lists don't re-lay themselves out at the bar's size, and

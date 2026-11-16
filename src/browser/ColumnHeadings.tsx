@@ -6,7 +6,7 @@ import { columnWidth, type ColumnId, type ColumnLayout } from "../preferences/li
 import { ALL_COLUMNS, columnLabel, type Column } from "./columns";
 import { formatColumnText } from "./columnFormat";
 import { useApp } from "../state/store";
-import { SEPARATOR, showMenu } from "./songMenu";
+import { menuPosition, SEPARATOR, showMenu } from "./songMenu";
 
 interface Props {
   columns: Column[]; layout: ColumnLayout; source: string; regular: boolean; editable: boolean;
@@ -73,7 +73,7 @@ export function ColumnHeadings({ columns, layout, source, regular, editable, sor
         className={`song-list-header-cell song-heading${sorted ? " song-list-header-cell--sorted" : ""}`} data-column-id={id}
         style={{ touchAction: canEdit ? "none" : undefined, boxShadow: dragging?.to === id && dragging.from !== id
           ? `inset ${layout.order.indexOf(dragging.from) < layout.order.indexOf(id) ? "-2px" : "2px"} 0 #347bc5` : undefined }}
-        onContextMenu={event => { if (editable) { event.preventDefault(); menu(new LogicalPosition(event.clientX, event.clientY)); } }}
+        onContextMenu={event => { if (editable) { event.preventDefault(); menu(menuPosition(event)); } }}
         // Native file-drop support replaces HTML drag/drop on desktop webviews.
         // Pointer capture keeps heading moves independent of file and song drags.
         onPointerDown={event => {

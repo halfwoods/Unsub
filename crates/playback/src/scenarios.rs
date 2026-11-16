@@ -911,6 +911,7 @@ mod crossfade {
         TrackOptions {
             gain: None,
             album_key: Some(key.to_owned()),
+            range_ms: None,
         }
     }
 

@@ -625,6 +625,7 @@ mod tests {
             source: PlaySource::Library,
             queue: PlayQueue::new(vec![1, 2, 3], 0, false, RepeatMode::Off).unwrap(),
             party: false,
+            preview: false,
         })
     }
 

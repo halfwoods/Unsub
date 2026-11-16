@@ -20,6 +20,7 @@ import { DEFAULT_GASLIGHT, GASLIGHT_PALETTES, type GaslightPalette } from "../vi
 import { STYLE_LABELS, VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles";
 import { loadBitPerfect, loadCrossfade, loadSoundCheck, saveBitPerfect, saveCrossfade, saveSoundCheck } from "./playbackPrefs";
 import type { TextSizes } from "./textSizes";
+import { useAppearance, type Appearance } from "./appearance";
 import "./Preferences.css";
 
 type Tab = "general" | "playback" | "sharing" | "advanced";
@@ -113,9 +114,16 @@ function AdvancedTab() {
 function GeneralTab() {
   const sizes = useApp((s) => s.textSizes);
   const update = useApp((s) => s.setTextSizes);
+  const appearance = useAppearance((s) => s.appearance);
+  const setAppearance = useAppearance((s) => s.setAppearance);
   return (
     <>
       <div className="prefs-grid">
+        <label className="prefs-label" htmlFor="appearance">Appearance:</label>
+        <select id="appearance" className="smart-popup" value={appearance} onChange={(e) => setAppearance(e.target.value as Appearance)}>
+          <option value="classic">iTunes 10</option>
+          <option value="itunes12">iTunes 12</option>
+        </select>
         <span className="prefs-label">Source Text:</span>
         <select className="smart-popup" value={sizes.source} onChange={(e) => update({ ...sizes, source: e.target.value as TextSizes["source"] })}>
           <option value="small">Small</option>

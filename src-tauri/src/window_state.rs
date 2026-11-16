@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, LogicalSize, Manager, Window, WindowEvent};
@@ -100,7 +101,16 @@ struct WindowState {
     /// What the window's frame gives back when the mini player is left.
     minimum: LogicalSize<f64>,
     saved: Mutex<SavedWindow>,
+    record_schedule: Mutex<RecordSchedule>,
 }
+
+#[derive(Default)]
+struct RecordSchedule {
+    pending: bool,
+    last_change: Option<Instant>,
+}
+
+const RECORD_QUIET_PERIOD: Duration = Duration::from_millis(100);
 
 /// The window's own smallest size, which the mini player replaces while it is on.
 pub fn normal_minimum(app: &AppHandle) -> LogicalSize<f64> {
@@ -119,7 +129,7 @@ pub fn restore(app: &AppHandle, path: PathBuf) {
     let saved = stored
         .unwrap_or(SavedWindow { width: size.width, height: size.height, maximized: false, mini: false, mini_width: MINI_DEFAULT_WIDTH })
         .fit(minimum, maximum);
-    app.manage(WindowState { path, minimum, saved: Mutex::new(saved) });
+    app.manage(WindowState { path, minimum, saved: Mutex::new(saved), record_schedule: Mutex::new(RecordSchedule::default()) });
     if saved.mini {
         crate::window::apply_layout(&window, Layout::Mini { width: saved.mini_width() }, minimum);
         crate::window::sync_menu(app);
@@ -155,21 +165,64 @@ fn record(window: &Window) {
     state.saved.lock().unwrap_or_else(PoisonError::into_inner).observe(size.to_logical(scale), maximized, fullscreen, minimized);
 }
 
+/// Window getters synchronously ask GTK's event thread for answers. A resize callback runs on that
+/// same thread, so take the snapshot on a worker and debounce a drag into one query.
+fn schedule_record(window: &Window) {
+    let Some(state) = window.try_state::<WindowState>() else { return };
+    let start_worker = {
+        let mut schedule = state.record_schedule.lock().unwrap_or_else(PoisonError::into_inner);
+        schedule.last_change = Some(Instant::now());
+        if schedule.pending {
+            false
+        } else {
+            schedule.pending = true;
+            true
+        }
+    };
+    if !start_worker {
+        return;
+    }
+
+    let window = window.clone();
+    let app = window.app_handle().clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || loop {
+        std::thread::sleep(RECORD_QUIET_PERIOD);
+        let state = app.state::<WindowState>();
+        let schedule = state.record_schedule.lock().unwrap_or_else(PoisonError::into_inner);
+        let quiet = schedule.last_change.is_some_and(|last| last.elapsed() >= RECORD_QUIET_PERIOD);
+        drop(schedule);
+        if !quiet {
+            continue;
+        }
+
+        record(&window);
+
+        let mut schedule = state.record_schedule.lock().unwrap_or_else(PoisonError::into_inner);
+        if schedule.last_change.is_some_and(|last| last.elapsed() >= RECORD_QUIET_PERIOD) {
+            schedule.pending = false;
+            return;
+        }
+    });
+}
+
 /// Closing destroys the main window on Windows/Linux; on macOS it only hides it.
 pub fn on_event(window: &Window, event: &WindowEvent) {
     match event {
-        WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => record(window),
-        WindowEvent::CloseRequested { .. } if window.label() == MAIN => save(window.app_handle()),
+        WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => schedule_record(window),
+        WindowEvent::CloseRequested { .. } if window.label() == MAIN => save_cached(window.app_handle()),
         _ => {}
     }
 }
 
 /// Quit does not have to close the window first, so save on ExitRequested as well.
 pub fn save(app: &AppHandle) {
+    save_cached(app);
+}
+
+/// Writes the last geometry snapshot without synchronously querying the native window. This can
+/// run from close/exit callbacks on GTK's event thread, where window getters would deadlock.
+fn save_cached(app: &AppHandle) {
     let Some(state) = app.try_state::<WindowState>() else { return };
-    if let Some(window) = app.get_webview_window(MAIN) {
-        record(&window.as_ref().window());
-    }
     let saved = *state.saved.lock().unwrap_or_else(PoisonError::into_inner);
     let written =
         serde_json::to_vec_pretty(&saved).map_err(std::io::Error::other).and_then(|bytes| crate::write_private(&state.path, &bytes));

@@ -1,13 +1,14 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
-import { libraryEditTracks, libraryLyrics, libraryTrack } from "../api/commands";
+import { libraryEditTracks, libraryLyrics, libraryTrack, trimApply, trimGet, trimPreview, trimSet, type SongTrim } from "../api/commands";
 import type { ArtworkChange, LyricsSource, MediaKind, Track, TrackEdits } from "../api/types";
 import { Artwork } from "../browser/Artwork";
 import { useApp } from "../state/store";
 import { dbOnlyNotice, formatBytes, formatClock } from "../util/format";
+import { parseTrimTime, trimTime } from "./trimTime";
 import "./GetInfo.css";
 
-type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics";
+type Tab = "summary" | "info" | "sorting" | "options" | "artwork" | "lyrics" | "trim";
 
 type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "grouping" | "comment" | "sortTitle" | "sortArtist" | "sortAlbum" | "sortAlbumArtist";
 type NumberField = "bpm" | "year" | "trackNumber" | "trackCount" | "discNumber" | "discCount";
@@ -99,6 +100,10 @@ export function GetInfo({ trackIds }: { trackIds: number[] }) {
 
 function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }) {
   const single = tracks.length === 1 ? tracks[0] : null;
+  const isMp3 = single?.codec.toLowerCase() === "mp3" && single.path.toLowerCase().endsWith(".mp3");
+  const trimPermanentNote = isMp3
+    ? "MP3 audio is copied without re-encoding, preserving its encoded quality. Cut points align to MP3 frames (about 26 ms at 44.1 kHz). A backup is kept."
+    : "Lossy formats such as AAC, Vorbis, and Opus are re-encoded, which can reduce quality. A backup is kept.";
   const listTracks = useApp((s) => s.tracks);
   const showNotice = useApp((s) => s.showNotice);
   const openLibrarySheet = useApp((s) => s.openLibrarySheet);
@@ -113,6 +118,78 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
   // Read when the tab is first shown, since a sidecar or big tag isn't worth loading for every Get Info.
   const [lyrics, setLyrics] = useState<{ text: string; source: LyricsSource | null; edited: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [trimValues, setTrimValues] = useState<{ start: string; end: string; enabled: boolean } | null>(null);
+  const [trimDirty, setTrimDirty] = useState(false);
+  const [trimError, setTrimError] = useState<string | null>(null);
+  const [trimBusy, setTrimBusy] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "trim" || !single || trimValues) return;
+    void trimGet(single.id).then((trim) => setTrimValues({ start: trimTime(trim.startMs), end: trimTime(trim.endMs), enabled: trim.enabled }))
+      .catch((e: unknown) => setTrimError(String(e)));
+  }, [tab, single, trimValues]);
+
+  const readTrim = (enabled = trimValues?.enabled ?? false): SongTrim => {
+    if (!single || !trimValues) throw new Error("Song trim settings are still loading.");
+    const startMs = parseTrimTime(trimValues.start), endMs = parseTrimTime(trimValues.end);
+    if (startMs === null || endMs === null || startMs >= endMs || endMs > single.durationMs) {
+      throw new Error("Enter valid times within the song, with the end after the start (for example, 0:12.500).");
+    }
+    return { startMs, endMs, enabled };
+  };
+
+  const saveTrim = async (enabled = trimValues?.enabled ?? false) => {
+    if (!single) return;
+    const trim = readTrim(enabled);
+    await trimSet(single.id, trim);
+    setTrimValues({ start: trimTime(trim.startMs), end: trimTime(trim.endMs), enabled });
+    setTrimDirty(false);
+    setTrimError(null);
+    return trim;
+  };
+
+  const previewTrim = async (ending: boolean) => {
+    if (!single) return;
+    if (useApp.getState().castTarget) { setTrimError("Select this computer as the output to preview playback limits."); return; }
+    setTrimBusy(true);
+    const previous = useApp.getState();
+    const previewTracks = [single];
+    try {
+      const trim = readTrim();
+      useApp.setState({ playingTracks: previewTracks, playingSource: { type: "library" }, podcastWish: null });
+      await trimPreview(single.id, trim, ending);
+      setTrimError(null);
+    } catch (e) {
+      if (useApp.getState().playingTracks === previewTracks) {
+        useApp.setState({ playingTracks: previous.playingTracks, playingSource: previous.playingSource, podcastWish: previous.podcastWish });
+      }
+      setTrimError(String(e));
+    }
+    finally { setTrimBusy(false); }
+  };
+
+  const makeTrimPermanent = async () => {
+    if (!single) return;
+    let trim: SongTrim;
+    try { trim = readTrim(); } catch (e) { setTrimError(String(e)); return; }
+    if (trim.startMs === 0 && trim.endMs >= single.durationMs) { setTrimError("Choose a shorter section first."); return; }
+    const approved = await ask(
+      `Replace this song with the selected section? Playback of this song will stop. ${trimPermanentNote} Specialized tags and synced lyrics may need updating.`,
+      { title: "Make Trim Permanent", kind: "warning", okLabel: "Trim Song", cancelLabel: "Cancel" },
+    );
+    if (!approved) return;
+    setTrimBusy(true);
+    try {
+      if (applied.size > 0 || artwork || lyrics?.edited) {
+        if (!(await save())) return;
+      }
+      const result = await trimApply(single.id, trim);
+      await useApp.getState().refresh();
+      await message(`The song was trimmed. The original backup is at:\n${result.backupPath}${result.warning ? `\n\n${result.warning}` : ""}`, { title: "Trim Complete", kind: result.warning ? "warning" : "info" });
+      onClose();
+    } catch (e) { setTrimError(String(e)); }
+    finally { setTrimBusy(false); }
+  };
 
   useEffect(() => {
     if (tab !== "lyrics" || !single || lyrics) return;
@@ -134,18 +211,18 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
     });
 
   const save = async () => {
-    if (applied.size === 0 && !artwork && !lyrics?.edited) return true;
+    if (applied.size === 0 && !artwork && !lyrics?.edited && !trimDirty) return true;
     setSaving(true);
     try {
       const edits = editsFrom(values, applied);
       if (lyrics?.edited) edits.lyrics = lyrics.text;
-      const report = await libraryEditTracks(
-        tracks.map((t) => t.id),
-        edits,
-        artwork,
-      );
-      const notice = dbOnlyNotice(report);
-      if (notice) showNotice(notice);
+      if (applied.size > 0 || artwork || lyrics?.edited) {
+        const report = await libraryEditTracks(tracks.map((t) => t.id), edits, artwork);
+        const notice = dbOnlyNotice(report);
+        if (notice) showNotice(notice);
+      }
+      if (trimDirty) await saveTrim();
+      setSaving(false);
       return true;
     } catch (e) {
       showNotice(String(e));
@@ -235,12 +312,13 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
     { id: "info", label: "Info" },
     { id: "sorting", label: "Sorting" },
     { id: "options", label: "Options" },
+    ...(single && single.kind === "music" ? [{ id: "trim" as const, label: "Trim" }] : []),
     { id: "artwork", label: "Artwork" },
     ...(single ? [{ id: "lyrics" as const, label: "Lyrics" }] : []),
   ];
 
   return (
-    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="sheet-backdrop" onMouseDown={(e) => !trimBusy && e.target === e.currentTarget && onClose()}>
       <div className="sheet info-sheet" role="dialog" aria-label={single ? `Info for ${single.title}` : "Multiple Item Information"}>
         <header className="info-header">
           {single ? <Artwork trackId={single.id} size={56} /> : <span className="info-many">{tracks.length}</span>}
@@ -252,12 +330,33 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
         </header>
         <div className="pill-tabs" role="tablist">
           {tabs.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className="pill-tab" onClick={() => setTab(t.id)}>
+            <button key={t.id} role="tab" disabled={trimBusy} aria-selected={tab === t.id} className="pill-tab" onClick={() => setTab(t.id)}>
               {t.label}
             </button>
           ))}
         </div>
         <div className="info-body">
+          {tab === "trim" && single && (
+            <div className="trim-panel">
+              <p>Choose the section to keep. Times refer to the original song.</p>
+              {trimValues ? <>
+                <div className="trim-times">
+                  <label>Start <input id="trim-start" className="smart-input" disabled={trimBusy} value={trimValues.start} onChange={(e) => { setTrimValues({ ...trimValues, start: e.target.value }); setTrimDirty(true); }} placeholder="0:00.000" /></label>
+                  <label>End <input id="trim-end" className="smart-input" disabled={trimBusy} value={trimValues.end} onChange={(e) => { setTrimValues({ ...trimValues, end: e.target.value }); setTrimDirty(true); }} placeholder="3:45.000" /></label>
+                </div>
+                <label className="trim-check"><input type="checkbox" disabled={trimBusy} checked={trimValues.enabled} onChange={(e) => { setTrimValues({ ...trimValues, enabled: e.target.checked }); setTrimDirty(true); }} /> Use these times when playing this song</label>
+                <p>Playback limits apply on this computer the next time the song starts. Preview plays this song on its own without saving the times or changing the switch.</p>
+                <div className="trim-actions">
+                  <button className="push-button" disabled={trimBusy} onClick={() => void previewTrim(false)}>Preview Start</button>
+                  <button className="push-button" disabled={trimBusy} onClick={() => void previewTrim(true)}>Preview End</button>
+                  <button className="push-button" disabled={trimBusy} onClick={() => void makeTrimPermanent()}>Make Permanent…</button>
+                </div>
+                <p>Make Permanent replaces the song file. {trimPermanentNote}</p>
+              </> : <p>Loading…</p>}
+              {trimError && <p className="trim-error" role="alert">{trimError}</p>}
+              {trimBusy && <p>Working…</p>}
+            </div>
+          )}
           {tab === "summary" && single && <Summary track={single} />}
           {tab === "info" && (
             <div className="info-metadata">
@@ -384,19 +483,19 @@ function InfoSheet({ tracks, onClose }: { tracks: Track[]; onClose: () => void }
         <div className="sheet-buttons info-buttons">
           {single && (
             <>
-              <button className="push-button" disabled={saving || position <= 0} onClick={() => void step(-1)}>
+              <button className="push-button" disabled={saving || trimBusy || position <= 0} onClick={() => void step(-1)}>
                 Previous
               </button>
-              <button className="push-button" disabled={saving || position < 0 || position >= listTracks.length - 1} onClick={() => void step(1)}>
+              <button className="push-button" disabled={saving || trimBusy || position < 0 || position >= listTracks.length - 1} onClick={() => void step(1)}>
                 Next
               </button>
             </>
           )}
           <span className="info-spacer" />
-          <button className="push-button" onClick={onClose}>
+          <button className="push-button" disabled={trimBusy} onClick={onClose}>
             Cancel
           </button>
-          <button className="push-button push-button--default" disabled={saving} onClick={() => void save().then((ok) => ok && onClose())}>
+          <button className="push-button push-button--default" disabled={saving || trimBusy} onClick={() => void save().then((ok) => ok && onClose())}>
             OK
           </button>
         </div>

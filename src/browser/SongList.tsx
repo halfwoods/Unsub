@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useLibraryViews } from "../preferences/libraryViewStore";
+import { useAppearance } from "../preferences/appearance";
 import { isLayoutSource, layoutFor, type ColumnId } from "../preferences/libraryViews";
 import { libraryAddToPlaylist, libraryMoveInPlaylist } from "../api/commands";
 import { DEVICE_TRACKS_MIME, TRACKS_MIME, type DeviceDrag } from "../sidebar/PlaylistRows";
@@ -15,11 +16,12 @@ import {
   useApp,
 } from "../state/store";
 import { isContextClick } from "../util/platform";
+import { browseScrollKey } from "./browseHelpers";
 import { CD_COLUMNS, COLUMNS, gridTemplate, layoutColumns, POSITION_COLUMN, SHARED_COLUMNS, STATUS_COLUMN_WIDTH } from "./columns";
 import { ColumnHeadings } from "./ColumnHeadings";
 import { formatColumnText } from "./columnFormat";
 import { hasBrowseFilters } from "./browseScope";
-import { showCdSongMenu, showDeviceSongMenu, showMenu, showSongMenu } from "./songMenu";
+import { menuPosition, showCdSongMenu, showDeviceSongMenu, showMenu, showSongMenu } from "./songMenu";
 import "./SongList.css";
 
 /** Row positions being dragged within one playlist, so drops reorder instead of adding copies. */
@@ -35,11 +37,13 @@ export function NowPlayingIcon({ playing }: { playing: boolean }) {
 }
 
 export function SongList() {
+  const appearance = useAppearance((s) => s.appearance);
   const source = useApp((s) => s.source);
   const prefs = useLibraryViews((s) => s.prefs);
   const [draftWidths, setDraftWidths] = useState<Partial<Record<ColumnId, number>>>({});
   const tracks = useApp((s) => s.tracks);
   const query = useApp((s) => s.query);
+  const loadedQuery = useApp((s) => s.loadedQuery);
   const selection = useApp((s) => s.selection);
   const anchor = useApp((s) => s.selectionAnchor);
   const songReveal = useApp((s) => s.songReveal);
@@ -66,14 +70,19 @@ export function SongList() {
     // Device IDs can collide with library IDs: ratings and checkboxes must never edit local songs.
     const deviceColumns = COLUMNS.filter((c) => c.id !== "enabled").map((c) => c.id === "rating" ? { ...c, render: (t: typeof tracks[number]) => formatColumnText("rating", t) } : c);
     const base = isCd ? CD_COLUMNS : isShared ? SHARED_COLUMNS : deviceId !== null ? deviceColumns : layoutColumns(layout);
-    return (isRegularPlaylist ? [POSITION_COLUMN, ...base] : base).map(c => ({ ...c, flex: false, width: draftWidths[c.id as ColumnId] ?? c.width }));
-  }, [isCd, isShared, deviceId, layout, isRegularPlaylist, draftWidths]);
+    const visible = appearance === "itunes12" ? base.filter((column) => column.id !== "enabled") : base;
+    return (isRegularPlaylist ? [POSITION_COLUMN, ...visible] : visible).map(c => ({ ...c, flex: false, width: draftWidths[c.id as ColumnId] ?? c.width }));
+  }, [isCd, isShared, deviceId, layout, isRegularPlaylist, draftWidths, appearance]);
   const tableWidth = STATUS_COLUMN_WIDTH + columns.reduce((sum, c) => sum + c.width, 0);
   // Reordering only makes sense while the playlist is shown in its own order.
   const reorderable = isRegularPlaylist && query.sort === "playlistOrder" && !query.descending && query.search === null && !hasBrowseFilters(query) && query.ids == null;
   useEffect(() => setDropIndex(null), [source, query]);
 
+  const scrollKey = `${browseScrollKey(source, "songs", query)}:${query.sort}:${query.descending}`;
+  const savedScroll = useApp((s) => s.browseScroll[scrollKey] ?? 0);
+  const setBrowseScroll = useApp((s) => s.setBrowseScroll);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const restoredScrollKey = useRef<string | null>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(20);
   useLayoutEffect(() => {
@@ -90,6 +99,16 @@ export function SongList() {
     scrollMargin: headerHeight,
     scrollPaddingStart: headerHeight,
   });
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element || loadedQuery !== query || restoredScrollKey.current === scrollKey) return;
+    restoredScrollKey.current = scrollKey;
+    const frame = requestAnimationFrame(() => {
+      if (scrollRef.current === element && useApp.getState().loadedQuery === query) element.scrollTop = savedScroll;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadedQuery, query, savedScroll, scrollKey]);
 
   const lastScrolledAnchor = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -147,11 +166,12 @@ export function SongList() {
     e.preventDefault();
     if (!selection.has(tracks[index].id)) selectRow(index, { extend: false, toggle: false });
     const play = () => void playRow(index);
-    if (deviceId !== null) void showDeviceSongMenu(deviceId);
-    else if (cdId !== null) void showCdSongMenu(cdId, play);
-    else if (isShared) void showMenu([{ text: "Play", action: play }]);
+    const at = menuPosition(e);
+    if (deviceId !== null) void showDeviceSongMenu(deviceId, at);
+    else if (cdId !== null) void showCdSongMenu(cdId, play, at);
+    else if (isShared) void showMenu([{ text: "Play", action: play }], at);
     // A CD's, iPod's or shared library's songs are read-only; the rest are the library's.
-    else void showSongMenu(tracks[index], isRegularPlaylist);
+    else void showSongMenu(tracks[index], isRegularPlaylist, at);
   };
 
   const onDragStart = (e: DragEvent, index: number) => {
@@ -192,6 +212,7 @@ export function SongList() {
         ref={scrollRef}
         className="song-list-body"
         tabIndex={0}
+        onScroll={(e) => setBrowseScroll(scrollKey, e.currentTarget.scrollTop)}
         onKeyDown={onKeyDown}
         onDragLeave={(e) => e.currentTarget === e.target && setDropIndex(null)}
         onDrop={onDrop}

@@ -58,7 +58,8 @@ struct Queued {
 
 impl Queued {
     fn open(open: Opener, id: i64, path: PathBuf, options: TrackOptions) -> Result<Queued> {
-        let decoder = open(&path)?;
+        let mut decoder = open(&path)?;
+        decoder.set_play_range(options.range_ms)?;
         let track = TrackInfo {
             id,
             path,
@@ -558,7 +559,8 @@ impl Engine {
     /// Starts `queued` from its beginning, as a new track.
     fn start(&mut self, queued: Queued) -> Result<()> {
         let id = queued.track.id;
-        self.begin(queued, 0)?;
+        let position_ms = queued.track.options.range_ms.map_or(0, |range| range.0);
+        self.begin(queued, position_ms)?;
         self.state = PlaybackState::Playing;
         self.next_position_event = Instant::now();
         (self.emit)(PlayerEvent::TrackStarted { track_id: id });
@@ -825,6 +827,7 @@ impl Engine {
         let upcoming = session.timeline.take_upcoming();
         if upcoming.is_some() {
             feed.decoder = (self.open)(&audible.path)?;
+            feed.decoder.set_play_range(audible.options.range_ms)?;
         }
         let landed_ms = feed.decoder.seek(position_ms)?;
         // With a handoff pending the feed had moved on to the next track's gain.
@@ -1331,6 +1334,30 @@ mod tests {
     }
 
     #[test]
+    fn trimmed_tracks_play_only_selected_samples_across_gapless_handoff() {
+        let first = Queued::open(Decoder::open, 1, fixture("sine.flac"), TrackOptions {
+            range_ms: Some((200, 700)), ..TrackOptions::default()
+        }).unwrap();
+        let second = Queued::open(Decoder::open, 2, fixture("sine.mp3"), TrackOptions {
+            range_ms: Some((100, 600)), ..TrackOptions::default()
+        }).unwrap();
+        let mut feed = Feed::new(first.decoder, STEREO_44K, 0, false, None).unwrap();
+        let mut timeline = Timeline::new(44_100, first.track, 0, 200);
+        let mut next = Some(second);
+        let mut device = Device::new(4_096, STEREO_44K);
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+        let first_audio = decode("sine.flac");
+        let second_audio = decode("sine.mp3");
+        let samples_at = |ms: usize| 44_100 * ms / 1000 * 2;
+        let expected = [
+            &first_audio[samples_at(200)..samples_at(700)],
+            &second_audio[samples_at(100)..samples_at(600)],
+        ].concat();
+        assert_eq!(heard.samples, expected);
+        assert_eq!(heard.transitions, [(1, 2, 22_050)]);
+    }
+
+    #[test]
     fn a_ring_deeper_than_a_track_still_hands_off_one_track_at_a_time() {
         let (mut feed, mut timeline) = start("sine.flac", STEREO_44K);
         let mut next = Some(queued(2, "sine.mp3"));
@@ -1728,6 +1755,7 @@ mod tests {
         let options = TrackOptions {
             gain: None,
             album_key: album.map(str::to_owned),
+            range_ms: None,
         };
         Queued::open(Decoder::open, id, fixture(name), options).unwrap()
     }

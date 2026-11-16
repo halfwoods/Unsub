@@ -1,7 +1,7 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { onPurchasesChanged, purchasesAccept, purchasesIgnore, purchasesScan, purchasesSetWatching, purchasesStatus } from "../api/commands";
 import type { PurchaseCandidate, PurchaseStore, PurchasesStatus } from "../api/types";
-import { showMenu } from "../browser/songMenu";
+import { menuPosition, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatBytes, pluralize } from "../util/format";
 import { isContextClick } from "../util/platform";
@@ -89,7 +89,7 @@ export function InboxView() {
     void showMenu([
       { text: "Add to Library", enabled: !busy.has(c.id), action: () => void accept(c.id) },
       { text: "Ignore", enabled: !busy.has(c.id), action: () => ignore(c.id) },
-    ]);
+    ], menuPosition(e));
   };
 
   return (

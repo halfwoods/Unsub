@@ -73,6 +73,8 @@ pub(crate) struct Playing {
     pub(crate) queue: PlayQueue,
     /// Party Shuffle owns what comes next; the queue only ever holds its current and upcoming songs.
     pub(crate) party: bool,
+    /// A short audition must not change play counts, bookmarks, or queue-following behavior.
+    pub(crate) preview: bool,
 }
 
 struct Modes {
@@ -204,7 +206,7 @@ impl PlaybackState {
     }
 
     pub(crate) fn set_volume(&self, volume: f32) {
-        if !self.cast().set_volume(volume) {
+        if !self.cast().set_volume(volume.min(1.0)) {
             self.player.set_volume(volume);
         }
     }
@@ -213,6 +215,22 @@ impl PlaybackState {
         if !self.cast().stop() {
             self.player.stop();
         }
+    }
+
+    /// Stop and invalidate queued or downloading tracks before a file is replaced.
+    pub(crate) fn stop_for_file_edit(&self, track_id: i64) -> bool {
+        let mut slot = self.playing();
+        let in_use = slot.as_ref().is_some_and(|playing| {
+            playing.source == PlaySource::Library
+                && (playing.queue.current() == track_id || playing.queue.peek_next() == Some(track_id))
+        });
+        if in_use {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            self.nexts.fetch_add(1, Ordering::SeqCst);
+            self.stop();
+            *slot = None;
+        }
+        in_use
     }
 
     /// What is playing, wherever it is playing.
@@ -367,7 +385,12 @@ impl PlaybackState {
             PlaySource::Cd { disc_id } => Some(disc_id.clone()),
             PlaySource::Device { .. } | PlaySource::Shared { .. } => None,
         };
-        TrackOptions { gain: self.gain(tracks, source, track_id), album_key }
+        let range_ms = if *source == PlaySource::Library {
+            tracks.library.queries().track(track_id).ok().flatten().and_then(|track| {
+                self.app.try_state::<crate::trim::TrimState>().and_then(|state| state.enabled_range(track_id, &track.path, track.duration_ms))
+            })
+        } else { None };
+        TrackOptions { gain: self.gain(tracks, source, track_id), album_key, range_ms }
     }
 
     pub(crate) fn start(&self, tracks: &Tracks, playing: &Playing) -> CommandResult<()> {
@@ -572,6 +595,7 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
     };
     let tracks = Tracks { library: &library, devices: &devices };
     let mut slot = playback.playing();
+    if slot.as_ref().is_some_and(|playing| playing.preview) { return; }
     // Before the queue check: a stop that cleared the queue still has a place to save.
     if let Err(error) = playback.remember_place(&library, &event) {
         eprintln!("[playback] {error:?}");
@@ -615,6 +639,45 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
 }
 
 #[tauri::command]
+pub fn player_preview_trim(
+    app: AppHandle,
+    playback: State<'_, PlaybackState>,
+    library: State<'_, LibraryState>,
+    devices: State<'_, DevicesState>,
+    track_id: i64,
+    trim: crate::trim::SongTrim,
+    ending: bool,
+) -> CommandResult<()> {
+    let track = library.queries().track(track_id)?.ok_or_else(|| CommandError::from("Song not found".to_owned()))?;
+    if track.kind != MediaKind::Music || track.duration_ms == 0 || trim.start_ms >= trim.end_ms || trim.end_ms > track.duration_ms {
+        return Err(CommandError::from("Choose valid times within the song.".to_owned()));
+    }
+    if playback.cast().is_casting() {
+        return Err(CommandError::from("Choose this computer as the audio output to preview the trim.".to_owned()));
+    }
+    let path = library.track_path(track_id)?;
+    if unsub_library::is_dataless(&path) || !path.is_file() {
+        return Err(CommandError::from("Download the song before previewing the trim.".to_owned()));
+    }
+    let queue = PlayQueue::new(vec![track_id], 0, false, RepeatMode::Off)
+        .ok_or_else(|| CommandError::from("Could not create preview queue".to_owned()))?;
+    let playing = Playing { source: PlaySource::Library, queue, party: false, preview: true };
+    let tracks = Tracks { library: &library, devices: &devices };
+    let mut options = playback.options(&tracks, &playing.source, track_id);
+    options.range_ms = Some((trim.start_ms, trim.end_ms));
+    let mut slot = playback.playing();
+    playback.save_place(&library, &playback.status());
+    *playback.place() = None;
+    playback.starts.fetch_add(1, Ordering::SeqCst);
+    playback.nexts.fetch_add(1, Ordering::SeqCst);
+    app.state::<RadioState>().end_live();
+    let start = if ending { trim.end_ms.saturating_sub(5000).max(trim.start_ms) } else { 0 };
+    playback.play_file(&playing.source, track_id, path, options, start, false);
+    *slot = Some(playing);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn player_play_list(
     app: AppHandle,
     playback: State<'_, PlaybackState>,
@@ -639,7 +702,7 @@ pub fn player_play_list(
     };
     let queue = PlayQueue::new(track_ids, start_index, shuffle, repeat)
         .ok_or_else(|| CommandError::from(format!("no track at index {start_index}")))?;
-    let playing = Playing { source, queue, party: false };
+    let playing = Playing { source, queue, party: false, preview: false };
     let mut slot = playback.playing();
     playback.start(&Tracks { library: &library, devices: &devices }, &playing)?;
     *slot = Some(playing);
@@ -715,7 +778,7 @@ pub fn player_seek(playback: State<'_, PlaybackState>, position_ms: u64) {
 
 #[tauri::command]
 pub fn player_set_volume(playback: State<'_, PlaybackState>, volume: f32) {
-    playback.set_volume(volume.clamp(0.0, 1.0));
+    playback.set_volume(volume.clamp(0.0, 1.3));
 }
 
 #[tauri::command]

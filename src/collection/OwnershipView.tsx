@@ -16,7 +16,7 @@ import {
   purchasesLinks,
 } from "../api/commands";
 import type { AlbumGroup, OwnershipReport, OwnStatus, ReportTrack, StoreLink } from "../api/types";
-import { showMenu } from "../browser/songMenu";
+import { menuPosition, showMenu } from "../browser/songMenu";
 import { formatClock, pluralize } from "../util/format";
 import { IS_MAC, isContextClick } from "../util/platform";
 import "./OwnershipView.css";
@@ -249,7 +249,7 @@ export function OwnershipView() {
   const onTrackMenu = (e: MouseEvent, track: ReportTrack) => {
     if (!track.persistentId.startsWith("streamed:")) return;
     e.preventDefault();
-    void showMenu([{ text: "Remove from To Own", action: () => removeStreamed(track.persistentId) }]);
+    void showMenu([{ text: "Remove from To Own", action: () => removeStreamed(track.persistentId) }], menuPosition(e));
   };
 
   // Importing the export again brings them back, and nothing in the library changes.

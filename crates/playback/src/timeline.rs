@@ -10,6 +10,8 @@ pub struct TrackOptions {
     /// Names the album the track is from, in whatever form the caller likes. Consecutive
     /// tracks with the same key are never crossfaded, so that an album plays as it was made.
     pub album_key: Option<String>,
+    /// Playback limits in the original file's time base.
+    pub range_ms: Option<(u64, u64)>,
 }
 
 impl From<Option<Gain>> for TrackOptions {
@@ -17,6 +19,7 @@ impl From<Option<Gain>> for TrackOptions {
         TrackOptions {
             gain,
             album_key: None,
+            range_ms: None,
         }
     }
 }
@@ -135,7 +138,7 @@ impl Timeline {
         } = self.upcoming.take()?;
         let ended = std::mem::replace(&mut self.current, started.clone());
         self.anchor_frame = start_frame;
-        self.anchor_ms = 0;
+        self.anchor_ms = started.options.range_ms.map_or(0, |range| range.0);
         Some(Transition {
             ended: ended.id,
             started,
@@ -172,6 +175,17 @@ mod tests {
         timeline.reanchor(88_200, 30_000);
         assert_eq!(timeline.position_ms(88_200), 30_000);
         assert_eq!(timeline.position_ms(88_200 + 22_050), 30_500);
+    }
+
+    #[test]
+    fn gapless_handoff_uses_the_new_tracks_original_start_time() {
+        let mut timeline = Timeline::new(44_100, track(1, 1000), 0, 0);
+        let mut next = track(2, 1000);
+        next.options.range_ms = Some((200, 700));
+        timeline.schedule(44_100, next);
+        timeline.advance(44_100).unwrap();
+        assert_eq!(timeline.position_ms(44_100), 200);
+        assert_eq!(timeline.position_ms(44_100 + 4_410), 300);
     }
 
     #[test]

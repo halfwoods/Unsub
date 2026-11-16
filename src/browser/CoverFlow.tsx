@@ -4,7 +4,7 @@ import { useApp } from "../state/store";
 import { isContextClick } from "../util/platform";
 import { shownTracksOf, summaryAlbumKey, trackAlbumKey } from "./albumKeys";
 import { Artwork } from "./Artwork";
-import { showAlbumMenu } from "./songMenu";
+import { menuPosition, showAlbumMenu } from "./songMenu";
 import { SongList } from "./SongList";
 import "./CoverFlow.css";
 
@@ -50,7 +50,7 @@ function Stage({ albums, center, onCenter }: { albums: AlbumSummary[]; center: n
   const onAlbumMenu = (e: MouseEvent, i: number) => {
     e.preventDefault();
     if (i !== center) onCenter(i);
-    void showAlbumMenu(shownTracksOf(useApp.getState().tracks, albums[i]));
+    void showAlbumMenu(shownTracksOf(useApp.getState().tracks, albums[i]), menuPosition(e));
   };
 
   const onSliderDown = (e: PointerEvent<HTMLDivElement>) => {

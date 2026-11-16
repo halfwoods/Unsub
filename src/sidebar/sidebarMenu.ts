@@ -17,7 +17,7 @@ import {
   remoteForget,
 } from "../api/commands";
 import type { AudioCd, Device, Player, Playlist, SharedLibrary } from "../api/types";
-import { popUp, SEPARATOR } from "../browser/songMenu";
+import { menuPosition, popUp, SEPARATOR, type MenuPosition } from "../browser/songMenu";
 import { importCd } from "../cd/Cd";
 import { deviceSource, playlistIdOf, playlistSource, useApp } from "../state/store";
 import { IS_LINUX } from "../util/platform";
@@ -27,13 +27,13 @@ type MenuItems = NonNullable<MenuOptions["items"]>;
 const showError = (e: unknown) => useApp.getState().showNotice(String(e));
 
 /** A row's right-click menu. `open` is true while it is up, to outline the row it is for: right-clicking doesn't select the row, so the page being looked at stays. */
-export function useRowMenu(show: (() => Promise<void>) | undefined) {
+export function useRowMenu(show: ((at: MenuPosition) => Promise<void>) | undefined) {
   const [open, setOpen] = useState(false);
   const onContextMenu = (e: MouseEvent) => {
     if (!show) return;
     e.preventDefault();
     setOpen(true);
-    const shown = show().catch(showError);
+    const shown = show(menuPosition(e)).catch(showError);
     if (!IS_LINUX) return void shown.finally(() => setOpen(false));
     // GTK's popup returns as soon as it is up, so the outline stays until the user does something else.
     const done = new AbortController();
@@ -121,8 +121,8 @@ function songPlaylistItems(playlist: Playlist): MenuItems {
   ];
 }
 
-export async function showPlaylistMenu(playlist: Playlist) {
-  await popUp(await Menu.new({ items: playlist.kind === "folder" ? folderItems(playlist) : songPlaylistItems(playlist) }));
+export async function showPlaylistMenu(playlist: Playlist, at?: MenuPosition) {
+  await popUp(await Menu.new({ items: playlist.kind === "folder" ? folderItems(playlist) : songPlaylistItems(playlist) }), at);
 }
 
 /**
@@ -138,7 +138,7 @@ async function syncDevice(device: Device) {
   else useApp.getState().setSource(deviceSource(device.id));
 }
 
-export async function showDeviceMenu(device: Device) {
+export async function showDeviceMenu(device: Device, at?: MenuPosition) {
   const { deviceSync: running } = useApp.getState();
   // A copy takes a sync's place, so neither starts while the other runs; the row swaps its eject button for the sync arrows.
   const busy = running !== null;
@@ -152,15 +152,16 @@ export async function showDeviceMenu(device: Device) {
         { text: `Eject “${device.name}”`, enabled: !syncing, action: () => void deviceEject(device.id).catch(showError) },
       ],
     }),
+    at,
   );
 }
 
-export async function showPlayerMenu(player: Player) {
+export async function showPlayerMenu(player: Player, at?: MenuPosition) {
   const syncing = useApp.getState().deviceSync?.deviceId === player.id;
-  await popUp(await Menu.new({ items: [{ text: "Eject", enabled: !syncing, action: () => void playerEject(player.id).catch(showError) }] }));
+  await popUp(await Menu.new({ items: [{ text: "Eject", enabled: !syncing, action: () => void playerEject(player.id).catch(showError) }] }), at);
 }
 
-export async function showCdMenu(cd: AudioCd) {
+export async function showCdMenu(cd: AudioCd, at?: MenuPosition) {
   await popUp(
     await Menu.new({
       items: [
@@ -171,13 +172,14 @@ export async function showCdMenu(cd: AudioCd) {
         { text: "Eject Disc", action: () => void cdEject(cd.id).catch(showError) },
       ],
     }),
+    at,
   );
 }
 
-export async function showSharedMenu(library: SharedLibrary) {
-  await popUp(await Menu.new({ items: [{ text: "Disconnect", enabled: library.hasLogin, action: () => void remoteForget(library.id) }] }));
+export async function showSharedMenu(library: SharedLibrary, at?: MenuPosition) {
+  await popUp(await Menu.new({ items: [{ text: "Disconnect", enabled: library.hasLogin, action: () => void remoteForget(library.id) }] }), at);
 }
 
-export async function showPodcastsMenu() {
-  await popUp(await Menu.new({ items: [{ text: "Update All Podcasts", action: () => void podcastsRefresh(null).catch(showError) }] }));
+export async function showPodcastsMenu(at?: MenuPosition) {
+  await popUp(await Menu.new({ items: [{ text: "Update All Podcasts", action: () => void podcastsRefresh(null).catch(showError) }] }), at);
 }

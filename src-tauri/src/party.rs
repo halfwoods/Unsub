@@ -239,7 +239,7 @@ pub fn party_play(
             party.advance_to(start);
             party.refill(&library.queries())?;
             let queue = party_queue(&party).ok_or_else(nothing_to_play)?;
-            let playing = Playing { source: PlaySource::Library, queue, party: true };
+            let playing = Playing { source: PlaySource::Library, queue, party: true, preview: false };
             playback.start(&tracks, &playing)?;
             *slot = Some(playing);
         }

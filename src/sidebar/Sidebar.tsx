@@ -8,6 +8,7 @@ import { chooseMusicFolders } from "../import/addMusic";
 import { IS_MAC } from "../util/platform";
 import { DEVICE_TRACKS_MIME, PlaylistRows, TRACKS_MIME, type DeviceDrag } from "./PlaylistRows";
 import { showCdMenu, showDeviceMenu, showPlayerMenu, showPodcastsMenu, showSharedMenu, useRowMenu } from "./sidebarMenu";
+import type { MenuPosition } from "../browser/songMenu";
 import "./Sidebar.css";
 
 interface SourceItem {
@@ -86,7 +87,7 @@ function Row({
   before?: ReactNode;
   after?: ReactNode;
   /** Shows the row's right-click menu; a row without one shows none. */
-  menu?: () => Promise<void>;
+  menu?: (at: MenuPosition) => Promise<void>;
   onDropTracks?: (trackIds: number[]) => void;
   onDropDeviceTracks?: (drag: DeviceDrag) => void;
 }) {
@@ -198,7 +199,7 @@ function DeviceRows({ device }: { device: Device }) {
         id={deviceSource(device.id)}
         label={device.name}
         icon="ipod"
-        menu={() => showDeviceMenu(device)}
+        menu={(at) => showDeviceMenu(device, at)}
         before={
           <button
             className={expanded ? "sidebar-disclosure sidebar-disclosure--open" : "sidebar-disclosure"}
@@ -290,7 +291,7 @@ export function Sidebar() {
                 id={playerSource(player.id)}
                 label={player.name}
                 icon="player"
-                menu={() => showPlayerMenu(player)}
+                menu={(at) => showPlayerMenu(player, at)}
                 after={
                   syncingId === player.id ? (
                     <SyncingIcon />
@@ -306,7 +307,7 @@ export function Sidebar() {
                 id={cdSource(cd.id)}
                 label={cd.name}
                 icon="cd"
-                menu={() => showCdMenu(cd)}
+                menu={(at) => showCdMenu(cd, at)}
                 after={<EjectButton name={cd.name} onEject={() => void cdEject(cd.id).catch((e: unknown) => showNotice(String(e)))} />}
               />
             ))}
@@ -321,7 +322,7 @@ export function Sidebar() {
                 id={sharedSource(library.id)}
                 label={library.name}
                 icon="shared"
-                menu={() => showSharedMenu(library)}
+                menu={(at) => showSharedMenu(library, at)}
                 // Signing out forgets the saved login; a server added by hand leaves the list.
                 after={library.hasLogin ? <EjectButton name={library.name} onEject={() => void remoteForget(library.id)} /> : undefined}
               />

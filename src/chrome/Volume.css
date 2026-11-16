@@ -50,6 +50,20 @@
     0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+/* The 100% mark separates ordinary volume from the optional 100–120% boost range. */
+.volume-groove::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: var(--volume-unity-position);
+  transform: translateX(-50%);
+  width: 1px;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
 .volume-fill {
   height: 100%;
   background: linear-gradient(to bottom, var(--vol-fill-a), #cecece 30%, var(--vol-fill-b) 80%, #d2d2d2);

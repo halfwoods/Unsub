@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Time a full-scale gain change takes; short enough to feel instant, long enough to avoid clicks.
 const RAMP_SECONDS: f32 = 0.010;
 
-/// User volume in `0.0..=1.0`, shared lock-free between the control side and the audio callback.
+/// User volume in `0.0..=1.3`, shared lock-free between the control side and the audio callback.
 pub struct Volume(AtomicU32);
 
 impl Volume {
@@ -26,7 +26,7 @@ fn sanitize(volume: f32) -> f32 {
     if volume.is_nan() {
         0.0
     } else {
-        volume.clamp(0.0, 1.0)
+        volume.clamp(0.0, 1.3)
     }
 }
 
@@ -65,10 +65,14 @@ impl Gain {
     }
 }
 
-/// Maps the slider position to amplitude. Loudness is perceived roughly logarithmically, so a
-/// cubic taper keeps the quiet half of the slider usable where a linear one would be all loud.
+/// Maps slider position to amplitude. Loudness is perceived roughly logarithmically, so a cubic
+/// taper keeps the quiet half usable. The 100–130% range is linear gain above unity.
 pub fn curve(volume: f32) -> f32 {
-    volume * volume * volume
+    if volume <= 1.0 {
+        volume * volume * volume
+    } else {
+        volume.min(1.3)
+    }
 }
 
 /// Slews a gain toward its target at a fixed rate so that no change is ever a step.

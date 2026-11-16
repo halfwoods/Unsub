@@ -11,6 +11,8 @@ mod jobs;
 mod library;
 mod loudness;
 mod menu;
+#[cfg(target_os = "linux")]
+mod mpris;
 mod party;
 mod playback;
 mod podcasts;
@@ -25,6 +27,7 @@ mod sync;
 #[cfg(test)]
 mod test_support;
 mod updates;
+mod trim;
 mod user_paths;
 mod video_add;
 mod video_export;
@@ -129,6 +132,11 @@ pub fn run() {
             })?;
             app.manage(cast::CastState::new(events, casting, app.path().app_cache_dir()?.join("Cast")));
             app.manage(PlaybackState::new(player, app.handle().clone()));
+            app.manage(trim::TrimState::load(data_dir.join("SongTrims.json")));
+            #[cfg(target_os = "linux")]
+            if !smoke {
+                mpris::start(app.handle().clone());
+            }
             if !smoke {
                 cast::browse(app.handle());
                 devices::watch(app.handle().clone());
@@ -144,6 +152,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            trim::trim_get,
+            trim::trim_set,
+            trim::trim_apply,
+            playback::player_preview_trim,
             smoke::smoke_frontend_ready,
             library::library_tracks,
             library::library_track,

@@ -14,7 +14,7 @@ import {
 } from "../api/commands";
 import type { DirectoryStation, RadioGenre, RadioStation } from "../api/types";
 import { STATUS_COLUMN_WIDTH } from "../browser/columns";
-import { showStationMenu } from "../browser/songMenu";
+import { menuPosition, showStationMenu } from "../browser/songMenu";
 import { NowPlayingIcon } from "../browser/SongList";
 import { useApp } from "../state/store";
 import { pluralize } from "../util/format";
@@ -240,7 +240,7 @@ export function RadioView() {
 
   const openMenu = (e: MouseEvent, row: Row) => {
     e.preventDefault();
-    void showStationMenu(row.play, row.action);
+    void showStationMenu(row.play, row.action, menuPosition(e));
   };
 
   const isLive = (row: Row) => (liveId !== null && row.id === liveId) || (liveUuid !== null && row.uuid === liveUuid);
