@@ -254,7 +254,10 @@ function useBackendEvents() {
         void refreshPlaylists();
         void showWelcomeTips();
       }),
-      getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
+      getCurrentWindow().onFocusChanged(({ payload }) => {
+        setWindowActive(payload);
+        if (payload) void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
+      }),
       getCurrentWindow().onResized(() => void getCurrentWindow().isFullscreen().then(setWindowFullscreen)),
     ];
     void refresh();

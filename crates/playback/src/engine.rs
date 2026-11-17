@@ -467,6 +467,7 @@ pub(crate) struct Engine {
     state: PlaybackState,
     session: Option<Session>,
     connecting: Option<Connecting>,
+    interrupted: Option<(TrackInfo, u64)>,
     next: Option<Queued>,
     /// Identifies the current stream so a late error from a replaced one is ignored.
     generation: u64,
@@ -493,6 +494,7 @@ impl Engine {
             state: PlaybackState::Stopped,
             session: None,
             connecting: None,
+            interrupted: None,
             next: None,
             generation: 0,
             next_position_event: Instant::now(),
@@ -551,6 +553,7 @@ impl Engine {
     }
 
     fn play(&mut self, id: i64, path: PathBuf, options: TrackOptions) {
+        self.interrupted = None;
         self.next = None;
         let started =
             Queued::open(self.open, id, path, options).and_then(|queued| self.start(queued));
@@ -715,6 +718,29 @@ impl Engine {
     }
 
     fn set_paused(&mut self, paused: bool) {
+        if !paused && let Some((track, position)) = self.interrupted.clone() {
+            let result = Queued::open(self.open, track.id, track.path, track.options)
+                .and_then(|mut queued| {
+                    let landed = queued.decoder.seek(position)?;
+                    self.begin(queued, landed)
+                });
+            match result {
+                Ok(()) => {
+                    self.interrupted = None;
+                    self.state = PlaybackState::Playing;
+                    if let Some(session) = &self.session { session.output.set_paused(false); }
+                    self.announce();
+                }
+                Err(error) => {
+                    self.session = None;
+                    self.state = PlaybackState::Paused;
+                    self.report(Some(track.id), &error);
+                    self.restore_device();
+                    self.announce();
+                }
+            }
+            return;
+        }
         let (from, to) = if paused {
             (PlaybackState::Playing, PlaybackState::Paused)
         } else {
@@ -731,6 +757,7 @@ impl Engine {
     }
 
     fn stop(&mut self) {
+        self.interrupted = None;
         self.next = None;
         if self.state == PlaybackState::Stopped {
             return;
@@ -742,6 +769,12 @@ impl Engine {
     }
 
     fn seek(&mut self, position_ms: u64) {
+        if let Some((track, position)) = &mut self.interrupted {
+            let (start, end) = track.options.range_ms.unwrap_or((0, track.duration_ms));
+            *position = position_ms.max(start).min(end.saturating_sub(1).max(start));
+            self.announce();
+            return;
+        }
         if let Err(error) = self.reposition(Some(position_ms), true) {
             self.fail(self.audible_id(), error);
         }
@@ -921,6 +954,7 @@ impl Engine {
         hint: LiveFormat,
         options: TrackOptions,
     ) {
+        self.interrupted = None;
         self.next = None;
         let decoder = match LiveDecoder::spawn(source, hint) {
             Ok(decoder) => decoder,
@@ -1094,6 +1128,24 @@ impl Engine {
     }
 
     fn fail(&mut self, track_id: Option<i64>, error: Error) {
+        // Device loss (including suspend) must not discard the audible song's position.
+        if matches!(error, Error::Output(_) | Error::OutputStalled | Error::Device(_))
+            && let Some(session) = self.session.as_ref().filter(|s| !s.is_live())
+        {
+            let track = session.timeline.current().clone();
+            let position = session.timeline.position_ms(session.output.consumed());
+            self.interrupted = Some((track, position));
+            if let Some(upcoming) = session.timeline.upcoming().filter(|_| self.next.is_none()) {
+                self.next = Queued::open(self.open, upcoming.id, upcoming.path.clone(), upcoming.options.clone()).ok();
+            }
+            self.session = None;
+            self.generation += 1;
+            self.state = PlaybackState::Paused;
+            self.report(track_id, &error);
+            self.restore_device();
+            self.announce();
+            return;
+        }
         // A dead stream cannot fade; with a healthy one the listener should hear a fade, not a cut.
         if matches!(
             error,
@@ -1133,6 +1185,15 @@ impl Engine {
     fn status(&self) -> PlaybackStatus {
         let Some(session) = &self.session else {
             let stopped = PlaybackStatus::stopped(self.shared.volume.get());
+            if let Some((track, position_ms)) = &self.interrupted {
+                return PlaybackStatus {
+                    state: PlaybackState::Paused,
+                    track_id: Some(track.id),
+                    position_ms: *position_ms,
+                    duration_ms: track.duration_ms,
+                    ..stopped
+                };
+            }
             return match &self.connecting {
                 Some(connecting) => PlaybackStatus {
                     state: self.state,
@@ -1488,6 +1549,30 @@ mod tests {
         fn events(&self) -> Vec<PlayerEvent> {
             std::mem::take(&mut *self.events.lock().unwrap())
         }
+    }
+
+    #[test]
+    fn device_loss_keeps_position_and_queue_until_resume() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        h.engine.seek(300);
+        h.engine.queue_next(8, fixture("sine.mp3"), TrackOptions::default());
+        let before = h.engine.status().position_ms;
+        h.engine.fail(Some(7), Error::OutputStalled);
+        let paused = h.engine.status();
+        assert_eq!(paused.state, PlaybackState::Paused);
+        assert_eq!(paused.track_id, Some(7));
+        assert_eq!(paused.position_ms, before);
+        h.engine.set_paused(false);
+        let resumed = h.engine.status();
+        assert_eq!(resumed.state, PlaybackState::Playing);
+        assert_eq!(resumed.track_id, Some(7));
+        assert!(resumed.position_ms.abs_diff(before) <= 30);
+        assert!(h.engine.next.as_ref().is_some_and(|q| q.track.id == 8)
+            || h.engine.session.as_ref().unwrap().timeline.upcoming().is_some_and(|t| t.id == 8));
+        h.engine.fail(Some(7), Error::OutputStalled);
+        h.engine.stop();
+        assert_eq!(h.engine.status().track_id, None);
     }
 
     #[test]
