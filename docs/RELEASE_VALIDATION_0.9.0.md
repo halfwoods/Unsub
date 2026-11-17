@@ -43,4 +43,15 @@ The second review found no other high-confidence defects. Known and deferred:
 - A physical iPod sync of the new fields.
 - Physical iPod playback, actual High Sierra execution, and installed Linux desktop updates and PolicyKit, as in earlier releases.
 
-CI and signed-release evidence will be added when the gates complete.
+## Release gates
+
+[Candidate CI 43722862339](https://github.com/halfwoods/Unsub/actions/runs/43722862339) passed on tagged commit `997f7ea` on every platform. [PR #20](https://github.com/halfwoods/Unsub/pull/20) merged as `c5a7c5f`, and its tree exactly matches `v0.9.0`.
+
+The first attempt of [signed release workflow 43722875377](https://github.com/halfwoods/Unsub/actions/runs/43722875377) built Windows and Linux and passed all six Linux package smoke checks. Both Mac jobs failed at notarization: Apple returned HTTP 403 because the developer account had an updated agreement waiting to be accepted. Once it was accepted, the failed jobs were re-run on the same tag with no code change. Both Mac jobs and the draft release then passed. [Unsub 0.9.0](https://github.com/halfwoods/Unsub/releases/tag/v0.9.0) was published on 2026-11-17 at 01:11:09 UTC after all of the checks below passed.
+
+- Downloaded all 25 draft assets. All seven updater manifest entries named 0.9.0 and pointed at this release, and their signatures matched the attached `.sig` files. The six payload signatures are unique, verify against the app's public key and carry trusted version 0.9.0. A locally tampered AppImage was rejected.
+- Both Mac DMGs and the apps inside them passed Gatekeeper as Notarized Developer ID, stapled-ticket validation and a deep strict code signature check. Both apps report version 0.9.0. The architecture and deployment target are arm64 with macOS 11.0, and x86_64 with macOS 10.13.6. Each DMG's app matched its updater archive file for file. Both read-only images were detached.
+- The six fixed download aliases are byte-identical to their versioned files. The MSI is an x64 Windows Installer database, the NSIS file is a self-extracting Windows installer, and the AppImage and deb are valid x86-64 packages. All three bundled-library source archives match their pinned checksums.
+- After publication, GitHub's latest release was 0.9.0 with all 25 assets. The public updater response exactly matched the audited manifest, and all six latest-download aliases served bytes identical to the audited files.
+
+The notarization script treated `plutil`'s error text as a field value, so a submission that never got an id was taken for one. It had no effect on this release, whose submissions succeeded once the agreement was accepted, and is fixed separately.
