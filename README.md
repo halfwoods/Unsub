@@ -46,7 +46,14 @@ Then someone decided you should pay every month, forever, to rent the music you 
 
 <sub>The artists and albums in these screenshots are fictional.</sub>
 
-## What's new in 0.8.1
+## What's new in 0.9.0
+
+- **Grouping, Comments and BPM.** Edit them in Get Info, show them as song-list columns, search and sort by them, and use them in smart playlists. They're saved in your files' tags, imported from iTunes and Music libraries, and synced to iPods. Songs already in your library pick them up after **Add Music Folder…** scans their folder again.
+- **Mini player.** Click the green window button, choose **Window › Switch to Mini Player** or press `Shift+Cmd+M` (`Shift+Ctrl+M` on Windows/Linux) to shrink Unsub into one compact bar with the controls, volume and song display, as iTunes 10 did.
+
+[Read the 0.9.0 release notes](https://github.com/halfwoods/Unsub/releases/tag/v0.9.0) or [download the latest version](#download).
+
+## Included from 0.8.1
 
 - **Retry a damaged iPod video copy.** Add Videos verifies the content of matching device copies before skipping duplicates, so a modified copy no longer blocks adding the original again. These checks can be cancelled.
 
