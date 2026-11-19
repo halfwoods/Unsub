@@ -6,6 +6,8 @@ This branch adds an optional iTunes 12 inspired appearance, KDE window controls,
 
 The light appearance includes a compact song table, sidebar navigation, a round volume slider with scroll adjustment, and volume boost up to 130%. Shuffle is remembered between launches. Returning to Songs preserves the previous scroll position.
 
+Click the current song’s title in the top display to select it and scroll it into view. Hidden-song filters are cleared as needed, and playback continues at the same position. The title is also keyboard accessible with Tab, then Enter or Space.
+
 ![iTunes-style music library on Linux](screenshots/itunes12-linux.webp)
 
 ## MP3 trimming

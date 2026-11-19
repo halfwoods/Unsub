@@ -263,7 +263,15 @@ export function Lcd() {
           : nowPlaying.artist || nowPlaying.album;
     return (
       <div className="lcd lcd--playing">
-        <div className="lcd-title">{nowPlaying.title}</div>
+        <button
+          type="button"
+          className="lcd-title lcd-title--reveal"
+          aria-label={`Show ${nowPlaying.title} in library`}
+          title="Show current song in library"
+          onClick={() => void useApp.getState().revealCurrentSong(() => !document.querySelector('.sheet-backdrop, [aria-modal="true"]'))}
+        >
+          {nowPlaying.title}
+        </button>
         {fromLibrary && chapters && chapters.length > 0 && <ChapterMenu chapters={chapters} positionMs={positionMs} />}
         {fromLibrary && nowPlaying.kind === "music" && <MixButton song={nowPlaying} />}
         <div className="lcd-subtitle" key={notice ?? secondLine}>

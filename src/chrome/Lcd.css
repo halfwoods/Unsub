@@ -53,6 +53,14 @@
   top: 15px;
 }
 
+.lcd-title--reveal {
+  cursor: pointer;
+}
+
+.lcd-title--reveal:hover {
+  text-decoration: underline;
+}
+
 .lcd-subtitle {
   top: 15px;
   font-size: var(--font-size);
