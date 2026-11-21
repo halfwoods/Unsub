@@ -566,8 +566,10 @@ impl Engine {
     fn start(&mut self, queued: Queued) -> Result<()> {
         let id = queued.track.id;
         let position_ms = queued.track.options.range_ms.map_or(0, |range| range.0);
-        self.begin(queued, position_ms)?;
+        // `begin` holds the output paused when the state says so; a new track is meant to be
+        // heard, so the state must say Playing first (e.g. after a pause, or after device loss).
         self.state = PlaybackState::Playing;
+        self.begin(queued, position_ms)?;
         self.next_position_event = Instant::now();
         (self.emit)(PlayerEvent::TrackStarted { track_id: id });
         self.announce();
@@ -1573,6 +1575,23 @@ mod tests {
         h.engine.fail(Some(7), Error::OutputStalled);
         h.engine.stop();
         assert_eq!(h.engine.status().track_id, None);
+    }
+
+    #[test]
+    fn playing_a_new_song_after_device_loss_is_audible() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        h.engine.fail(Some(7), Error::OutputStalled);
+        assert_eq!(h.engine.status().state, PlaybackState::Paused);
+
+        // Double-clicking a song while the engine is parked after device loss.
+        h.engine.play(8, fixture("sine.flac"), TrackOptions::default());
+        assert_eq!(h.engine.status().state, PlaybackState::Playing);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while h.engine.status().position_ms == 0 {
+            assert!(Instant::now() < deadline, "playing, but the output is held silent at 0:00");
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
