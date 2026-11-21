@@ -393,10 +393,19 @@ mod tests {
                 let start = rate * range.0 as usize / 1000 * channels;
                 // Ignore the first and last 20 ms where a lossy encoder settles after cutting.
                 let margin = rate / 50 * channels;
-                let compare = output_samples.len().min(input_samples.len() - start);
-                let difference: f32 = output_samples[margin..compare-margin].iter()
-                    .zip(&input_samples[start+margin..start+compare-margin])
-                    .map(|(a, b)| (a - b).abs()).sum::<f32>() / (compare - 2 * margin) as f32;
+                // MP3 is trimmed by copying whole frames, so its cut lands on a frame boundary: up
+                // to one frame (1152 samples) from the requested time. Other formats re-encode at
+                // the exact sample.
+                let slack = if name == "sine.mp3" { 1152 } else { 0 };
+                let error_at = |shift: isize| -> f32 {
+                    let from = (start as isize + shift * channels as isize).max(0) as usize;
+                    let compare = output_samples.len().min(input_samples.len().saturating_sub(from));
+                    if compare <= 2 * margin { return f32::MAX; }
+                    output_samples[margin..compare - margin].iter()
+                        .zip(&input_samples[from + margin..from + compare - margin])
+                        .map(|(a, b)| (a - b).abs()).sum::<f32>() / (compare - 2 * margin) as f32
+                };
+                let difference = (-slack..=slack).map(error_at).fold(f32::MAX, f32::min);
                 assert!(difference < 0.06, "selected timing differs for {name}: mean error {difference}");
             }
             if name == "tagged.flac" {
