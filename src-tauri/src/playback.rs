@@ -595,7 +595,15 @@ fn handle_event(app: &AppHandle, event: PlayerEvent) {
     };
     let tracks = Tracks { library: &library, devices: &devices };
     let mut slot = playback.playing();
-    if slot.as_ref().is_some_and(|playing| playing.preview) { return; }
+    if slot.as_ref().is_some_and(|playing| playing.preview) {
+        // A trim preview leaves no trace in play counts or bookmarks, and once it has stopped
+        // nothing is playing: otherwise Next, Previous and every later event would keep acting
+        // on the one-song preview queue.
+        if matches!(&event, PlayerEvent::StateChanged(status) if status.state == EngineState::Stopped) {
+            *slot = None;
+        }
+        return;
+    }
     // Before the queue check: a stop that cleared the queue still has a place to save.
     if let Err(error) = playback.remember_place(&library, &event) {
         eprintln!("[playback] {error:?}");
