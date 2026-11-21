@@ -9,6 +9,14 @@
   background: var(--list-bg);
 }
 
+.window[data-native-titlebar="true"] {
+  border-radius: 0;
+}
+
+.window[data-native-titlebar="true"]::after {
+  display: none;
+}
+
 /* Drawn on top so the toolbar and lists can't paint over the frame's edge. */
 .window::after {
   content: "";

@@ -6,7 +6,7 @@ import { shownTracksOf } from "./albumKeys";
 import { Artwork } from "./Artwork";
 import { ArtistArtwork } from "./ArtistArtwork";
 import { artistInitials, browseScrollKey, nextGridIndex } from "./browseHelpers";
-import { showAlbumMenu } from "./songMenu";
+import { menuPosition, showAlbumMenu } from "./songMenu";
 import "./AlbumGrid.css";
 
 const LABEL_HEIGHT = 40;
@@ -113,7 +113,7 @@ export function AlbumGrid() {
     e.preventDefault();
     setSelected(key);
     const album = albums.find((a) => a.key === key);
-    if (album) void showAlbumMenu(shownTracksOf(useApp.getState().tracks, album));
+    if (album) void showAlbumMenu(shownTracksOf(useApp.getState().tracks, album), menuPosition(e));
   };
 
   return (

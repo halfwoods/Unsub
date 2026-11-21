@@ -287,7 +287,7 @@ impl Player {
         self.send(Command::Seek(position_ms));
     }
 
-    /// `volume` is a slider position in `0.0..=1.0`; the loudness curve is applied internally.
+    /// `volume` is a slider position in `0.0..=1.3`; the loudness curve is applied internally.
     ///
     /// While a stream is bit-perfect the value is remembered but not applied, and a
     /// [`PlayerEvent::Notice`] says so.

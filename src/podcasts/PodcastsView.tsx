@@ -12,7 +12,7 @@ import {
   podcastsUnsubscribe,
 } from "../api/commands";
 import type { FeedSettings, KeepRule, PodcastEpisode, PodcastFeed } from "../api/types";
-import { SEPARATOR, showMenu } from "../browser/songMenu";
+import { menuPosition, SEPARATOR, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { IS_MAC, isContextClick } from "../util/platform";
@@ -224,7 +224,7 @@ export function PodcastsView() {
       { text: "Mark All as Played", enabled: unplayed.length > 0, action: () => void Promise.all(unplayed.map((episode) => podcastsSetPlayed(episode.id, true))).catch(report) },
       SEPARATOR,
       { text: "Unsubscribe…", action: () => void unsubscribe(f) },
-    ]);
+    ], menuPosition(e));
   };
 
   const onEpisodeMenu = (e: MouseEvent, episode: PodcastEpisode) => {
@@ -235,7 +235,7 @@ export function PodcastsView() {
       ...(downloaded ? [] : [{ text: "Download", enabled: !(episode.id in downloads), action: () => downloadPodcasts([episode]) }]),
       SEPARATOR,
       { text: episode.played ? "Mark as Unplayed" : "Mark as Played", action: () => void podcastsSetPlayed(episode.id, !episode.played).catch(report) },
-    ]);
+    ], menuPosition(e));
   };
 
   return (

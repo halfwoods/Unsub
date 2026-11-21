@@ -3,7 +3,7 @@ import { orderAlbumTracks, remapTrackAnchor } from "../browser/albumKeys";
 import { layoutFor, isLayoutSource } from "../preferences/libraryViews";
 import { useLibraryViews } from "../preferences/libraryViewStore";
 import { browseQuery, browserQueries, EMPTY_BROWSER, narrowBrowser, playlistPositionQuery, withoutBrowse, type BrowseStep, type BrowserFilters } from "../browser/browseScope";
-import { loadVisualizerPrefs, saveVisualizerPrefs, type VisualizerPrefs } from "../preferences/playbackPrefs";
+import { loadShuffle, loadVisualizerPrefs, saveShuffle, saveVisualizerPrefs, type VisualizerPrefs } from "../preferences/playbackPrefs";
 import { applyTextSizes, listRowHeight, loadTextSizes, saveTextSizes, type TextSizes } from "../preferences/textSizes";
 import * as api from "../api/commands";
 import type {
@@ -390,7 +390,7 @@ export const useApp = create<AppState>((set, get) => ({
   nowPlaying: null,
   castTarget: null,
   chapters: null,
-  shuffle: false,
+  shuffle: loadShuffle(),
   repeat: "off",
   scan: null,
   showArtwork: false,
@@ -691,6 +691,7 @@ export const useApp = create<AppState>((set, get) => ({
   toggleShuffle: () => {
     const shuffle = !get().shuffle;
     set({ shuffle });
+    saveShuffle(shuffle);
     void api.playerSetShuffle(shuffle);
   },
 

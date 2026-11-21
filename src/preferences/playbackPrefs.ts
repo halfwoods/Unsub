@@ -2,7 +2,7 @@ import { VISUALIZER_STYLES, type VisualizerStyle } from "../visualizer/styles.ts
 
 import { DEFAULT_GASLIGHT, normalizeGaslight, type GaslightSettings } from "../visualizer/gaslightSettings.ts";
 
-/** Playback choices are per Mac (its audio device, its speakers), so they live in localStorage. */
+/** Playback choices that should follow this app between launches live in localStorage. */
 function load(key: string): boolean {
   try {
     return localStorage.getItem(key) === "true";
@@ -32,6 +32,8 @@ export const loadBitPerfect = () => load("unsub.bitPerfect");
 export const saveBitPerfect = (enabled: boolean) => save("unsub.bitPerfect", enabled);
 export const loadMiniPlayerOnTop = () => load("unsub.miniPlayerOnTop");
 export const saveMiniPlayerOnTop = (enabled: boolean) => save("unsub.miniPlayerOnTop", enabled);
+export const loadShuffle = () => load("unsub.shuffle");
+export const saveShuffle = (enabled: boolean) => save("unsub.shuffle", enabled);
 export const loadSoundCheck = () => load("unsub.soundCheck");
 export const saveSoundCheck = (enabled: boolean) => save("unsub.soundCheck", enabled);
 

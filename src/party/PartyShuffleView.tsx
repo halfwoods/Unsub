@@ -3,7 +3,7 @@ import { onPartyChanged, onPlayerEvent, partyAdd, partyMove, partyPlay, partyRem
 import type { PartySettings, PartyView, Track, UpcomingPick } from "../api/types";
 import { NowPlayingIcon } from "../browser/SongList";
 import { TRACKS_MIME } from "../sidebar/PlaylistRows";
-import { SEPARATOR, showMenu } from "../browser/songMenu";
+import { menuPosition, SEPARATOR, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { formatClock } from "../util/format";
 import { isContextClick } from "../util/platform";
@@ -78,7 +78,7 @@ export function PartyShuffleView() {
       { text: "Play", action: () => playUpcoming(clicked) },
       SEPARATOR,
       { text: "Remove from Party Shuffle", action: () => removeUpcoming(picks) },
-    ]);
+    ], menuPosition(e));
   };
 
   const onDrop = (e: DragEvent) => {

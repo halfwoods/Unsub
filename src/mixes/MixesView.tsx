@@ -2,7 +2,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { libraryCreatePlaylist, libraryMixes, onLibraryChanged } from "../api/commands";
 import type { Mix } from "../api/types";
 import { Artwork } from "../browser/Artwork";
-import { SEPARATOR, showMenu } from "../browser/songMenu";
+import { menuPosition, SEPARATOR, showMenu } from "../browser/songMenu";
 import { useApp } from "../state/store";
 import { isContextClick } from "../util/platform";
 import "./MixesView.css";
@@ -39,7 +39,7 @@ export function MixesView() {
       { text: "Shuffle", action: () => void playTrackIds(mix.trackIds, true).catch(report) },
       SEPARATOR,
       { text: "Save as Playlist", action: () => void saveAsPlaylist(mix).catch(report) },
-    ]);
+    ], menuPosition(e));
   };
 
   if (mixes === null) return <div className="mixes" />;

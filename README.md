@@ -23,6 +23,8 @@
 
 ---
 
+See the [Linux iTunes-style customization and MP3 trimming screenshots](docs/ITUNES_LINUX_CUSTOMIZATION.md).
+
 Your music used to live on your computer, in a folder, as files. You could burn it, back it up, and sync it to a small white device with a click wheel. Nobody could take it back.
 
 Then someone decided you should pay every month, forever, to rent the music you used to own. Songs disappear when two companies disagree about a contract. The recommendations treat the one night you played lo-fi beats as your personality.

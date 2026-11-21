@@ -131,6 +131,10 @@ export const remoteOpen = (library: string) => invoke<void>("remote_open", { lib
 export const remoteForget = (library: string) => invoke<void>("remote_forget", { library });
 export const remoteTracks = (library: string, query: TrackQuery) => invoke<Track[]>("remote_tracks", { library, query });
 export const onRemoteChanged = (handler: () => void): Promise<UnlistenFn> => listen("remote://changed", () => handler());
+export const onMprisCommand = (handler: (command: "play" | "pause" | "play-pause" | "next" | "previous") => void): Promise<UnlistenFn> =>
+  listen<string>("mpris://command", (event) => {
+    if (["play", "pause", "play-pause", "next", "previous"].includes(event.payload)) handler(event.payload as "play" | "pause" | "play-pause" | "next" | "previous");
+  });
 export const playerEject = (deviceId: string) => invoke<void>("player_eject", { deviceId });
 export type PlayerPreset = "massStorage" | "android" | "rockbox";
 export const playerSetUp = (path: string, name: string, preset: PlayerPreset) => invoke<void>("player_set_up", { path, name, preset });
@@ -234,6 +238,11 @@ export const playerSetVolume = (volume: number) => invoke<void>("player_set_volu
 export const playerSetShuffle = (shuffle: boolean) => invoke<void>("player_set_shuffle", { shuffle });
 export const playerSetRepeat = (repeat: RepeatMode) => invoke<void>("player_set_repeat", { repeat });
 export const playerStatus = () => invoke<PlaybackStatus>("player_status");
+export interface SongTrim { startMs: number; endMs: number; enabled: boolean }
+export const trimGet = (trackId: number) => invoke<SongTrim>("trim_get", { trackId });
+export const trimSet = (trackId: number, trim: SongTrim) => invoke<void>("trim_set", { trackId, trim });
+export const trimApply = (trackId: number, trim: SongTrim) => invoke<{ backupPath: string; warning: string | null }>("trim_apply", { trackId, trim });
+export const trimPreview = (trackId: number, trim: SongTrim, ending: boolean) => invoke<void>("player_preview_trim", { trackId, trim, ending });
 export const playerSetBitPerfect = (enabled: boolean) => invoke<void>("player_set_bit_perfect", { enabled });
 export const playerSetSoundCheck = (enabled: boolean) => invoke<void>("player_set_sound_check", { enabled });
 export const playerSetEqualizer = (equalizer: { preampDb: number; bands: number[] } | null, preventClipping: boolean) =>

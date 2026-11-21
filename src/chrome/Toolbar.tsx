@@ -5,11 +5,12 @@ import { Transport } from "./Transport";
 import { ViewButtons } from "./ViewButtons";
 import { Volume } from "./Volume";
 import "./Toolbar.css";
+import { usesNativeTitleBar } from "./windowPlatform";
 
 export function Toolbar() {
   return (
     <header className="toolbar chrome-surface">
-      <TrafficLights />
+      {!usesNativeTitleBar && <TrafficLights />}
       <Transport />
       <Volume />
       <div className="toolbar-lcd">

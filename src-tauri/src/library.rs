@@ -76,6 +76,13 @@ impl LibraryState {
         Ok(change(&mut library)?)
     }
 
+    /// Serialize a file operation that also needs to report application-level errors.
+    pub(crate) fn with_writer_command<T>(&self, change: impl FnOnce(&mut Library) -> CommandResult<T>) -> CommandResult<T> {
+        let _turn = self.scan_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut library = Library::open(&self.db_path)?;
+        change(&mut library)
+    }
+
     /// Where the library keeps its files, defaulting to the folder rips, podcasts and purchases
     /// already go to.
     pub fn media_folder(&self, default: &Path) -> unsub_library::Result<PathBuf> {

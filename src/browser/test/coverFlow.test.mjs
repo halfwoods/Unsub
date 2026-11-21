@@ -12,7 +12,7 @@ const mocks = {
   "../util/platform": "export const isContextClick = () => false;",
   "./Artwork": "export const Artwork = () => null;",
   "./SongList": "export const SongList = () => null;",
-  "./songMenu": "export const showAlbumMenu = () => {};",
+  "./songMenu": "export const menuPosition = () => ({x:0,y:0}); export const showAlbumMenu = () => {};",
   "./CoverFlow.css": "export {};",
 };
 registerHooks({

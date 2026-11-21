@@ -1,9 +1,12 @@
-import { useRef, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import { useApp } from "../state/store";
 import "./Volume.css";
 
 const DEFAULT_TRACK_WIDTH = 100;
 const KNOB = 19;
+const MAX_VOLUME = 1.3;
+const VOLUME_STEP = 0.01;
+const WHEEL_STEP = 0.03;
 
 function Speaker({ waves }: { waves: number }) {
   return (
@@ -20,29 +23,50 @@ export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: numb
   const volume = useApp((s) => s.playback.volume);
   const setVolume = useApp((s) => s.setVolume);
   const trackRef = useRef<HTMLDivElement>(null);
+  const dragStart = useRef<{ x: number; volume: number } | null>(null);
 
   const volumeAt = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect) return volume;
     const usable = rect.width - KNOB;
-    return Math.min(1, Math.max(0, (clientX - rect.left - KNOB / 2) / usable));
+    return Math.min(MAX_VOLUME, Math.max(0, ((clientX - rect.left - KNOB / 2) / usable) * MAX_VOLUME));
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    setVolume(volumeAt(e.clientX));
+    dragStart.current = { x: e.clientX, volume };
+    if (!e.shiftKey) setVolume(volumeAt(e.clientX));
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) setVolume(volumeAt(e.clientX));
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    if (e.shiftKey && dragStart.current) {
+      const usable = Math.max(1, (trackRef.current?.getBoundingClientRect().width ?? trackWidth) - KNOB);
+      const fineChange = ((e.clientX - dragStart.current.x) / usable) * MAX_VOLUME / 5;
+      setVolume(Math.min(MAX_VOLUME, Math.max(0, dragStart.current.volume + fineChange)));
+    } else {
+      setVolume(volumeAt(e.clientX));
+    }
   };
 
-  const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    setVolume(Math.min(1, Math.max(0, volume - e.deltaY / 500)));
-  };
+  // React attaches wheel listeners as passive, where preventDefault is ignored and the page
+  // scrolls along with the knob; a native non-passive listener can claim the scroll.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const onWheel = (e: globalThis.WheelEvent) => {
+      e.preventDefault();
+      const { playback, setVolume: set } = useApp.getState();
+      set(Math.min(MAX_VOLUME, Math.max(0, playback.volume - Math.sign(e.deltaY) * WHEEL_STEP)));
+    };
+    track.addEventListener("wheel", onWheel, { passive: false });
+    return () => track.removeEventListener("wheel", onWheel);
+  }, []);
 
-  const knobLeft = volume * (trackWidth - KNOB);
+  const knobLeft = (volume / MAX_VOLUME) * (trackWidth - KNOB);
+  const percent = Math.round(volume * 100);
+  const boostHint = volume > 1 ? "; above 100% can clip loud tracks" : "";
 
   return (
     <div className="volume">
@@ -52,19 +76,25 @@ export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: numb
       <div
         ref={trackRef}
         className="volume-track"
-        style={{ width: trackWidth }}
+        style={{ width: trackWidth, "--volume-unity-position": `${(trackWidth - KNOB) / MAX_VOLUME + KNOB / 2}px` } as CSSProperties}
         role="slider"
         aria-label="Volume"
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(volume * 100)}
+        aria-valuemax={130}
+        aria-valuenow={percent}
+        aria-valuetext={`${percent}%${boostHint}`}
+        title={`Volume ${percent}%${boostHint}`}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onWheel={onWheel}
+        onPointerUp={() => { dragStart.current = null; }}
+        onPointerCancel={() => { dragStart.current = null; }}
         onKeyDown={(e) => {
-          if (e.key === "ArrowRight" || e.key === "ArrowUp") setVolume(Math.min(1, volume + 0.1));
-          if (e.key === "ArrowLeft" || e.key === "ArrowDown") setVolume(Math.max(0, volume - 0.1));
+          const step = e.shiftKey ? VOLUME_STEP / 10 : VOLUME_STEP;
+          if (e.key === "ArrowRight" || e.key === "ArrowUp") setVolume(Math.min(MAX_VOLUME, volume + step));
+          if (e.key === "ArrowLeft" || e.key === "ArrowDown") setVolume(Math.max(0, volume - step));
+          if (e.key === "Home") setVolume(0);
+          if (e.key === "End") setVolume(MAX_VOLUME);
         }}
       >
         <div className="volume-groove">
@@ -72,7 +102,7 @@ export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: numb
         </div>
         <div className="volume-knob" style={{ left: knobLeft }} />
       </div>
-      <button className="volume-icon" aria-label="Maximum volume" onClick={() => setVolume(1)}>
+      <button className="volume-icon" aria-label="Maximum volume, 130%" onClick={() => setVolume(MAX_VOLUME)}>
         <Speaker waves={3} />
       </button>
     </div>

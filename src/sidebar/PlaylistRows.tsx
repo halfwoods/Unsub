@@ -52,7 +52,7 @@ function PlaylistRow({ playlist, depth, byParent }: { playlist: Playlist; depth:
   const { setSource, toggleFolder, setRenamingPlaylist, refreshPlaylists, refresh, openSmartEditor } = useApp.getState();
   const [dropTarget, setDropTarget] = useState(false);
   // A name being typed keeps the text field's own menu.
-  const rowMenu = useRowMenu(renaming ? undefined : () => showPlaylistMenu(playlist));
+  const rowMenu = useRowMenu(renaming ? undefined : (at) => showPlaylistMenu(playlist, at));
   const folder = playlist.kind === "folder";
   const children = byParent.get(playlist.id) ?? [];
 

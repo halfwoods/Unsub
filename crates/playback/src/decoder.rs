@@ -66,6 +66,10 @@ pub(crate) trait Source: Send {
 pub struct Decoder {
     source: Box<dyn Source>,
     info: Info,
+    range: Option<(u64, u64)>,
+    next_frame: u64,
+    skip_frames: u64,
+    range_buffer: Vec<f32>,
 }
 
 impl Decoder {
@@ -96,6 +100,10 @@ impl Decoder {
         Decoder {
             info: source.info(),
             source: Box::new(source),
+            range: None,
+            next_frame: 0,
+            skip_frames: 0,
+            range_buffer: Vec::new(),
         }
     }
 
@@ -138,12 +146,59 @@ impl Decoder {
 
     /// Decodes the next packet. The slice is valid until the next call; `None` marks end of stream.
     pub fn next_chunk(&mut self) -> Result<Option<&[f32]>> {
-        guarded(|| self.source.read_chunk())
+        let Some((_, end)) = self.range else { return guarded(|| self.source.read_chunk()) };
+        let end_frame = end.saturating_mul(u64::from(self.info.sample_rate)) / 1000;
+        let channels = usize::from(self.info.channels);
+        while self.next_frame < end_frame {
+            let Some(chunk) = guarded(|| self.source.read_chunk())? else { return Ok(None) };
+            let frames = chunk.len() / channels;
+            if frames == 0 { continue; }
+            let skip = frames.min(usize::try_from(self.skip_frames).unwrap_or(usize::MAX));
+            self.skip_frames -= skip as u64;
+            self.next_frame += skip as u64;
+            if skip == frames { continue; }
+            let available = (frames - skip).min(end_frame.saturating_sub(self.next_frame) as usize);
+            self.range_buffer.clear();
+            self.range_buffer.extend_from_slice(&chunk[skip * channels..(skip + available) * channels]);
+            self.next_frame += available as u64;
+            return Ok(Some(&self.range_buffer));
+        }
+        Ok(None)
+    }
+
+    /// Restrict playback to original-file timestamps, including seeks.
+    pub(crate) fn set_play_range(&mut self, mut range: Option<(u64, u64)>) -> Result<u64> {
+        if range.is_some() && (self.info.sample_rate == 0 || self.info.channels == 0) {
+            return Err(Error::Unsupported("invalid audio format for playback range"));
+        }
+        // Library metadata and the decoder can disagree slightly about a compressed file's end.
+        if let (Some((start, end)), Some(duration)) = (range, self.info.duration_ms)
+            && end > duration && end.saturating_sub(duration) <= 1000
+        {
+            range = Some((start, duration));
+        }
+        if range.is_some_and(|(start, end)| start >= end || self.info.duration_ms.is_some_and(|duration| end > duration)) {
+            return Err(Error::Unsupported("invalid playback range"));
+        }
+        self.range = range;
+        self.next_frame = 0;
+        self.skip_frames = range.map_or(0, |(start, _)| start.saturating_mul(u64::from(self.info.sample_rate)) / 1000);
+        Ok(range.map_or(0, |(start, _)| start))
     }
 
     /// Seeks to the frame at `position_ms` and returns the position actually landed on.
     pub fn seek(&mut self, position_ms: u64) -> Result<u64> {
-        guarded(|| self.source.seek_to(position_ms))
+        if let Some((start, end)) = self.range {
+            let target = position_ms.clamp(start, end.saturating_sub(1));
+            // Re-decode from the beginning. Some lossy decoders seek a few samples away from
+            // their reported timestamp, which would make the preview differ from a permanent cut.
+            guarded(|| self.source.seek_to(0))?;
+            self.next_frame = 0;
+            self.skip_frames = target.saturating_mul(u64::from(self.info.sample_rate)) / 1000;
+            Ok(target)
+        } else {
+            guarded(|| self.source.seek_to(position_ms))
+        }
     }
 }
 
@@ -231,6 +286,47 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name)
+    }
+
+    #[test]
+    fn playback_range_limits_samples_and_clamps_seeks() {
+        for name in ["sine.flac", "sine.mp3", "sine-aac.m4a"] {
+            let path = fixture(name);
+            let mut original = Decoder::open(&path).unwrap();
+            let channels = usize::from(original.channels());
+            let rate = u64::from(original.sample_rate());
+            let mut full = Vec::new();
+            while let Some(chunk) = original.next_chunk().unwrap() { full.extend_from_slice(chunk); }
+
+            let mut clipped = Decoder::open(&path).unwrap();
+            clipped.set_play_range(Some((200, 700))).unwrap();
+            let mut samples = Vec::new();
+            while let Some(chunk) = clipped.next_chunk().unwrap() { samples.extend_from_slice(chunk); }
+            let expected = (rate / 2) as usize * channels;
+            assert_eq!(samples.len(), expected, "{name}");
+            let offset = (rate / 5) as usize * channels;
+            for (a, b) in samples.iter().zip(&full[offset..offset + samples.len()]) {
+                assert!((a - b).abs() < 0.02, "wrong samples for {name}: {a} vs {b}");
+            }
+            assert!(clipped.seek(0).unwrap() >= 199);
+            assert!(clipped.seek(900).unwrap() < 700);
+            assert_eq!(clipped.seek(500).unwrap(), 500);
+            let mut tail = Vec::new();
+            while let Some(chunk) = clipped.next_chunk().unwrap() { tail.extend_from_slice(chunk); }
+            assert_eq!(tail.len(), (rate / 5) as usize * channels, "{name}");
+            let tail_offset = (rate / 2) as usize * channels;
+            for (a, b) in tail.iter().zip(&full[tail_offset..tail_offset + tail.len()]) {
+                assert!((a - b).abs() < 0.02, "wrong samples after seek for {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_playback_ranges_are_rejected() {
+        let mut decoder = Decoder::open(&fixture("sine.flac")).unwrap();
+        assert!(decoder.set_play_range(Some((500, 500))).is_err());
+        assert!(decoder.set_play_range(Some((600, 500))).is_err());
+        assert!(decoder.set_play_range(Some((0, u64::MAX))).is_err());
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { windowDoubleClickAction } from "../api/commands";
 import { useApp } from "../state/store";
 import { useMiniPlayer } from "./miniMode";
+import { usesNativeTitleBar } from "./windowPlatform";
 
 const appWindow = getCurrentWindow();
 
@@ -34,6 +35,7 @@ async function doubleClick() {
  */
 export function useTitleBar() {
   useEffect(() => {
+    if (usesNativeTitleBar) return;
     const onMouseDown = (e: MouseEvent) => {
       // A full-screen window has nowhere to be moved to, and nothing to zoom.
       if (e.button !== 0 || useApp.getState().windowFullscreen || !onTitleBar(e.target)) return;

@@ -9,7 +9,7 @@ import { albumBlocks, albumRowWindow, type AlbumBlock } from "./albumKeys";
 import { Artwork } from "./Artwork";
 import { gridTemplate, layoutColumns, POSITION_COLUMN, STATUS_COLUMN_WIDTH } from "./columns";
 import { ColumnHeadings } from "./ColumnHeadings";
-import { showAlbumMenu, showSongMenu } from "./songMenu";
+import { menuPosition, showAlbumMenu, showSongMenu } from "./songMenu";
 import { NowPlayingIcon } from "./SongList";
 import "./AlbumList.css";
 import "./SongList.css";
@@ -82,13 +82,14 @@ export function AlbumList() {
   const onSongMenu = (event: MouseEvent, track: Track, index: number) => {
     event.preventDefault();
     if (!selection.has(track.id)) selectRow(index, { extend: false, toggle: false });
-    void showSongMenu(track, isRegularPlaylist);
+    void showSongMenu(track, isRegularPlaylist, menuPosition(event));
   };
   const onAlbumMenu = (event: MouseEvent, group: AlbumBlock) => {
     event.preventDefault();
-    if (group.tracks.every(t => selection.has(t.id))) { void showAlbumMenu(tracks.filter(t => selection.has(t.id))); return; }
+    const at = menuPosition(event);
+    if (group.tracks.every(t => selection.has(t.id))) { void showAlbumMenu(tracks.filter(t => selection.has(t.id)), at); return; }
     useApp.setState({ selection: new Set(group.tracks.map(t => t.id)), selectionAnchor: group.start });
-    void showAlbumMenu(group.tracks);
+    void showAlbumMenu(group.tracks, at);
   };
 
   return (

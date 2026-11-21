@@ -263,6 +263,22 @@ fn pause_holds_the_position_and_resume_continues() {
     });
 }
 
+#[test]
+fn playing_a_new_track_while_paused_is_audible() {
+    let mut rig = rig(Config {
+        speed: 1,
+        ..Config::default()
+    });
+    rig.player.play(1, fixture("sine.flac"));
+    rig.until_playing(1);
+    rig.player.pause();
+    rig.await_status("pause", |s| s.state == PlaybackState::Paused);
+
+    rig.player.play(2, fixture("sine.flac"));
+    rig.until_playing(2);
+    rig.await_status("the new track to progress", |s| s.position_ms > 100);
+}
+
 mod bit_perfect {
     use super::*;
 
@@ -911,6 +927,7 @@ mod crossfade {
         TrackOptions {
             gain: None,
             album_key: Some(key.to_owned()),
+            range_ms: None,
         }
     }
 

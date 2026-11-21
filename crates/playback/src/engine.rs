@@ -58,7 +58,8 @@ struct Queued {
 
 impl Queued {
     fn open(open: Opener, id: i64, path: PathBuf, options: TrackOptions) -> Result<Queued> {
-        let decoder = open(&path)?;
+        let mut decoder = open(&path)?;
+        decoder.set_play_range(options.range_ms)?;
         let track = TrackInfo {
             id,
             path,
@@ -215,7 +216,10 @@ impl Feed {
         }
         // A track gives at most half its length to each fade, so its fade in and its fade out
         // never meet. A length that is not known is taken to be long enough.
-        let next_frames = match next.duration_ms {
+        let next_duration_ms = next.options.range_ms
+            .map(|(start, end)| end.saturating_sub(start))
+            .unwrap_or(next.duration_ms);
+        let next_frames = match next_duration_ms {
             0 => u64::MAX,
             ms => ms * u64::from(self.out_rate) / 1000,
         };
@@ -463,6 +467,7 @@ pub(crate) struct Engine {
     state: PlaybackState,
     session: Option<Session>,
     connecting: Option<Connecting>,
+    interrupted: Option<(TrackInfo, u64)>,
     next: Option<Queued>,
     /// Identifies the current stream so a late error from a replaced one is ignored.
     generation: u64,
@@ -489,6 +494,7 @@ impl Engine {
             state: PlaybackState::Stopped,
             session: None,
             connecting: None,
+            interrupted: None,
             next: None,
             generation: 0,
             next_position_event: Instant::now(),
@@ -547,6 +553,7 @@ impl Engine {
     }
 
     fn play(&mut self, id: i64, path: PathBuf, options: TrackOptions) {
+        self.interrupted = None;
         self.next = None;
         let started =
             Queued::open(self.open, id, path, options).and_then(|queued| self.start(queued));
@@ -558,8 +565,11 @@ impl Engine {
     /// Starts `queued` from its beginning, as a new track.
     fn start(&mut self, queued: Queued) -> Result<()> {
         let id = queued.track.id;
-        self.begin(queued, 0)?;
+        let position_ms = queued.track.options.range_ms.map_or(0, |range| range.0);
+        // `begin` holds the output paused when the state says so; a new track is meant to be
+        // heard, so the state must say Playing first (e.g. after a pause, or after device loss).
         self.state = PlaybackState::Playing;
+        self.begin(queued, position_ms)?;
         self.next_position_event = Instant::now();
         (self.emit)(PlayerEvent::TrackStarted { track_id: id });
         self.announce();
@@ -710,6 +720,29 @@ impl Engine {
     }
 
     fn set_paused(&mut self, paused: bool) {
+        if !paused && let Some((track, position)) = self.interrupted.clone() {
+            let result = Queued::open(self.open, track.id, track.path, track.options)
+                .and_then(|mut queued| {
+                    let landed = queued.decoder.seek(position)?;
+                    self.begin(queued, landed)
+                });
+            match result {
+                Ok(()) => {
+                    self.interrupted = None;
+                    self.state = PlaybackState::Playing;
+                    if let Some(session) = &self.session { session.output.set_paused(false); }
+                    self.announce();
+                }
+                Err(error) => {
+                    self.session = None;
+                    self.state = PlaybackState::Paused;
+                    self.report(Some(track.id), &error);
+                    self.restore_device();
+                    self.announce();
+                }
+            }
+            return;
+        }
         let (from, to) = if paused {
             (PlaybackState::Playing, PlaybackState::Paused)
         } else {
@@ -726,6 +759,7 @@ impl Engine {
     }
 
     fn stop(&mut self) {
+        self.interrupted = None;
         self.next = None;
         if self.state == PlaybackState::Stopped {
             return;
@@ -737,6 +771,12 @@ impl Engine {
     }
 
     fn seek(&mut self, position_ms: u64) {
+        if let Some((track, position)) = &mut self.interrupted {
+            let (start, end) = track.options.range_ms.unwrap_or((0, track.duration_ms));
+            *position = position_ms.max(start).min(end.saturating_sub(1).max(start));
+            self.announce();
+            return;
+        }
         if let Err(error) = self.reposition(Some(position_ms), true) {
             self.fail(self.audible_id(), error);
         }
@@ -825,6 +865,7 @@ impl Engine {
         let upcoming = session.timeline.take_upcoming();
         if upcoming.is_some() {
             feed.decoder = (self.open)(&audible.path)?;
+            feed.decoder.set_play_range(audible.options.range_ms)?;
         }
         let landed_ms = feed.decoder.seek(position_ms)?;
         // With a handoff pending the feed had moved on to the next track's gain.
@@ -915,6 +956,7 @@ impl Engine {
         hint: LiveFormat,
         options: TrackOptions,
     ) {
+        self.interrupted = None;
         self.next = None;
         let decoder = match LiveDecoder::spawn(source, hint) {
             Ok(decoder) => decoder,
@@ -1088,6 +1130,32 @@ impl Engine {
     }
 
     fn fail(&mut self, track_id: Option<i64>, error: Error) {
+        // Device loss (including suspend) must not discard the audible song's position. Only when
+        // the failure is about the song in this session, though: a failure while switching to a
+        // different song must not leave the old one waiting to resume in its place.
+        let concerns_session = |session: &Session| {
+            track_id.is_none_or(|id| {
+                id == session.timeline.current().id
+                    || session.timeline.upcoming().is_some_and(|next| next.id == id)
+            })
+        };
+        if matches!(error, Error::Output(_) | Error::OutputStalled | Error::Device(_))
+            && let Some(session) = self.session.as_ref().filter(|s| !s.is_live() && concerns_session(s))
+        {
+            let track = session.timeline.current().clone();
+            let position = session.timeline.position_ms(session.output.consumed());
+            self.interrupted = Some((track, position));
+            if let Some(upcoming) = session.timeline.upcoming().filter(|_| self.next.is_none()) {
+                self.next = Queued::open(self.open, upcoming.id, upcoming.path.clone(), upcoming.options.clone()).ok();
+            }
+            self.session = None;
+            self.generation += 1;
+            self.state = PlaybackState::Paused;
+            self.report(track_id, &error);
+            self.restore_device();
+            self.announce();
+            return;
+        }
         // A dead stream cannot fade; with a healthy one the listener should hear a fade, not a cut.
         if matches!(
             error,
@@ -1127,6 +1195,15 @@ impl Engine {
     fn status(&self) -> PlaybackStatus {
         let Some(session) = &self.session else {
             let stopped = PlaybackStatus::stopped(self.shared.volume.get());
+            if let Some((track, position_ms)) = &self.interrupted {
+                return PlaybackStatus {
+                    state: PlaybackState::Paused,
+                    track_id: Some(track.id),
+                    position_ms: *position_ms,
+                    duration_ms: track.duration_ms,
+                    ..stopped
+                };
+            }
             return match &self.connecting {
                 Some(connecting) => PlaybackStatus {
                     state: self.state,
@@ -1331,6 +1408,30 @@ mod tests {
     }
 
     #[test]
+    fn trimmed_tracks_play_only_selected_samples_across_gapless_handoff() {
+        let first = Queued::open(Decoder::open, 1, fixture("sine.flac"), TrackOptions {
+            range_ms: Some((200, 700)), ..TrackOptions::default()
+        }).unwrap();
+        let second = Queued::open(Decoder::open, 2, fixture("sine.mp3"), TrackOptions {
+            range_ms: Some((100, 600)), ..TrackOptions::default()
+        }).unwrap();
+        let mut feed = Feed::new(first.decoder, STEREO_44K, 0, false, None).unwrap();
+        let mut timeline = Timeline::new(44_100, first.track, 0, 200);
+        let mut next = Some(second);
+        let mut device = Device::new(4_096, STEREO_44K);
+        let heard = play_out(&mut feed, &mut timeline, &mut next, &mut device);
+        let first_audio = decode("sine.flac");
+        let second_audio = decode("sine.mp3");
+        let samples_at = |ms: usize| 44_100 * ms / 1000 * 2;
+        let expected = [
+            &first_audio[samples_at(200)..samples_at(700)],
+            &second_audio[samples_at(100)..samples_at(600)],
+        ].concat();
+        assert_eq!(heard.samples, expected);
+        assert_eq!(heard.transitions, [(1, 2, 22_050)]);
+    }
+
+    #[test]
     fn a_ring_deeper_than_a_track_still_hands_off_one_track_at_a_time() {
         let (mut feed, mut timeline) = start("sine.flac", STEREO_44K);
         let mut next = Some(queued(2, "sine.mp3"));
@@ -1457,6 +1558,59 @@ mod tests {
 
         fn events(&self) -> Vec<PlayerEvent> {
             std::mem::take(&mut *self.events.lock().unwrap())
+        }
+    }
+
+    #[test]
+    fn device_loss_keeps_position_and_queue_until_resume() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        h.engine.seek(300);
+        h.engine.queue_next(8, fixture("sine.mp3"), TrackOptions::default());
+        let before = h.engine.status().position_ms;
+        h.engine.fail(Some(7), Error::OutputStalled);
+        let paused = h.engine.status();
+        assert_eq!(paused.state, PlaybackState::Paused);
+        assert_eq!(paused.track_id, Some(7));
+        assert_eq!(paused.position_ms, before);
+        h.engine.set_paused(false);
+        let resumed = h.engine.status();
+        assert_eq!(resumed.state, PlaybackState::Playing);
+        assert_eq!(resumed.track_id, Some(7));
+        assert!(resumed.position_ms.abs_diff(before) <= 30);
+        assert!(h.engine.next.as_ref().is_some_and(|q| q.track.id == 8)
+            || h.engine.session.as_ref().unwrap().timeline.upcoming().is_some_and(|t| t.id == 8));
+        h.engine.fail(Some(7), Error::OutputStalled);
+        h.engine.stop();
+        assert_eq!(h.engine.status().track_id, None);
+    }
+
+    #[test]
+    fn device_loss_while_switching_songs_does_not_resume_the_old_one() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        // Starting song 8 failed on the device while song 7's session was still open.
+        h.engine.fail(Some(8), Error::OutputStalled);
+        let status = h.engine.status();
+        assert_eq!(status.state, PlaybackState::Stopped);
+        assert_eq!(status.track_id, None);
+        assert!(h.engine.interrupted.is_none());
+    }
+
+    #[test]
+    fn playing_a_new_song_after_device_loss_is_audible() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        h.engine.fail(Some(7), Error::OutputStalled);
+        assert_eq!(h.engine.status().state, PlaybackState::Paused);
+
+        // Double-clicking a song while the engine is parked after device loss.
+        h.engine.play(8, fixture("sine.flac"), TrackOptions::default());
+        assert_eq!(h.engine.status().state, PlaybackState::Playing);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while h.engine.status().position_ms == 0 {
+            assert!(Instant::now() < deadline, "playing, but the output is held silent at 0:00");
+            thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -1728,6 +1882,7 @@ mod tests {
         let options = TrackOptions {
             gain: None,
             album_key: album.map(str::to_owned),
+            range_ms: None,
         };
         Queued::open(Decoder::open, id, fixture(name), options).unwrap()
     }

@@ -1,7 +1,7 @@
 import { Menu } from "@tauri-apps/api/menu";
 import { castOpenAirplay, castSelect, castSpeakers } from "../api/commands";
 import type { SpeakerKind } from "../api/types";
-import { SEPARATOR, type MenuItems } from "../browser/songMenu";
+import { popUp, SEPARATOR, type MenuItems } from "../browser/songMenu";
 import { loadBitPerfect } from "../preferences/playbackPrefs";
 import { useApp } from "../state/store";
 import { IS_MAC } from "../util/platform";
@@ -12,9 +12,6 @@ const GROUPS: [SpeakerKind, string][] = [
   ["sonos", "Sonos"],
   ["upnp", "Other speakers"],
 ];
-
-/** Kept until the next click: closing a menu as it is dismissed could drop the event of the item just chosen. */
-let lastMenu: Menu | null = null;
 
 /** The bottom bar's speaker menu: this computer, then the speakers found, grouped, with the one playing checked. */
 export async function showSpeakerMenu() {
@@ -47,7 +44,5 @@ export async function showSpeakerMenu() {
   }
 
   const menu = await Menu.new({ items });
-  void lastMenu?.close();
-  lastMenu = menu;
-  await menu.popup();
+  await popUp(menu);
 }

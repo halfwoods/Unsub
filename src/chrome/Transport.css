@@ -8,6 +8,10 @@
   gap: 5px;
 }
 
+.window[data-native-titlebar="true"] .toolbar .transport {
+  left: 14px;
+}
+
 /* Silver gel button: bright upper half, hard midline, gray lower half with a bottom glow. */
 .gloss-button {
   display: grid;

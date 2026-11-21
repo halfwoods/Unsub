@@ -20,6 +20,7 @@ import {
   onLibraryChanged,
   onMenuAction,
   onMenuMusicAccepted,
+  onMprisCommand,
   onPlayerEvent,
   onRadioLink,
   onRadioNowPlaying,
@@ -29,6 +30,7 @@ import {
   playerPrevious,
   playerSetBitPerfect,
   playerSetCrossfade,
+  playerSetShuffle,
   playerSetSoundCheck,
   playerStatus,
   type MenuAction,
@@ -62,14 +64,17 @@ import { UpdateSheet } from "./updates/UpdateSheet";
 import { Welcome, showWelcomeTips } from "./welcome/Welcome";
 import { newCondition } from "./smart/fields";
 import { SmartPlaylistEditor } from "./smart/SmartPlaylistEditor";
-import { loadBitPerfect, loadCrossfade, loadEqualizer, loadSoundCheck } from "./preferences/playbackPrefs";
+import { loadBitPerfect, loadCrossfade, loadEqualizer, loadShuffle, loadSoundCheck } from "./preferences/playbackPrefs";
 import { Preferences } from "./preferences/Preferences";
+import { useAppearance } from "./preferences/appearance";
 import { chapterSeekTarget, isLibrarySource, isPlaylistSource, playlistIdOf, useApp } from "./state/store";
 import { cleanUpNotice } from "./util/format";
 import "./theme/base.css";
 import "./App.css";
+import "./theme/itunes12.css";
 
-const VOLUME_STEP = 0.1;
+const VOLUME_STEP = 0.01;
+const MAX_VOLUME = 1.3;
 /** Where typing happens: a checkbox or slider has no text to cut or paste. */
 const TEXT_FIELD = "input:not([type=checkbox], [type=radio], [type=range]), textarea, [contenteditable]:not([contenteditable=false])";
 
@@ -178,7 +183,7 @@ function runMenuAction(action: MenuAction) {
       return;
     }
     case "volume-up":
-      return setVolume(Math.min(1, playback.volume + VOLUME_STEP));
+      return setVolume(Math.min(MAX_VOLUME, playback.volume + VOLUME_STEP));
     case "volume-down":
       return setVolume(Math.max(0, playback.volume - VOLUME_STEP));
   }
@@ -203,6 +208,18 @@ function useBackendEvents() {
       onPlayerEvent(applyPlayerEvent),
       onCastTarget((castTarget) => useApp.setState({ castTarget })),
       onMenuAction(runMenuAction),
+      onMprisCommand((command) => {
+        if (command === "play-pause" || (command === "play" && useApp.getState().playback.state !== "playing")) void useApp.getState().togglePlay();
+        else if (command === "pause") {
+          if (useApp.getState().playback.state === "playing") void useApp.getState().togglePlay();
+        } else if (command === "next") {
+          useApp.setState({ podcastWish: null });
+          void playerNext();
+        } else if (command === "previous") {
+          useApp.setState({ podcastWish: null });
+          void playerPrevious();
+        }
+      }),
       onMenuMusicAccepted(() => void completeMusicWelcome()),
       // Tuning in a different station is the listener's choice, which an episode waiting to play must not cut off. The same
       // one again (renamed, or tuned back in after a pause) or none (removed) is not a choice.
@@ -237,7 +254,10 @@ function useBackendEvents() {
         void refreshPlaylists();
         void showWelcomeTips();
       }),
-      getCurrentWindow().onFocusChanged(({ payload }) => setWindowActive(payload)),
+      getCurrentWindow().onFocusChanged(({ payload }) => {
+        setWindowActive(payload);
+        if (payload) void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
+      }),
       getCurrentWindow().onResized(() => void getCurrentWindow().isFullscreen().then(setWindowFullscreen)),
     ];
     void refresh();
@@ -247,6 +267,7 @@ function useBackendEvents() {
     void refreshPlaylists();
     void playerStatus().then((status) => applyPlayerEvent({ type: "stateChanged", ...status }));
     const stopWelcome = watchWelcomeDue();
+    if (loadShuffle()) void playerSetShuffle(true);
     if (loadBitPerfect()) void playerSetBitPerfect(true);
     if (loadSoundCheck()) void playerSetSoundCheck(true);
     applyEqualizer(loadEqualizer());
@@ -302,6 +323,7 @@ function useGlobalKeys() {
 }
 
 export default function App() {
+  const appearance = useAppearance((s) => s.appearance);
   useEffect(() => { void invoke("smoke_frontend_ready").catch(() => {}); }, []);
   const windowActive = useApp((s) => s.windowActive);
   const windowFullscreen = useApp((s) => s.windowFullscreen);
@@ -327,7 +349,7 @@ export default function App() {
   useNoDefaultContextMenu();
 
   return (
-    <div className="window" data-active={windowActive} data-fullscreen={windowFullscreen} data-mini={mini}>
+    <div className="window" data-appearance={appearance} data-active={windowActive} data-fullscreen={windowFullscreen} data-mini={mini} data-native-titlebar={/Linux/i.test(navigator.userAgent)}>
       {/* Kept mounted in the mini player, hidden by its CSS, so sheets and what is typed into them are never lost to a switch. */}
       <Toolbar />
       <div className="window-body">
