@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 use zbus::blocking::Connection;
-use zbus::zvariant::{OwnedValue, Str, Value};
+use zbus::zvariant::{ObjectPath, OwnedValue, Str, Value};
 
 const OBJECT_PATH: &str = "/org/mpris/MediaPlayer2";
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.iTunes";
@@ -26,28 +26,36 @@ fn serve(app: AppHandle) -> zbus::Result<()> {
     let mut previous_track = None;
     loop {
         let playback = app.state::<crate::playback::PlaybackState>().status();
-        let status = match playback.state {
-            unsub_playback::PlaybackState::Playing => "Playing",
-            unsub_playback::PlaybackState::Paused => "Paused",
-            unsub_playback::PlaybackState::Stopped => "Stopped",
-        };
+        let status = status_name(playback.state);
         if status != previous {
-            let changed = HashMap::from([("PlaybackStatus", OwnedValue::from(Str::from(status)))]);
-            connection.emit_signal(
-                None::<&str>, OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged",
-                &("org.mpris.MediaPlayer2.Player", changed, Vec::<String>::new()),
-            )?;
+            // A failed signal (the session bus busy, a listener gone) is not worth giving up
+            // media keys for: log it and try again on the next change.
+            changed(&connection, "PlaybackStatus", OwnedValue::from(Str::from(status)));
             previous = status.to_owned();
         }
         if playback.track_id != previous_track {
-            let changed = HashMap::from([("Metadata", OwnedValue::from(metadata(&app)))]);
-            connection.emit_signal(
-                None::<&str>, OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged",
-                &("org.mpris.MediaPlayer2.Player", changed, Vec::<String>::new()),
-            )?;
+            changed(&connection, "Metadata", OwnedValue::from(metadata(&app)));
             previous_track = playback.track_id;
         }
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn status_name(state: unsub_playback::PlaybackState) -> &'static str {
+    match state {
+        unsub_playback::PlaybackState::Playing => "Playing",
+        unsub_playback::PlaybackState::Paused => "Paused",
+        unsub_playback::PlaybackState::Stopped => "Stopped",
+    }
+}
+
+fn changed(connection: &Connection, property: &str, value: OwnedValue) {
+    let changed = HashMap::from([(property, value)]);
+    if let Err(error) = connection.emit_signal(
+        None::<&str>, OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged",
+        &("org.mpris.MediaPlayer2.Player", changed, Vec::<String>::new()),
+    ) {
+        eprintln!("[mpris] could not announce {property}: {error}");
     }
 }
 
@@ -62,6 +70,16 @@ fn metadata(app: &AppHandle) -> HashMap<String, OwnedValue> {
     let library = app.state::<crate::library::LibraryState>();
     let Ok(Some(track)) = library.queries().track(id) else { return HashMap::new() };
     let mut result = HashMap::new();
+    // Required by the MPRIS spec; shells use it to tell one track from the next.
+    if let Ok(path) = ObjectPath::try_from(format!("/io/github/halfwoods/unsub/track/{id}"))
+        && let Ok(value) = Value::from(path).try_to_owned()
+    {
+        result.insert("mpris:trackid".into(), value);
+    }
+    if track.duration_ms > 0 {
+        let micros = i64::try_from(track.duration_ms.saturating_mul(1_000)).unwrap_or(i64::MAX);
+        result.insert("mpris:length".into(), OwnedValue::from(micros));
+    }
     result.insert("xesam:title".into(), OwnedValue::from(Str::from(track.title)));
     if let Ok(artist) = Value::new(vec![track.artist]).try_to_owned() {
         result.insert("xesam:artist".into(), artist);
@@ -94,7 +112,8 @@ impl Root {
     #[zbus(property)]
     fn identity(&self) -> &str { "iTunes" }
     #[zbus(property)]
-    fn desktop_entry(&self) -> &str { "itunes" }
+    /// Must match the .desktop file's name, which is how shells find the app's icon.
+    fn desktop_entry(&self) -> &str { "unsub" }
     #[zbus(property)]
     fn supported_uri_schemes(&self) -> Vec<String> { Vec::new() }
     #[zbus(property)]
@@ -121,12 +140,7 @@ impl Player {
 
     #[zbus(property)]
     fn playback_status(&self) -> &'static str {
-        use crate::playback::PlaybackState as State;
-        match self.app.state::<State>().status().state {
-            unsub_playback::PlaybackState::Playing => "Playing",
-            unsub_playback::PlaybackState::Paused => "Paused",
-            unsub_playback::PlaybackState::Stopped => "Stopped",
-        }
+        status_name(self.app.state::<crate::playback::PlaybackState>().status().state)
     }
     #[zbus(property)]
     fn loop_status(&self) -> &'static str { "None" }
