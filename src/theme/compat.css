@@ -88,6 +88,13 @@
 .no-flex-gap .copy-to-library-options > :not(:last-child),
 .no-flex-gap .info-lyrics > :not(:last-child) { margin-bottom: 6px; }
 .no-flex-gap .cleanup-rows > :not(:last-child) { margin-bottom: 7px; }
+.no-flex-gap .trim-panel > :not(:last-child) { margin-bottom: 12px; }
+.no-flex-gap .trim-times > :not(:last-child),
+.no-flex-gap .trim-actions > :not(:last-child) { margin-right: 10px; }
+.no-flex-gap .trim-times label > :not(:last-child),
+.no-flex-gap .trim-check > :not(:last-child) { margin-right: 7px; }
+/* The iTunes 12 appearance draws the volume without gaps; drop the classic fallback too. */
+.no-flex-gap [data-appearance="itunes12"] .volume > :not(:last-child) { margin-right: 0; }
 .no-flex-gap .file-drop-message > :not(:last-child) { margin-bottom: 8px; }
 .no-flex-gap .device-options > :not(:last-child) { margin-right: 0; margin-bottom: 8px; }
 .no-flex-gap .mix-tile > :not(:last-child) { margin-bottom: 10px; }

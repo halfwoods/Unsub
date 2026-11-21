@@ -5,7 +5,7 @@ import { beforeEach, test } from "node:test";
 const storeUrl = new URL("../../state/store.ts", import.meta.url).href;
 const modules = {
   "../api/commands": "export const importMusicInspect = (xml) => globalThis.__unsubImportSheetTest.inspect(xml);",
-  "../preferences/playbackPrefs": "export const loadVisualizerPrefs = () => ({}); export const saveVisualizerPrefs = () => {};",
+  "../preferences/playbackPrefs": "export const loadVisualizerPrefs = () => ({}); export const saveVisualizerPrefs = () => {}; export const loadShuffle = () => false; export const saveShuffle = () => {};",
   "../preferences/libraryViews": "export const layoutFor = () => ({sort: 'artist', descending: false}); export const isLayoutSource = () => true;",
   "../preferences/libraryViewStore": "export const useLibraryViews = { getState: () => ({prefs: {browsing: {viewMode: 'list', gridGroup: 'albums', browserVisible: false}}}), subscribe: () => () => {} };",
   "../preferences/textSizes": `
