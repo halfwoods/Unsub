@@ -7,6 +7,7 @@ use image::{ImageFormat, Rgb, RgbImage};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::id3::v2::{BinaryFrame, Frame, FrameId};
+use lofty::mp4::{Atom, AtomData, AtomIdent, DataType, Mp4File};
 use lofty::mpeg::MpegFile;
 use lofty::tag::{Accessor, ItemKey, Tag};
 use tempfile::TempDir;
@@ -23,6 +24,21 @@ fn file_tag(path: &Path) -> Tag {
         .primary_tag()
         .unwrap()
         .clone()
+}
+
+/// The data of every `tmpo` atom in an MP4 file.
+fn mp4_tempo(path: &Path) -> Vec<AtomData> {
+    let mp4 = Mp4File::read_from(
+        &mut fs::File::open(path).unwrap(),
+        lofty::config::ParseOptions::new(),
+    )
+    .unwrap();
+    mp4.ilst()
+        .unwrap()
+        .into_iter()
+        .filter(|atom| *atom.ident() == AtomIdent::Fourcc(*b"tmpo"))
+        .flat_map(|atom| atom.data().cloned())
+        .collect()
 }
 
 fn duration(path: &Path) -> Duration {
@@ -233,11 +249,16 @@ fn a_full_edit_reaches_the_file_and_the_library_for_every_rich_format() {
             tag.get_string(ItemKey::Comment),
             Some("First line\nSecond line\nThird line")
         );
-        assert_eq!(
-            tag.get_string(ItemKey::Bpm)
-                .or_else(|| tag.get_string(ItemKey::IntegerBpm)),
-            Some("123")
-        );
+        if file.ends_with(".m4a") || file.ends_with(".m4b") {
+            assert_eq!(mp4_tempo(&path), [AtomData::SignedInteger(123)], "{file}");
+        } else {
+            assert_eq!(
+                tag.get_string(ItemKey::Bpm)
+                    .or_else(|| tag.get_string(ItemKey::IntegerBpm)),
+                Some("123"),
+                "{file}"
+            );
+        }
         assert_eq!(row.sort_title.as_deref(), Some("Sort Title"));
         assert_eq!(row.sort_album_artist.as_deref(), Some("Sort Album Artist"));
 
@@ -1213,58 +1234,166 @@ fn unsupported_bpm_writes_pin_edits_across_reopens_and_rescans() {
 }
 
 #[test]
-fn grouping_prefers_grp1_and_edits_remove_stale_values() {
-    let dir = copy_fixtures();
-    let path = dir.path().join("halo.mp3");
-    for apple_grouping in [Some("Apple grouping"), Some("  "), None] {
+fn id3_grouping_edits_keep_the_work_when_grp1_holds_the_grouping() {
+    // iTunes 12.5.4 and later file the grouping in GRP1 and the Work in TIT1; older taggers
+    // file the grouping in TIT1 alone.
+    for apple in [true, false] {
+        let dir = copy_fixtures();
+        let path = dir.path().join("halo.mp3");
         let mut file = lofty::read_from_path(&path).unwrap();
         let tag = file.primary_tag_mut().unwrap();
-        assert!(tag.insert_text(ItemKey::ContentGroup, "Legacy grouping".into()));
         tag.remove_key(ItemKey::AppleId3v2ContentGroup);
-        if let Some(value) = apple_grouping {
-            assert!(tag.insert_text(ItemKey::AppleId3v2ContentGroup, value.into()));
-        }
+        let (tit1, read) = if apple {
+            assert!(tag.insert_text(ItemKey::AppleId3v2ContentGroup, "Favourites".into()));
+            ("Symphony No. 5", "Favourites")
+        } else {
+            ("Legacy grouping", "Legacy grouping")
+        };
+        assert!(tag.insert_text(ItemKey::ContentGroup, tit1.into()));
         file.save_to_path(&path, WriteOptions::default()).unwrap();
         let mut library = Library::open_in_memory().unwrap();
         scan(&mut library, dir.path());
-        let row = track_titled(&library, "Halo");
-        assert_eq!(
-            row.grouping,
-            if apple_grouping == Some("Apple grouping") {
-                "Apple grouping"
-            } else {
-                "Legacy grouping"
-            }
-        );
-        for grouping in ["Changed", ""] {
-            // Clearing must also remove GRP1 when another writer has restored it.
-            let mut file = lofty::read_from_path(&path).unwrap();
-            assert!(
-                file.primary_tag_mut()
-                    .unwrap()
-                    .insert_text(ItemKey::AppleId3v2ContentGroup, "Stale grouping".into(),)
-            );
-            file.save_to_path(&path, WriteOptions::default()).unwrap();
+        let id = track_titled(&library, "Halo").id;
+        assert_eq!(library.track(id).unwrap().unwrap().grouping, read);
+        for grouping in ["Evening", ""] {
             let report = library
                 .edit_tracks(
-                    &[row.id],
+                    &[id],
                     &TrackEdits {
                         grouping: Some(grouping.into()),
                         ..TrackEdits::default()
                     },
                 )
                 .unwrap();
-            assert_eq!(report.written, [row.id]);
+            assert_eq!(report.written, [id]);
             let tag = file_tag(&path);
-            assert_eq!(tag.get_string(ItemKey::AppleId3v2ContentGroup), None);
-            assert_eq!(
-                tag.get_string(ItemKey::ContentGroup).unwrap_or(""),
-                grouping
+            let frames = (
+                tag.get_string(ItemKey::ContentGroup),
+                tag.get_string(ItemKey::AppleId3v2ContentGroup),
             );
+            if apple {
+                assert_eq!(frames, (Some(tit1), Some(grouping)), "the Work stays");
+            } else {
+                assert_eq!(frames, (Some(grouping).filter(|g| !g.is_empty()), None));
+            }
             let mut fresh = Library::open_in_memory().unwrap();
             scan(&mut fresh, dir.path());
             assert_eq!(track_titled(&fresh, "Halo").grouping, grouping);
         }
+    }
+}
+
+#[test]
+fn mp4_bpm_is_the_integer_tempo_atom_itunes_writes() {
+    // A data atom of type 21 holding two big-endian bytes, as iTunes writes it.
+    const TEMPO_130: [u8; 26] = [
+        0, 0, 0, 26, b't', b'm', b'p', b'o', 0, 0, 0, 18, b'd', b'a', b't', b'a', 0, 0, 0, 21, 0,
+        0, 0, 0, 0, 130,
+    ];
+    let dir = copy_fixtures();
+    let path = dir.path().join("something.m4a");
+    let mut mp4 = Mp4File::read_from(
+        &mut fs::File::open(&path).unwrap(),
+        lofty::config::ParseOptions::new(),
+    )
+    .unwrap();
+    mp4.ilst_mut().unwrap().insert(Atom::new(
+        AtomIdent::Fourcc(*b"tmpo"),
+        AtomData::Unknown {
+            code: DataType::BeSignedInteger,
+            data: vec![0, 120],
+        },
+    ));
+    mp4.save_to_path(&path, WriteOptions::default()).unwrap();
+    let mut library = Library::open_in_memory().unwrap();
+    scan(&mut library, dir.path());
+    let id = track_titled(&library, "Something").id;
+    assert_eq!(library.track(id).unwrap().unwrap().bpm, Some(120));
+    // An edit that leaves BPM alone keeps the integer atom, which the generic tag can't see.
+    let report = library
+        .edit_tracks(
+            &[id],
+            &TrackEdits {
+                comment: Some("Kept".into()),
+                ..TrackEdits::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(report.written, [id]);
+    assert_eq!(mp4_tempo(&path), vec![AtomData::SignedInteger(120)]);
+    for bpm in [Some(130), None] {
+        let report = library
+            .edit_tracks(
+                &[id],
+                &TrackEdits {
+                    bpm: Some(bpm),
+                    ..TrackEdits::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(report.written, [id]);
+        assert_eq!(
+            mp4_tempo(&path),
+            Vec::from_iter(bpm.map(|bpm| AtomData::SignedInteger(bpm as i32)))
+        );
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(
+            bytes
+                .windows(TEMPO_130.len())
+                .filter(|w| *w == TEMPO_130)
+                .count(),
+            usize::from(bpm.is_some())
+        );
+        let mut fresh = Library::open_in_memory().unwrap();
+        scan(&mut fresh, dir.path());
+        assert_eq!(
+            track_titled(&fresh, "Something").bpm,
+            bpm.map(|bpm| bpm as u16)
+        );
+    }
+}
+
+#[test]
+fn database_only_edits_leave_rows_from_an_older_parser_due_for_a_reread() {
+    let dir = copy_fixtures();
+    let path = dir.path().join("halo.mp3");
+    let mut file = lofty::read_from_path(&path).unwrap();
+    let tag = file.primary_tag_mut().unwrap();
+    assert!(tag.insert_text(ItemKey::ContentGroup, "Night music".into()));
+    assert!(tag.insert_text(ItemKey::Comment, "Old note".into()));
+    assert!(tag.insert_text(ItemKey::IntegerBpm, "121".into()));
+    file.save_to_path(&path, WriteOptions::default()).unwrap();
+    let db = TempDir::new().unwrap();
+    let db_path = db.path().join("library.db");
+    let id = {
+        let mut library = Library::open(&db_path).unwrap();
+        scan(&mut library, dir.path());
+        track_titled(&library, "Halo").id
+    };
+    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&path, permissions).unwrap();
+    // A read-only file, then an edit that touches no tags at all.
+    for edits in [r#"{"genre":"Pop"}"#, r#"{"kind":"audiobook"}"#] {
+        // A row read before Grouping, Comments and BPM existed, as migration 14 leaves it.
+        rusqlite::Connection::open(&db_path)
+            .unwrap()
+            .execute_batch(
+                "UPDATE tracks SET parser_version = 4, grouping = '', comment = '', bpm = NULL",
+            )
+            .unwrap();
+        let mut library = Library::open(&db_path).unwrap();
+        let report = library
+            .edit_tracks(&[id], &serde_json::from_str(edits).unwrap())
+            .unwrap();
+        assert!(report.written.is_empty(), "{edits}: {report:?}");
+        scan(&mut library, dir.path());
+        let row = library.track(id).unwrap().unwrap();
+        assert_eq!(
+            (row.grouping.as_str(), row.comment.as_str(), row.bpm),
+            ("Night music", "Old note", Some(121)),
+            "{edits}"
+        );
     }
 }
 

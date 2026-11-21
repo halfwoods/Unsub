@@ -32,7 +32,13 @@ if [ -d "$target" ]; then
 fi
 
 credentials=(--apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID")
-json_field() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null || true; }
+# plutil prints its errors to stdout, so its output counts only when it succeeds: a failed submit
+# isn't JSON, and its error text would otherwise pass for a submission id.
+json_field() {
+  local value
+  value=$(printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null) || return 0
+  printf '%s' "$value"
+}
 
 # The upload can time out on a flaky network. A submission that never got an id never reached
 # Apple, so sending it again is safe.

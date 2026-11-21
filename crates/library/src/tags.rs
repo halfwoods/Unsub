@@ -24,6 +24,9 @@ use crate::model::MediaKind;
 /// dataless placeholders deferred until their files are local.
 pub(crate) const TAG_PARSER_VERSION: u32 = 6;
 
+/// MP4's BPM atom. iTunes writes it as a 16-bit integer, which the generic `Tag` drops.
+pub(crate) const MP4_TEMPO: AtomIdent<'static> = AtomIdent::Fourcc(*b"tmpo");
+
 /// Everything derived from the file's contents; filesystem facts (size, mtime)
 /// are filled in by the scanner.
 pub(crate) struct TrackMeta {
@@ -65,6 +68,7 @@ struct Parsed {
     id3_synced_lyrics: bool,
     /// iTunes' Sound Check data, which only the concrete tag types expose.
     itunnorm: Option<String>,
+    mp4_tempo: Option<String>,
 }
 
 pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
@@ -76,6 +80,7 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         id3_podcast_frame,
         id3_synced_lyrics,
         itunnorm,
+        mp4_tempo,
     } = parse(path, options)?;
     let properties = file.properties();
     let tag = file.primary_tag().or_else(|| file.first_tag());
@@ -99,13 +104,12 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
         album_artist: text(tag, ItemKey::AlbumArtist),
         album: text(tag, ItemKey::AlbumTitle),
         composer: text(tag, ItemKey::Composer),
-        grouping: {
-            let grouping = text(tag, ItemKey::AppleId3v2ContentGroup);
-            if grouping.is_empty() {
-                text(tag, ItemKey::ContentGroup)
-            } else {
-                grouping
-            }
+        // iTunes 12.5.4 moved the ID3 grouping to GRP1 and gave TIT1 to the Work, so a file with
+        // GRP1 is read that way even when a cleared grouping left GRP1 empty.
+        grouping: if tag.is_some_and(|tag| tag.get(ItemKey::AppleId3v2ContentGroup).is_some()) {
+            text(tag, ItemKey::AppleId3v2ContentGroup)
+        } else {
+            text(tag, ItemKey::ContentGroup)
         },
         // Described COMM frames carry iTunes analysis data, not the user's comment.
         comment: tag
@@ -116,19 +120,19 @@ pub(crate) fn read(path: &Path) -> Result<TrackMeta> {
             .and_then(|item| item.value().text())
             .map(|text| repair_mojibake(text).trim().to_owned())
             .unwrap_or_default(),
-        bpm: tag.and_then(|tag| {
-            [ItemKey::Bpm, ItemKey::IntegerBpm]
-                .into_iter()
-                .filter_map(|key| tag.get_string(key))
-                .find_map(|text| {
-                    text.trim()
-                        .parse::<f64>()
-                        .ok()
-                        .map(f64::round)
-                        .filter(|value| (1.0..=999.0).contains(value))
-                        .map(|value| value as u16)
-                })
-        }),
+        bpm: tag
+            .into_iter()
+            .flat_map(|tag| [ItemKey::Bpm, ItemKey::IntegerBpm].map(|key| tag.get_string(key)))
+            .flatten()
+            .chain(mp4_tempo.as_deref())
+            .find_map(|text| {
+                text.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .map(f64::round)
+                    .filter(|value| (1.0..=999.0).contains(value))
+                    .map(|value| value as u16)
+            }),
         year: tag
             .and_then(|t| t.date())
             .map(|date| i32::from(date.year))
@@ -188,6 +192,7 @@ fn parse(path: &Path, options: ParseOptions) -> Result<Parsed> {
         id3_podcast_frame: false,
         id3_synced_lyrics: false,
         itunnorm: None,
+        mp4_tempo: None,
     })
 }
 
@@ -202,12 +207,14 @@ fn parse_mp4(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Par
         _ => "AAC",
     };
     let itunnorm = mp4_itunnorm(mp4.ilst());
+    let mp4_tempo = mp4_tempo(mp4.ilst());
     Ok(Parsed {
         file: mp4.into(),
         codec,
         id3_podcast_frame: false,
         id3_synced_lyrics: false,
         itunnorm,
+        mp4_tempo,
     })
 }
 
@@ -227,6 +234,7 @@ fn parse_mpeg(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Pa
         id3_podcast_frame,
         id3_synced_lyrics,
         itunnorm,
+        mp4_tempo: None,
     })
 }
 
@@ -242,6 +250,7 @@ fn parse_aiff(probe: Probe<BufReader<File>>, options: ParseOptions) -> Result<Pa
         id3_podcast_frame: false,
         id3_synced_lyrics,
         itunnorm,
+        mp4_tempo: None,
     })
 }
 
@@ -267,6 +276,16 @@ fn mp4_itunnorm(ilst: Option<&Ilst>) -> Option<String> {
         name: Cow::Borrowed("iTunNORM"),
     };
     ilst?.get(&ident)?.data().find_map(|data| match data {
+        AtomData::UTF8(text) | AtomData::UTF16(text) => Some(text.clone()),
+        _ => None,
+    })
+}
+
+/// The `tmpo` atom, as the integer iTunes writes or as text from other taggers.
+fn mp4_tempo(ilst: Option<&Ilst>) -> Option<String> {
+    ilst?.get(&MP4_TEMPO)?.data().find_map(|data| match data {
+        AtomData::SignedInteger(bpm) => Some(bpm.to_string()),
+        AtomData::UnsignedInteger(bpm) => Some(bpm.to_string()),
         AtomData::UTF8(text) | AtomData::UTF16(text) => Some(text.clone()),
         _ => None,
     })
