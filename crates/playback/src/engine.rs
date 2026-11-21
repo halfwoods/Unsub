@@ -1130,9 +1130,17 @@ impl Engine {
     }
 
     fn fail(&mut self, track_id: Option<i64>, error: Error) {
-        // Device loss (including suspend) must not discard the audible song's position.
+        // Device loss (including suspend) must not discard the audible song's position. Only when
+        // the failure is about the song in this session, though: a failure while switching to a
+        // different song must not leave the old one waiting to resume in its place.
+        let concerns_session = |session: &Session| {
+            track_id.is_none_or(|id| {
+                id == session.timeline.current().id
+                    || session.timeline.upcoming().is_some_and(|next| next.id == id)
+            })
+        };
         if matches!(error, Error::Output(_) | Error::OutputStalled | Error::Device(_))
-            && let Some(session) = self.session.as_ref().filter(|s| !s.is_live())
+            && let Some(session) = self.session.as_ref().filter(|s| !s.is_live() && concerns_session(s))
         {
             let track = session.timeline.current().clone();
             let position = session.timeline.position_ms(session.output.consumed());
@@ -1575,6 +1583,18 @@ mod tests {
         h.engine.fail(Some(7), Error::OutputStalled);
         h.engine.stop();
         assert_eq!(h.engine.status().track_id, None);
+    }
+
+    #[test]
+    fn device_loss_while_switching_songs_does_not_resume_the_old_one() {
+        let mut h = Harness::new(Decoder::open);
+        h.engine.play(7, fixture("sine.flac"), TrackOptions::default());
+        // Starting song 8 failed on the device while song 7's session was still open.
+        h.engine.fail(Some(8), Error::OutputStalled);
+        let status = h.engine.status();
+        assert_eq!(status.state, PlaybackState::Stopped);
+        assert_eq!(status.track_id, None);
+        assert!(h.engine.interrupted.is_none());
     }
 
     #[test]
