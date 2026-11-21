@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import { useApp } from "../state/store";
 import "./Volume.css";
 
@@ -50,10 +50,19 @@ export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: numb
     }
   };
 
-  const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setVolume(Math.min(MAX_VOLUME, Math.max(0, volume - Math.sign(e.deltaY) * WHEEL_STEP)));
-  };
+  // React attaches wheel listeners as passive, where preventDefault is ignored and the page
+  // scrolls along with the knob; a native non-passive listener can claim the scroll.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const onWheel = (e: globalThis.WheelEvent) => {
+      e.preventDefault();
+      const { playback, setVolume: set } = useApp.getState();
+      set(Math.min(MAX_VOLUME, Math.max(0, playback.volume - Math.sign(e.deltaY) * WHEEL_STEP)));
+    };
+    track.addEventListener("wheel", onWheel, { passive: false });
+    return () => track.removeEventListener("wheel", onWheel);
+  }, []);
 
   const knobLeft = (volume / MAX_VOLUME) * (trackWidth - KNOB);
   const percent = Math.round(volume * 100);
@@ -80,7 +89,6 @@ export function Volume({ trackWidth = DEFAULT_TRACK_WIDTH }: { trackWidth?: numb
         onPointerMove={onPointerMove}
         onPointerUp={() => { dragStart.current = null; }}
         onPointerCancel={() => { dragStart.current = null; }}
-        onWheel={onWheel}
         onKeyDown={(e) => {
           const step = e.shiftKey ? VOLUME_STEP / 10 : VOLUME_STEP;
           if (e.key === "ArrowRight" || e.key === "ArrowUp") setVolume(Math.min(MAX_VOLUME, volume + step));
